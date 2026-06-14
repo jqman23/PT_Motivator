@@ -6,7 +6,18 @@
   --font-serif: 'Montserrat', sans-serif;
 }
 
-body {
-  font-family: 'Montserrat', sans-serif;
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  color-scheme: light;
+  background-color: #F6F1E7;
   color: #353B33;
+  font-family: 'Montserrat', sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
 }

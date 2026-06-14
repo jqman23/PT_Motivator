@@ -60,7 +60,7 @@ export default function NotesModal({ exerciseName, date, initialNote, onSave, on
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="How did it feel? Any pain, improvements, modifications..."
-            className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-sage/40"
+            className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-stone-300"
           />
         </div>
 
@@ -73,7 +73,8 @@ export default function NotesModal({ exerciseName, date, initialNote, onSave, on
           </button>
           <button
             onClick={handleSave}
-            className="px-5 py-2 text-sm font-medium bg-sage text-white rounded-xl hover:bg-sage/90 transition-colors"
+            className="px-5 py-2 text-sm font-medium text-white rounded-xl transition-colors"
+            style={{ background: '#7E9B86' }}
           >
             Save note
           </button>

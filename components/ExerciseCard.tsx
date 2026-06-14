@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
+import ImageModal from './ImageModal';
 
 interface Props {
   exercise: Exercise;
@@ -17,6 +18,7 @@ interface Props {
 export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [showImages, setShowImages] = useState(false);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -26,8 +28,6 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const checkColor = done
     ? isStrength ? 'bg-[#C17B4F] border-[#C17B4F]' : 'bg-[#7E9B86] border-[#7E9B86]'
     : 'bg-white border-stone-200';
-
-  const imgSearchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(exercise.imageSearch)}`;
 
   return (
     <>
@@ -71,10 +71,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             </svg>
           </button>
 
-          <a
-            href={imgSearchUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => setShowImages(true)}
             className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
             title="View images"
           >
@@ -83,7 +81,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               <circle cx="5.5" cy="6" r="1.5"/>
               <path d="M1 11l4-3.5 3 2.5 2-1.5 5 4"/>
             </svg>
-          </a>
+          </button>
 
           {exercise.videoIds.length > 0 && (
             <button
@@ -108,6 +106,10 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           tips={exercise.tips}
           onClose={() => setShowVideo(false)}
         />
+      )}
+
+      {showImages && (
+        <ImageModal exercise={exercise} onClose={() => setShowImages(false)} />
       )}
 
       {showNotes && (
