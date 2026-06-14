@@ -3,22 +3,21 @@
 import { useEffect, useRef, useState } from 'react';
 
 // Minimal YT IFrame API types
+interface YTPlayerOpts {
+  videoId: string;
+  host?: string;
+  playerVars?: Record<string, string | number>;
+  events?: {
+    onReady?: () => void;
+    onError?: (e: { data: number }) => void;
+  };
+}
+interface YTPlayerInstance { destroy(): void; }
+interface YTPlayerConstructor { new(el: HTMLElement, opts: YTPlayerOpts): YTPlayerInstance; }
+
 declare global {
   interface Window {
-    YT: {
-      Player: new (
-        el: HTMLElement,
-        opts: {
-          videoId: string;
-          host?: string;
-          playerVars?: Record<string, string | number>;
-          events?: {
-            onReady?: () => void;
-            onError?: (e: { data: number }) => void;
-          };
-        }
-      ) => { destroy(): void };
-    };
+    YT: { Player: YTPlayerConstructor };
     onYouTubeIframeAPIReady?: () => void;
   }
 }
@@ -62,7 +61,7 @@ export default function VideoModal({ videoIds, videoTitles, exerciseName, tips, 
   const [apiReady, setApiReady] = useState(ytReady);
   const [embedBlocked, setEmbedBlocked] = useState(false);
   const playerContainerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<ReturnType<typeof window.YT.Player> | null>(null);
+  const playerRef = useRef<YTPlayerInstance | null>(null);
   const idxRef = useRef(idx);
   idxRef.current = idx;
 
