@@ -2,87 +2,55 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
+import { VideoResult } from '@/app/api/yt-search/route';
 
 interface Props {
   exercise: Exercise;
   onClose: () => void;
 }
 
-interface WikiImage {
-  url: string;
-  title: string;
-}
-
 export default function ImageModal({ exercise, onClose }: Props) {
-  const [images, setImages] = useState<WikiImage[]>([]);
-  const [idx, setIdx] = useState(0);
+  const [videos, setVideos] = useState<VideoResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [noKey, setNoKey] = useState(false);
+  const [idx, setIdx] = useState(0);
+
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
+  // Use imageSearch field for a more visual/demonstration-focused query
+  const query = `${exercise.imageSearch} exercise demonstration`;
+
   useEffect(() => {
     setLoading(true);
-    setImages([]);
+    setNoKey(false);
+    setVideos([]);
     setIdx(0);
 
-    // Step 1: search Wikimedia Commons for images matching this exercise
-    const query = exercise.imageSearch;
-    fetch(
-      `https://commons.wikimedia.org/w/api.php?action=query&list=search` +
-      `&srsearch=${encodeURIComponent(query)}&srnamespace=6` +
-      `&format=json&origin=*&srlimit=12`
-    )
+    fetch(`/api/yt-search?q=${encodeURIComponent(query)}`)
       .then(r => r.json())
-      .then(async data => {
-        const results: { title: string }[] = data.query?.search || [];
-        // Filter to image formats only
-        const imageFiles = results.filter(r => {
-          const ext = r.title.split('.').pop()?.toLowerCase() ?? '';
-          return ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
-        });
-        if (!imageFiles.length) { setLoading(false); return; }
-
-        // Step 2: get proper thumbnail URLs for each file
-        const titles = imageFiles.slice(0, 10).map(r => r.title).join('|');
-        const infoRes = await fetch(
-          `https://commons.wikimedia.org/w/api.php?action=query&prop=imageinfo` +
-          `&iiprop=url&iiurlwidth=640&titles=${encodeURIComponent(titles)}` +
-          `&format=json&origin=*`
-        );
-        const infoData = await infoRes.json();
-        const pages = Object.values(infoData.query?.pages ?? {}) as Array<{
-          title: string;
-          imageinfo?: Array<{ thumburl?: string; url: string }>;
-        }>;
-
-        const imgs: WikiImage[] = pages
-          .flatMap(p =>
-            (p.imageinfo ?? []).map(ii => ({
-              url: ii.thumburl ?? ii.url,
-              title: (p.title ?? '').replace('File:', '').replace(/_/g, ' ').replace(/\.[^.]+$/, ''),
-            }))
-          )
-          .filter(img => img.url);
-
-        setImages(imgs);
+      .then(data => {
+        if (data.noKey) setNoKey(true);
+        setVideos(data.videos ?? []);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [exercise.imageSearch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercise.id]);
 
   // Keyboard navigation
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') setIdx(i => Math.min(i + 1, images.length - 1));
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'ArrowRight') setIdx(i => Math.min(i + 1, videos.length - 1));
       if (e.key === 'ArrowLeft') setIdx(i => Math.max(i - 1, 0));
     };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
-  }, [onClose, images.length]);
+  }, [onClose, videos.length]);
 
   const prev = () => setIdx(i => Math.max(i - 1, 0));
-  const next = () => setIdx(i => Math.min(i + 1, images.length - 1));
+  const next = () => setIdx(i => Math.min(i + 1, videos.length - 1));
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -96,67 +64,96 @@ export default function ImageModal({ exercise, onClose }: Props) {
     else if (dx < -50) next();
   };
 
-  const total = images.length;
-  const current = images[idx];
+  const total = videos.length;
+  const current = videos[idx];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.93)' }}
+      className="fixed inset-0 z-50 flex flex-col"
+      style={{ background: 'rgba(0,0,0,0.97)' }}
       onClick={onClose}
-      onTouchEnd={(e) => { e.preventDefault(); onClose(); }}
+      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
     >
+      {/* Top bar */}
       <div
-        className="relative w-full max-w-lg flex flex-col"
+        className="flex items-center justify-between px-5 pt-safe pt-4 pb-3 flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={(e) => { e.stopPropagation(); handleTouchEnd(e); }}
-        style={{ userSelect: 'none' }}
+        onTouchEnd={(e) => e.stopPropagation()}
       >
-        {/* Close */}
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            Image Reference
+          </p>
+          <p className="text-sm font-semibold text-white leading-tight">{exercise.name}</p>
+        </div>
         <button
           onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
-          className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white text-xl"
-          style={{ background: 'rgba(0,0,0,0.7)', touchAction: 'manipulation' }}
+          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-2xl leading-none"
+          style={{ background: 'rgba(255,255,255,0.12)', touchAction: 'manipulation' }}
         >×</button>
+      </div>
 
-        {/* Label */}
-        <div className="px-5 pt-5 pb-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-            {exercise.name}
-          </p>
-          {current && (
-            <p className="text-sm font-semibold pr-10 leading-snug" style={{ color: '#fff' }}>
-              {current.title}
-            </p>
-          )}
-        </div>
+      {/* Main image area */}
+      <div
+        className="flex-1 flex items-center justify-center relative overflow-hidden mx-4"
+        onClick={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        style={{ userSelect: 'none', minHeight: 0 }}
+      >
+        {/* Loading */}
+        {loading && (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" style={{ opacity: 0.4 }} />
+            <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>Searching images…</p>
+          </div>
+        )}
 
-        {/* Image area */}
-        <div
-          className="mx-4 rounded-2xl overflow-hidden relative flex items-center justify-center"
-          style={{ background: '#111', minHeight: 220 }}
-        >
-          {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16">
-              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" style={{ opacity: 0.4 }} />
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Searching images…</p>
-            </div>
-          ) : total === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 px-6">
-              <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" className="w-10 h-10">
+        {/* No API key */}
+        {!loading && noKey && (
+          <div className="flex flex-col items-center gap-4 px-8 text-center">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" className="w-7 h-7">
                 <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
               </svg>
-              <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>No images found</p>
             </div>
-          ) : (
-            <>
+            <div>
+              <p className="text-sm font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.7)' }}>YouTube API key needed</p>
+              <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                Add <code className="bg-white/10 px-1 py-0.5 rounded">YOUTUBE_API_KEY</code> to your Vercel environment variables.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* No results */}
+        {!loading && !noKey && total === 0 && (
+          <div className="flex flex-col items-center gap-3">
+            <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" className="w-12 h-12">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 21"/>
+            </svg>
+            <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>No images found</p>
+          </div>
+        )}
+
+        {/* Image slideshow */}
+        {!loading && current && (
+          <>
+            <div
+              className="rounded-2xl overflow-hidden w-full"
+              style={{ maxHeight: '55vh' }}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                key={current?.url}
-                src={current?.url}
-                alt={current?.title}
+                key={current.id}
+                src={current.thumbnail}
+                alt={current.title}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -165,51 +162,68 @@ export default function ImageModal({ exercise, onClose }: Props) {
                   objectFit: 'contain',
                 }}
               />
+            </div>
 
-              {/* Prev / Next arrows */}
-              {total > 1 && (
-                <>
-                  <button
-                    onPointerDown={(e) => { e.stopPropagation(); prev(); }}
-                    disabled={idx === 0}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold disabled:opacity-20"
-                    style={{ background: 'rgba(0,0,0,0.6)', fontSize: 20, touchAction: 'manipulation' }}
-                  >‹</button>
-                  <button
-                    onPointerDown={(e) => { e.stopPropagation(); next(); }}
-                    disabled={idx === total - 1}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold disabled:opacity-20"
-                    style={{ background: 'rgba(0,0,0,0.6)', fontSize: 20, touchAction: 'manipulation' }}
-                  >›</button>
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Dot indicators */}
-        {total > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-4">
-            {images.map((_, i) => (
-              <button
-                key={i}
-                onPointerDown={(e) => { e.stopPropagation(); setIdx(i); }}
-                className="rounded-full transition-all"
-                style={{
-                  width: i === idx ? 22 : 8,
-                  height: 8,
-                  background: i === idx ? '#D9A94B' : 'rgba(255,255,255,0.3)',
-                  touchAction: 'manipulation',
-                }}
-              />
-            ))}
-          </div>
+            {/* Arrows */}
+            {total > 1 && (
+              <>
+                <button
+                  onPointerDown={(e) => { e.stopPropagation(); prev(); }}
+                  disabled={idx === 0}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-20"
+                  style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation', fontSize: 22, color: '#fff' }}
+                >‹</button>
+                <button
+                  onPointerDown={(e) => { e.stopPropagation(); next(); }}
+                  disabled={idx === total - 1}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-20"
+                  style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation', fontSize: 22, color: '#fff' }}
+                >›</button>
+              </>
+            )}
+          </>
         )}
-
-        <p className="text-center text-xs mt-3 pb-5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-          {loading ? '' : total === 0 ? '' : `${idx + 1} of ${total}${total > 1 ? ' · swipe or tap arrows' : ''}`}
-        </p>
       </div>
+
+      {/* Caption + dots */}
+      {!loading && current && (
+        <div
+          className="flex-shrink-0 px-5 pb-safe pb-5 pt-3"
+          onClick={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+        >
+          {/* Caption */}
+          <p className="text-sm font-semibold text-center leading-snug px-6 mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>
+            {current.title}
+          </p>
+          <p className="text-[11px] text-center mb-3" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            {current.channel}
+          </p>
+
+          {/* Dot indicators */}
+          {total > 1 && (
+            <div className="flex items-center justify-center gap-1.5">
+              {videos.map((_, i) => (
+                <button
+                  key={i}
+                  onPointerDown={(e) => { e.stopPropagation(); setIdx(i); }}
+                  className="rounded-full transition-all duration-200"
+                  style={{
+                    width: i === idx ? 22 : 8,
+                    height: 8,
+                    background: i === idx ? '#D9A94B' : 'rgba(255,255,255,0.25)',
+                    touchAction: 'manipulation',
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          <p className="text-[10px] text-center mt-3" style={{ color: 'rgba(255,255,255,0.2)' }}>
+            {total > 1 ? `${idx + 1} of ${total} · swipe or tap arrows` : ''}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
