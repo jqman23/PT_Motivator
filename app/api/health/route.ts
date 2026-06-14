@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL!);
 
 async function ensureTable() {
   await sql`
@@ -21,8 +23,8 @@ export async function GET(req: NextRequest) {
   if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
   try {
     await ensureTable();
-    const result = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
-    return NextResponse.json({ row: result.rows[0] ?? null });
+    const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
+    return NextResponse.json({ row: rows[0] ?? null });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });

@@ -1,4 +1,6 @@
-import { sql } from '@vercel/postgres';
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL!);
 
 export async function initDb() {
   await sql`
@@ -27,12 +29,11 @@ export async function initDb() {
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {
-  const result = await sql`
+  return sql`
     SELECT date::text, exercise_id, completed
     FROM workout_log
     WHERE date >= ${startDate}::date AND date <= ${endDate}::date
   `;
-  return result.rows;
 }
 
 export async function upsertLog(date: string, exerciseId: string, completed: boolean) {
@@ -45,12 +46,11 @@ export async function upsertLog(date: string, exerciseId: string, completed: boo
 }
 
 export async function getNotesForDate(date: string) {
-  const result = await sql`
+  return sql`
     SELECT exercise_id, note
     FROM exercise_notes
     WHERE date = ${date}::date
   `;
-  return result.rows;
 }
 
 export async function upsertNote(date: string, exerciseId: string, note: string) {
