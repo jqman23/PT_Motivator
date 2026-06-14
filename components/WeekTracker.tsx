@@ -7,6 +7,7 @@ type LogMap = Record<string, Record<string, boolean>>;
 interface Props {
   log: LogMap;
   today: string;
+  selectedDate: string;
 }
 
 function todayStr(d: Date): string {
@@ -25,7 +26,7 @@ function lastNDays(n: number): Date[] {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-export default function WeekTracker({ log, today }: Props) {
+export default function WeekTracker({ log, today, selectedDate }: Props) {
   const days = lastNDays(7);
 
   function categoryFraction(dateStr: string, cat: 'mobility' | 'strength') {
@@ -57,21 +58,25 @@ export default function WeekTracker({ log, today }: Props) {
               const ds = todayStr(d);
               const frac = categoryFraction(ds, cat);
               const isToday = ds === today;
+              const isSelected = ds === selectedDate;
               return (
                 <div key={ds} className="flex flex-col items-center gap-1">
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden ${
-                      isToday
-                        ? 'border-gold'
+                      isSelected
+                        ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
+                        : isToday
+                        ? 'border-[#D9A94B]'
                         : 'border-stone-200'
                     }`}
                   >
                     {frac > 0 && (
                       <div
-                        className={`absolute bottom-0 left-0 right-0 ${
-                          cat === 'strength' ? 'bg-clay' : 'bg-sage'
-                        }`}
-                        style={{ height: `${frac * 100}%` }}
+                        className="absolute bottom-0 left-0 right-0"
+                        style={{
+                          height: `${frac * 100}%`,
+                          background: cat === 'strength' ? '#C17B4F' : '#7E9B86',
+                        }}
                       />
                     )}
                   </div>
