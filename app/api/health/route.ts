@@ -19,10 +19,18 @@ async function ensureTable() {
 }
 
 export async function GET(req: NextRequest) {
-  const date = new URL(req.url).searchParams.get('date');
-  if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
+  const params = new URL(req.url).searchParams;
+  const date = params.get('date');
+  const start = params.get('start');
+  const end = params.get('end');
+
   try {
     await ensureTable();
+    if (start && end) {
+      const rows = await sql`SELECT * FROM health_log WHERE date >= ${start}::date AND date <= ${end}::date ORDER BY date`;
+      return NextResponse.json({ rows });
+    }
+    if (!date) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
     const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
     return NextResponse.json({ row: rows[0] ?? null });
   } catch (err) {

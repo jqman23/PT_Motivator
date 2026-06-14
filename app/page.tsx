@@ -5,6 +5,8 @@ import { EXERCISES } from '@/lib/exercises';
 import ExerciseCard from '@/components/ExerciseCard';
 import WeekTracker from '@/components/WeekTracker';
 import HealthTracker from '@/components/HealthTracker';
+import CalendarModal from '@/components/CalendarModal';
+import TimerWidget from '@/components/TimerWidget';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -40,6 +42,7 @@ export default function Home() {
   const [notes, setNotes] = useState<NotesMap>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
 
   const weekStart = offsetDate(today, -6);
 
@@ -138,7 +141,26 @@ export default function Home() {
 
         {/* Header */}
         <div className="mb-6">
-          <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
+            <div className="flex items-center gap-2">
+              <TimerWidget />
+              <button
+                onClick={() => setShowCalendar(true)}
+                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 transition-colors shadow-sm"
+                title="View calendar"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <rect x="2" y="3" width="16" height="16" rx="2"/>
+                  <path d="M2 8h16"/>
+                  <path d="M6 1v4M14 1v4"/>
+                  <rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
+                  <rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
+                  <rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
+                </svg>
+              </button>
+            </div>
+          </div>
 
           {/* Date navigator */}
           <div className="flex items-center gap-3 mt-2">
@@ -165,6 +187,15 @@ export default function Home() {
 
           {saving && <p className="text-xs text-[#7E9B86] mt-2 text-center animate-pulse">Saving…</p>}
         </div>
+
+        {showCalendar && (
+          <CalendarModal
+            today={today}
+            selectedDate={selectedDate}
+            onSelectDate={(d) => { setSelectedDate(d); setNotes({}); }}
+            onClose={() => setShowCalendar(false)}
+          />
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center h-40">

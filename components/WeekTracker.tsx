@@ -45,7 +45,14 @@ export default function WeekTracker({ log, today, selectedDate }: Props) {
 
   return (
     <div className="bg-white border border-stone-100 rounded-2xl p-4">
-      <h2 className="font-serif text-base font-semibold text-stone-800 mb-3">This week</h2>
+      <div className="mb-3">
+        <h2 className="font-serif text-base font-semibold text-stone-800">This week</h2>
+        <p className="text-[10px] text-stone-400 mt-0.5">
+          {new Date(days[0].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          {' – '}
+          {new Date(days[days.length - 1].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+        </p>
+      </div>
 
       {(['mobility', 'strength'] as const).map((cat) => (
         <div key={cat} className="flex items-center gap-3 mb-3 last:mb-0">

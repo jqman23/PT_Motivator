@@ -6,8 +6,9 @@ export interface Exercise {
   name: string;
   cue: string;
   sets?: string;
-  videoUrl?: string;
-  videoTitle?: string;
+  videoIds: string[];       // YouTube IDs — tries each in order
+  videoTitles: string[];
+  imageSearch: string;      // Google Images search term
   tips: string[];
   optional?: boolean;
 }
@@ -19,8 +20,9 @@ export const EXERCISES: Exercise[] = [
     name: 'Ankle Band: Eversion & Inversion',
     cue: '2–3 sets each direction, slow and controlled',
     sets: '2–3 × 15 reps each direction',
-    videoUrl: 'https://www.youtube.com/watch?v=PhJ_pMFKIFk',
-    videoTitle: 'Theraband Ankle Eversion & Inversion — Bob & Brad',
+    videoIds: ['PhJ_pMFKIFk', 'mKYZGXpgSXg', 'BkHbRjVDWLY'],
+    videoTitles: ['Theraband Ankle Exercises — Bob & Brad', 'Ankle Eversion Exercise', 'Ankle Inversion & Eversion Band'],
+    imageSearch: 'theraband ankle eversion inversion exercise',
     tips: [
       'Keep your heel on the ground, move only at the ankle',
       'Go slow — 2 sec out, 2 sec back',
@@ -33,11 +35,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Balance on Varying Surfaces',
     cue: 'Cushion, pillow, or balance pad — both legs then single',
     sets: '3 × 30–60 sec each leg',
-    videoUrl: 'https://www.youtube.com/watch?v=6dExHLLFDco',
-    videoTitle: 'Single Leg Balance Training — Prehab Guys',
+    videoIds: ['6dExHLLFDco', 'i5vXbdPZbNk', 'EVq8YRLA9IY'],
+    videoTitles: ['Single Leg Balance Training — Prehab Guys', 'Balance Training Progressions', 'Ankle Balance Rehab'],
+    imageSearch: 'single leg balance foam pad exercise physical therapy',
     tips: [
       'Start on flat ground, progress to foam/pillow',
-      'Eyes open first, then try eyes closed for a challenge',
+      'Eyes open first, then try eyes closed',
       'Slight bend in the knee — don\'t lock it out',
     ],
   },
@@ -47,11 +50,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Toe Yoga',
     cue: 'Spread toes, lift big toe alone, then little toes',
     sets: '2 × 10 reps each pattern',
-    videoUrl: 'https://www.youtube.com/watch?v=7A_MnPBpnaQ',
-    videoTitle: 'Toe Yoga — Foot & Ankle Mobility',
+    videoIds: ['7A_MnPBpnaQ', 'lbDkbWGDNJo', 'wJ8-bJ1H6d8'],
+    videoTitles: ['Toe Yoga for Foot Strength', 'Toe Separation Exercise', 'Foot Intrinsic Strengthening'],
+    imageSearch: 'toe yoga foot exercise big toe lift',
     tips: [
-      'Try to lift just your big toe while other toes stay down',
-      'Then reverse: press big toe down, lift the others',
+      'Lift just your big toe while other toes stay flat',
+      'Then reverse: press big toe down, lift the rest',
       'This takes practice — don\'t get frustrated',
     ],
   },
@@ -61,8 +65,9 @@ export const EXERCISES: Exercise[] = [
     name: 'Calf Stretch',
     cue: 'Wall stretch, hold ~30 sec × 3 each side',
     sets: '3 × 30 sec each leg (straight + bent knee)',
-    videoUrl: 'https://www.youtube.com/watch?v=IY5ZNVJ0Kca',
-    videoTitle: 'Calf Stretch — Bob & Brad',
+    videoIds: ['IY5ZNVJ0Kca', 'R7kSdwKDQSk', 'nYCUGijMBec'],
+    videoTitles: ['Calf Stretch — Bob & Brad', 'Gastrocnemius & Soleus Stretch', 'Calf Stretch Variations'],
+    imageSearch: 'calf stretch wall gastrocnemius soleus physical therapy',
     tips: [
       'Do both straight-leg (gastrocnemius) and bent-knee (soleus)',
       'Push heel into the floor — don\'t let it rise',
@@ -75,12 +80,13 @@ export const EXERCISES: Exercise[] = [
     name: 'Kneeling Hip Flexor Stretch (Super Band)',
     cue: 'Band around back hip, gentle lunge forward, hold',
     sets: '3 × 30–45 sec each side',
-    videoUrl: 'https://www.youtube.com/watch?v=GCXAAvfx_-8',
-    videoTitle: 'Kneeling Hip Flexor Stretch with Band',
+    videoIds: ['GCXAAvfx_-8', 'fsFq9FzfZ_k', 'YaXPRqUwItQ'],
+    videoTitles: ['Hip Flexor Stretch with Band', 'Kneeling Hip Flexor Band Mobilization', 'Super Band Hip Flexor'],
+    imageSearch: 'kneeling hip flexor stretch resistance band',
     tips: [
       'Keep your core tight and pelvis tucked under',
       'Drive the back hip forward — don\'t arch your lower back',
-      'Band adds a mobilization component — let it do its job',
+      'Band adds a mobilization component',
     ],
   },
   {
@@ -89,13 +95,13 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg RDL',
     cue: 'Focus on foot "tripod" — even pressure across the foot',
     sets: '3 × 8–10 reps each leg',
-    videoUrl: 'https://www.youtube.com/watch?v=Eh00_rniF8E',
-    videoTitle: 'Single Leg RDL — How To',
+    videoIds: ['Eh00_rniF8E', 'dSoJJALFfnk', 'vq5-vdgJc0I'],
+    videoTitles: ['Single Leg RDL Tutorial', 'Single Leg RDL — AthleanX', 'Romanian Deadlift Single Leg Form'],
+    imageSearch: 'single leg RDL romanian deadlift form tutorial',
     tips: [
-      'Feel three points of contact: big toe mound, pinky toe mound, heel',
+      'Three contact points: big toe mound, pinky toe mound, heel',
       'Hinge at the hip — push your butt back, not down',
       'Keep a soft knee on the standing leg',
-      'The floating leg doesn\'t need to go super high — control matters more',
     ],
   },
   {
@@ -104,13 +110,13 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg Hip Thrust (Bench)',
     cue: 'Shoulders on bench, drive through one heel',
     sets: '3 × 10–12 reps each leg',
-    videoUrl: 'https://www.youtube.com/watch?v=cPhMGnSpJDk',
-    videoTitle: 'Single Leg Hip Thrust — Glute Lab',
+    videoIds: ['cPhMGnSpJDk', 'qKnFiWzJqKo', 'LM8XfHGHCMQ'],
+    videoTitles: ['Single Leg Hip Thrust — Glute Lab', 'Hip Thrust Single Leg Tutorial', 'Single Leg Hip Thrust Form'],
+    imageSearch: 'single leg hip thrust bench glute exercise form',
     tips: [
       'Chin tucked — don\'t hyperextend your neck looking up',
       'Drive through your heel, not your toes',
       'Squeeze glute at the top, hold 1 sec',
-      'Keep your hips level — don\'t let the non-working side drop',
     ],
   },
   {
@@ -119,12 +125,13 @@ export const EXERCISES: Exercise[] = [
     name: 'General Leg Strengthening',
     cue: 'Squat, lunge, or deadlift — pick 1–2 movements',
     sets: '3 × 8–12 reps',
-    videoUrl: 'https://www.youtube.com/watch?v=MeIiIdhvXT4',
-    videoTitle: 'Goblet Squat — Alan Thrall',
+    videoIds: ['MeIiIdhvXT4', 'U3HlEF_E9fo', 'YaXPRqUwItQ'],
+    videoTitles: ['Goblet Squat — Alan Thrall', 'How to Squat', 'Split Squat Tutorial'],
+    imageSearch: 'goblet squat lunge leg exercise form physical therapy',
     tips: [
-      'Prioritize form over weight — especially with an ankle recovery',
-      'Goblet squat is great if bilateral loading feels okay',
-      'Bulgarian split squat challenges balance and builds single-leg strength',
+      'Prioritize form over weight — especially ankle recovery',
+      'Goblet squat is great for bilateral loading',
+      'Bulgarian split squat builds single-leg strength',
     ],
   },
   {
@@ -133,12 +140,13 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg Glute Bridge',
     cue: 'Lying down, lift hips, one leg extended',
     sets: '3 × 10–15 reps each leg',
-    videoUrl: 'https://www.youtube.com/watch?v=BnE0CDMiAhI',
-    videoTitle: 'Single Leg Glute Bridge — Bret Contreras',
+    videoIds: ['BnE0CDMiAhI', 'wPM8icPu6H8', 'mvJsStxX2oE'],
+    videoTitles: ['Single Leg Glute Bridge — Bret Contreras', 'Single Leg Hip Bridge Tutorial', 'Glute Bridge Progression'],
+    imageSearch: 'single leg glute bridge exercise form lying down',
     tips: [
-      'Extend one leg straight out, drive through the planted heel',
+      'Extend one leg straight out, drive through planted heel',
       'Don\'t let your hips rotate — keep them square',
-      'Add a pause at the top to increase glute activation',
+      'Pause at the top to increase glute activation',
     ],
   },
   {
@@ -147,12 +155,13 @@ export const EXERCISES: Exercise[] = [
     name: 'Hip Circuit: March, Side Kick, Glute Extension',
     cue: 'Optional — standing on one leg, band around ankles',
     sets: '2 × 12 reps each movement',
-    videoUrl: 'https://www.youtube.com/watch?v=qO89m12s4K8',
-    videoTitle: 'Hip Band Circuit — Standing',
+    videoIds: ['qO89m12s4K8', '0zOa9tCiZ1I', 'DqRqIGnCnQo'],
+    videoTitles: ['Hip Band Circuit Standing', 'Standing Hip Circuit with Band', 'Hip Abduction Band Exercises'],
+    imageSearch: 'standing hip circuit resistance band exercises glute',
     tips: [
-      'Stay tall — don\'t lean to compensate for the kicking leg',
-      'Control the movement both ways (concentric and eccentric)',
-      'Glute extension goes diagonally back — not straight back',
+      'Stay tall — don\'t lean to compensate',
+      'Control the movement both ways',
+      'Glute extension goes diagonally back',
     ],
     optional: true,
   },
@@ -162,8 +171,9 @@ export const EXERCISES: Exercise[] = [
     name: 'Cable Hip Flexor Stretch / Strengthen',
     cue: 'Optional — hook leg on cable, seated on a block',
     sets: '3 × 10–12 reps each leg',
-    videoUrl: 'https://www.youtube.com/watch?v=YQmpO-tNFaA',
-    videoTitle: 'Cable Hip Flexor Stretch & Strengthen',
+    videoIds: ['YQmpO-tNFaA', 'FN5aFfGBZIA', 'tEpzOUkGkfk'],
+    videoTitles: ['Cable Hip Flexor Exercise', 'Hip Flexor Cable Machine', 'Hip Flexor Strength Cable'],
+    imageSearch: 'cable machine hip flexor exercise seated block',
     tips: [
       'Sit tall on the block — don\'t slouch',
       'Focus on the full range: extension → flexion',
