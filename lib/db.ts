@@ -53,6 +53,14 @@ export async function getNotesForDate(date: string) {
   `;
 }
 
+export async function deleteLogForDate(date: string) {
+  await sql`DELETE FROM workout_log WHERE date = ${date}::date`;
+}
+
+export async function deleteNotesForDate(date: string) {
+  await sql`DELETE FROM exercise_notes WHERE date = ${date}::date`;
+}
+
 export async function upsertNote(date: string, exerciseId: string, note: string) {
   await sql`
     INSERT INTO exercise_notes (date, exercise_id, note, updated_at)

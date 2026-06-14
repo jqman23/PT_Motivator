@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLogForRange, upsertLog } from '@/lib/db';
+import { getLogForRange, upsertLog, deleteLogForDate } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -11,6 +11,18 @@ export async function GET(req: NextRequest) {
   try {
     const rows = await getLogForRange(start, end);
     return NextResponse.json({ rows });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: 'DB error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const date = new URL(req.url).searchParams.get('date');
+  if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
+  try {
+    await deleteLogForDate(date);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });

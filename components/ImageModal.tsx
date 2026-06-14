@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 
 interface Props {
@@ -9,76 +9,134 @@ interface Props {
 }
 
 export default function ImageModal({ exercise, onClose }: Props) {
+  const [idx, setIdx] = useState(0);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+
+  const total = exercise.videoIds.length;
+  const videoId = exercise.videoIds[idx] ?? '';
+  const title = exercise.videoTitles[idx] ?? exercise.name;
+
+  // Try sddefault (640×480), fall back to hqdefault (480×360) on error
+  const [imgSrc, setImgSrc] = useState(`https://img.youtube.com/vi/${videoId}/sddefault.jpg`);
+
   useEffect(() => {
-    const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    setImgSrc(`https://img.youtube.com/vi/${exercise.videoIds[idx] ?? ''}/sddefault.jpg`);
+  }, [idx, exercise.videoIds]);
+
+  // Keyboard nav
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') next();
+      if (e.key === 'ArrowLeft') prev();
+    };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
+
+  const prev = () => setIdx(i => Math.max(i - 1, 0));
+  const next = () => setIdx(i => Math.min(i + 1, total - 1));
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+    if (dy > 60) return; // vertical scroll, ignore
+    if (dx > 50) prev();
+    else if (dx < -50) next();
+  };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm pt-16 px-4 pb-4"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.92)' }}
+      onPointerDown={onClose}
     >
       <div
-        className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-lg flex flex-col"
+        onPointerDown={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        style={{ userSelect: 'none' }}
       >
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Exercise reference</p>
-            <p className="text-sm font-bold text-stone-800 mt-0.5">{exercise.name}</p>
+        {/* Close button */}
+        <button
+          onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+          className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white text-xl font-light"
+          style={{ background: 'rgba(0,0,0,0.6)', touchAction: 'manipulation' }}
+        >×</button>
+
+        {/* Exercise label */}
+        <div className="px-5 pt-5 pb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            {exercise.name}
+          </p>
+          <p className="text-sm font-semibold leading-tight" style={{ color: '#fff' }}>{title}</p>
+        </div>
+
+        {/* Main image */}
+        <div className="relative mx-4 rounded-2xl overflow-hidden" style={{ background: '#111' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            key={imgSrc}
+            src={imgSrc}
+            alt={title}
+            className="w-full object-contain"
+            style={{ display: 'block', maxHeight: '55vh' }}
+            onError={() => {
+              if (!imgSrc.includes('hqdefault')) {
+                setImgSrc(`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`);
+              }
+            }}
+          />
+
+          {/* Prev / Next overlay arrows */}
+          {total > 1 && (
+            <>
+              <button
+                onPointerDown={(e) => { e.stopPropagation(); prev(); }}
+                disabled={idx === 0}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold disabled:opacity-20"
+                style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation' }}
+              >‹</button>
+              <button
+                onPointerDown={(e) => { e.stopPropagation(); next(); }}
+                disabled={idx === total - 1}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold disabled:opacity-20"
+                style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation' }}
+              >›</button>
+            </>
+          )}
+        </div>
+
+        {/* Dot indicators + count */}
+        {total > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-4">
+            {exercise.videoIds.map((_, i) => (
+              <button
+                key={i}
+                onPointerDown={(e) => { e.stopPropagation(); setIdx(i); }}
+                className="rounded-full transition-all"
+                style={{
+                  width: i === idx ? 20 : 7,
+                  height: 7,
+                  background: i === idx ? '#D9A94B' : 'rgba(255,255,255,0.3)',
+                  touchAction: 'manipulation',
+                }}
+              />
+            ))}
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-2xl leading-none w-7 h-7 flex items-center justify-center">×</button>
-        </div>
+        )}
 
-        {/* Thumbnail grid */}
-        <div className="p-3 grid grid-cols-3 gap-2">
-          {exercise.videoIds.map((id, i) => {
-            const thumbUrl = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
-            const ytUrl = `https://www.youtube.com/watch?v=${id}`;
-            const title = exercise.videoTitles[i] ?? exercise.name;
-            return (
-              <a
-                key={id}
-                href={ytUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group block rounded-xl overflow-hidden border border-stone-100 relative"
-                title={title}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={thumbUrl} alt={title} className="w-full aspect-video object-cover" />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
-                    <svg viewBox="0 0 24 24" fill="#C17B4F" className="w-3.5 h-3.5 ml-0.5">
-                      <polygon points="5,3 19,12 5,21" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-4">
-                  <p className="text-white text-[9px] font-medium leading-tight line-clamp-2">{title}</p>
-                </div>
-              </a>
-            );
-          })}
-        </div>
-
-        <div className="px-4 pb-3 pt-1">
-          <p className="text-[10px] text-stone-400 text-center mb-2">Tap any image to watch the full video on YouTube</p>
-          <a
-            href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(exercise.imageSearch)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-stone-200 text-sm font-semibold text-stone-600 hover:bg-stone-50 transition-colors"
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <circle cx="9" cy="9" r="6"/><path d="M15 15l3 3"/>
-            </svg>
-            Search Google Images
-          </a>
-        </div>
+        <p className="text-center text-xs mt-3 pb-5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          {idx + 1} of {total} · swipe to browse
+        </p>
       </div>
     </div>
   );

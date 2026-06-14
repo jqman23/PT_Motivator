@@ -82,6 +82,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [confirmClearDay, setConfirmClearDay] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const weekStart = offsetDate(today, -6);
 
@@ -166,6 +168,24 @@ export default function Home() {
     }
   };
 
+  const handleClearDay = async () => {
+    setClearing(true);
+    setConfirmClearDay(false);
+    try {
+      await Promise.all([
+        fetch(`/api/log?date=${selectedDate}`, { method: 'DELETE' }),
+        fetch(`/api/notes?date=${selectedDate}`, { method: 'DELETE' }),
+        fetch(`/api/health?date=${selectedDate}`, { method: 'DELETE' }),
+      ]);
+      setLog((prev) => ({ ...prev, [selectedDate]: {} }));
+      setNotes({});
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const dayLog = log[selectedDate] || {};
   const mobilityExercises = EXERCISES.filter((e) => e.cat === 'mobility');
   const strengthExercises = EXERCISES.filter((e) => e.cat === 'strength');
@@ -227,7 +247,34 @@ export default function Home() {
             </button>
           </div>
 
-          {saving && <p className="text-xs text-[#7E9B86] mt-2 text-center animate-pulse">Saving…</p>}
+          {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
+
+          {/* Clear day */}
+          <div className="mt-2 flex justify-center">
+            {!confirmClearDay ? (
+              <button
+                onPointerDown={() => setConfirmClearDay(true)}
+                className="text-xs font-medium px-3 py-1 rounded-lg transition-colors"
+                style={{ color: '#a8a29e', background: 'transparent', touchAction: 'manipulation' }}
+              >
+                {clearing ? 'Clearing…' : 'Clear day'}
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
+                <span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Clear ALL data for {displayForDate(selectedDate)}?</span>
+                <button
+                  onPointerDown={handleClearDay}
+                  className="text-xs font-bold px-2.5 py-1 rounded-lg text-white"
+                  style={{ background: '#ef4444', touchAction: 'manipulation' }}
+                >Yes, clear</button>
+                <button
+                  onPointerDown={() => setConfirmClearDay(false)}
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg"
+                  style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}
+                >Cancel</button>
+              </div>
+            )}
+          </div>
         </div>
 
         {showCalendar && (
