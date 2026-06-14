@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { EXERCISES } from '@/lib/exercises';
 import ExerciseCard from '@/components/ExerciseCard';
 import WeekTracker from '@/components/WeekTracker';
+import HealthTracker from '@/components/HealthTracker';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -184,6 +185,10 @@ export default function Home() {
                   />
                 ))}
               </div>
+            </section>
+
+            <section className="mb-6">
+              <HealthTracker today={today} />
             </section>
 
             <section className="mb-6">
