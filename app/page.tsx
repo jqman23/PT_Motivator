@@ -87,9 +87,11 @@ export default function Home() {
 
   const weekStart = offsetDate(today, -6);
 
-  const loadLog = useCallback(async () => {
+  const loadLog = useCallback(async (selected: string) => {
+    // Always include selectedDate even if it's before the 7-day window
+    const rangeStart = selected < weekStart ? selected : weekStart;
     try {
-      const res = await fetch(`/api/log?start=${weekStart}&end=${today}`);
+      const res = await fetch(`/api/log?start=${rangeStart}&end=${today}`);
       if (res.ok) {
         const { rows } = await res.json();
         const newLog: LogMap = {};
@@ -103,7 +105,7 @@ export default function Home() {
     } catch (err) {
       console.error(err);
     }
-  }, [today, weekStart]);
+  }, [today, weekStart]); // weekStart used for upper-bound default
 
   const loadNotes = useCallback(async (date: string) => {
     try {
@@ -121,12 +123,13 @@ export default function Home() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadLog(), loadNotes(selectedDate)]).finally(() => setLoading(false));
+    Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false));
   }, [loadLog, loadNotes, selectedDate]);
 
   const handleDateChange = (dir: -1 | 1) => {
     const next = offsetDate(selectedDate, dir);
     if (next > today) return;
+    setConfirmClearDay(false);
     setSelectedDate(next);
     setNotes({});
   };

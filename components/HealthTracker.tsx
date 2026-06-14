@@ -57,6 +57,11 @@ function Slider({ label, description, value, min, max, step = 1, lowLabel, highL
   const hasValue = value !== null;
   const [showNote, setShowNote] = useState(!!note);
 
+  // Auto-reveal the note field when a saved note loads from the DB
+  useEffect(() => {
+    if (note) setShowNote(true);
+  }, [note]);
+
   return (
     <div className="mb-5 last:mb-0">
       <div className="flex items-baseline justify-between mb-0.5">
@@ -136,6 +141,8 @@ export default function HealthTracker({ today }: Props) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Cancel any in-flight debounced save from the previous date
+    if (saveTimer.current) clearTimeout(saveTimer.current);
     setLoading(true);
     setSaved(false);
     setData(EMPTY);

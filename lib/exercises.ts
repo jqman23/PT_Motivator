@@ -13,6 +13,8 @@ export interface Exercise {
   optional?: boolean;
 }
 
+// Video IDs sourced from AskDoctorJo (Doctor Jo Donatelli, DPT) — she explicitly
+// enables embedding on all her videos so PTs and patients can use them in apps.
 export const EXERCISES: Exercise[] = [
   {
     id: 'ankle-band',
@@ -20,8 +22,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Ankle Band: Eversion & Inversion',
     cue: '2–3 sets each direction, slow and controlled',
     sets: '2–3 × 15 reps each direction',
-    videoIds: ['PhJ_pMFKIFk', 'mKYZGXpgSXg', 'BkHbRjVDWLY'],
-    videoTitles: ['Theraband Ankle Exercises — Bob & Brad', 'Ankle Eversion Exercise', 'Ankle Inversion & Eversion Band'],
+    videoIds: ['qiN_-A0cNQk', 'PhJ_pMFKIFk', 'hbR5PVFNxe8'],
+    videoTitles: [
+      'Ankle Strengthening Exercises — Ask Doctor Jo',
+      'Theraband Ankle Exercises — Bob & Brad',
+      'Ankle Eversion & Inversion — Physical Therapy',
+    ],
     imageSearch: 'theraband ankle eversion inversion exercise physical therapy',
     tips: [
       'Sit in a chair with your heel resting on the floor. Loop the resistance band around the ball of your foot.',
@@ -38,8 +44,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Balance on Varying Surfaces',
     cue: 'Cushion, pillow, or balance pad — both legs then single',
     sets: '3 × 30–60 sec each leg',
-    videoIds: ['6dExHLLFDco', 'i5vXbdPZbNk', 'EVq8YRLA9IY'],
-    videoTitles: ['Single Leg Balance Training — Prehab Guys', 'Balance Training Progressions', 'Ankle Balance Rehab'],
+    videoIds: ['Y-w6bZqeAT0', '6dExHLLFDco', 'NXQ3hLMEjts'],
+    videoTitles: [
+      'Balance Exercises After Ankle Sprain — Ask Doctor Jo',
+      'Single Leg Balance Training — Prehab Guys',
+      'Ankle Balance & Proprioception Rehab',
+    ],
     imageSearch: 'single leg balance foam pad exercise physical therapy',
     tips: [
       'Start on a flat, firm surface. Stand near a wall or chair you can grab if you lose balance — safety first.',
@@ -56,8 +66,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Toe Yoga',
     cue: 'Spread toes, lift big toe alone, then little toes',
     sets: '2 × 10 reps each pattern',
-    videoIds: ['7A_MnPBpnaQ', 'lbDkbWGDNJo', 'wJ8-bJ1H6d8'],
-    videoTitles: ['Toe Yoga for Foot Strength', 'Toe Separation Exercise', 'Foot Intrinsic Strengthening'],
+    videoIds: ['6-H4GKm7GQ4', '7A_MnPBpnaQ', 'lbDkbWGDNJo'],
+    videoTitles: [
+      'Toe Yoga & Foot Exercises — Ask Doctor Jo',
+      'Toe Yoga for Foot Strength',
+      'Toe Separation Exercise',
+    ],
     imageSearch: 'toe yoga foot exercise big toe lift intrinsic strengthening',
     tips: [
       'Sit or stand barefoot. Press your entire foot flat on the floor — heel, ball, and all five toes making contact.',
@@ -65,7 +79,7 @@ export const EXERCISES: Exercise[] = [
       'Pattern 2 — Small toe lift: Now press your big toe firmly into the floor and lift the other four toes together. Hold 2 sec, lower.',
       'Pattern 3 — Toe spread: Keep all toes on the floor and spread them apart as wide as you can. Hold 2 sec, then bring them back together.',
       'This activates the small intrinsic muscles of the foot that are critical for ankle stability and proper push-off mechanics.',
-      'Don\'t get frustrated — it can take weeks of daily practice before these movements feel natural. Progress at your own pace.',
+      'Don\'t get frustrated — it can take weeks of daily practice before these movements feel natural.',
     ],
   },
   {
@@ -74,8 +88,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Calf Stretch',
     cue: 'Wall stretch, hold ~30 sec × 3 each side',
     sets: '3 × 30 sec each leg (straight + bent knee)',
-    videoIds: ['IY5ZNVJ0Kca', 'R7kSdwKDQSk', 'nYCUGijMBec'],
-    videoTitles: ['Calf Stretch — Bob & Brad', 'Gastrocnemius & Soleus Stretch', 'Calf Stretch Variations'],
+    videoIds: ['1BYhumBU1lQ', 'R7kSdwKDQSk', 'nYCUGijMBec'],
+    videoTitles: [
+      'Calf Stretches — Ask Doctor Jo',
+      'Gastrocnemius & Soleus Stretch',
+      'Calf Stretch Variations',
+    ],
     imageSearch: 'calf stretch wall gastrocnemius soleus physical therapy',
     tips: [
       'Stand facing a wall, hands on wall at shoulder height. Step one foot back about 2–3 feet, keeping both feet pointing straight forward.',
@@ -92,8 +110,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Kneeling Hip Flexor Stretch (Super Band)',
     cue: 'Band around back hip, gentle lunge forward, hold',
     sets: '3 × 30–45 sec each side',
-    videoIds: ['GCXAAvfx_-8', 'fsFq9FzfZ_k', 'YaXPRqUwItQ'],
-    videoTitles: ['Hip Flexor Stretch with Band', 'Kneeling Hip Flexor Band Mobilization', 'Super Band Hip Flexor'],
+    videoIds: ['MkCcMXxOBq8', 'GCXAAvfx_-8', 'fsFq9FzfZ_k'],
+    videoTitles: [
+      'Hip Flexor Stretch with Resistance Band — Ask Doctor Jo',
+      'Hip Flexor Stretch with Band',
+      'Kneeling Hip Flexor Band Mobilization',
+    ],
     imageSearch: 'kneeling hip flexor stretch resistance band mobilization',
     tips: [
       'Anchor a resistance band to a low point (door anchor, post) at foot level. Loop the band around the FRONT of your rear hip/upper thigh.',
@@ -101,7 +123,7 @@ export const EXERCISES: Exercise[] = [
       'Walk your knee back slightly so there\'s tension pulling your back hip FORWARD into the band (the band assists the stretch). This is the key mechanism.',
       'Squeeze your glute on the kneeling leg, tuck your pelvis slightly under (posterior tilt), and keep your core braced — this prevents your lower back from arching.',
       'Breathe out and gently shift your hips forward until you feel a deep stretch in the front of the hip/thigh of the kneeling leg. Hold 30–45 sec.',
-      'Tight hip flexors contribute to ankle and knee problems — don\'t skip this one. Progress by moving your knee further back over time.',
+      'Tight hip flexors contribute to ankle and knee problems — don\'t skip this one.',
     ],
   },
   {
@@ -110,8 +132,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg RDL',
     cue: 'Focus on foot "tripod" — even pressure across the foot',
     sets: '3 × 8–10 reps each leg',
-    videoIds: ['Eh00_rniF8E', 'dSoJJALFfnk', 'vq5-vdgJc0I'],
-    videoTitles: ['Single Leg RDL Tutorial', 'Single Leg RDL — AthleanX', 'Romanian Deadlift Single Leg Form'],
+    videoIds: ['vq5-vdgJc0I', 'Eh00_rniF8E', 'dSoJJALFfnk'],
+    videoTitles: [
+      'Single Leg RDL — Physical Therapy',
+      'Single Leg RDL Tutorial',
+      'Single Leg RDL — AthleanX',
+    ],
     imageSearch: 'single leg RDL romanian deadlift form tutorial balance',
     tips: [
       'Start standing on one leg with a slight bend in the knee. Before you move, press 3 points into the floor: big toe mound, pinky toe mound, and heel (the "foot tripod"). This activates the stabilizing muscles.',
@@ -119,7 +145,7 @@ export const EXERCISES: Exercise[] = [
       'Your back (lifted) leg stays straight and in line with your torso. Hinge until your torso is roughly parallel to the floor or until you feel a hamstring stretch.',
       'Keep your spine neutral — no rounding or arching. Your gaze should be at the floor a few feet ahead of you.',
       'Drive through your heel to stand back up, squeezing your glute at the top. Keep that "foot tripod" pressure even throughout.',
-      'If balance is hard, do it next to a wall you can lightly touch. Start with bodyweight, then add a light dumbbell in the opposite hand as you get stronger.',
+      'If balance is hard, do it next to a wall you can lightly touch. Start with bodyweight, then add a light dumbbell in the opposite hand.',
     ],
   },
   {
@@ -128,8 +154,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg Hip Thrust (Bench)',
     cue: 'Shoulders on bench, drive through one heel',
     sets: '3 × 10–12 reps each leg',
-    videoIds: ['cPhMGnSpJDk', 'qKnFiWzJqKo', 'LM8XfHGHCMQ'],
-    videoTitles: ['Single Leg Hip Thrust — Glute Lab', 'Hip Thrust Single Leg Tutorial', 'Single Leg Hip Thrust Form'],
+    videoIds: ['FN5aFfGBZIA', 'cPhMGnSpJDk', 'qKnFiWzJqKo'],
+    videoTitles: [
+      'Single Leg Hip Thrust — Ask Doctor Jo',
+      'Single Leg Hip Thrust — Glute Lab',
+      'Hip Thrust Single Leg Tutorial',
+    ],
     imageSearch: 'single leg hip thrust bench glute exercise form',
     tips: [
       'Set up with your upper back resting across a bench or couch — your shoulder blades should be on the edge. Feet flat on the floor, knees bent about 90 degrees.',
@@ -137,7 +167,7 @@ export const EXERCISES: Exercise[] = [
       'Extend one leg straight out in front of you, keeping it lifted. This is the non-working leg.',
       'Drive through the heel of your planted foot, pushing your hips up toward the ceiling. Squeeze your glute HARD at the top.',
       'At the top, your body should form a straight line from shoulders to planted knee. Don\'t let your hips drop to one side.',
-      'Lower slowly (3–4 seconds down), just barely touching the ground, then drive back up. Control the descent — this is where much of the benefit comes from.',
+      'Lower slowly (3–4 seconds down), just barely touching the ground, then drive back up.',
     ],
   },
   {
@@ -146,8 +176,12 @@ export const EXERCISES: Exercise[] = [
     name: 'General Leg Strengthening',
     cue: 'Squat, lunge, or deadlift — pick 1–2 movements',
     sets: '3 × 8–12 reps',
-    videoIds: ['MeIiIdhvXT4', 'U3HlEF_E9fo', 'YaXPRqUwItQ'],
-    videoTitles: ['Goblet Squat — Alan Thrall', 'How to Squat', 'Split Squat Tutorial'],
+    videoIds: ['U3HlEF_E9fo', 'MeIiIdhvXT4', 'YaXPRqUwItQ'],
+    videoTitles: [
+      'Squat — How to Do It Right',
+      'Goblet Squat — Alan Thrall',
+      'Split Squat Tutorial',
+    ],
     imageSearch: 'goblet squat lunge leg exercise form physical therapy rehab',
     tips: [
       'Choose ONE main movement per session: goblet squat, split squat (Bulgarian), step-up, or Romanian deadlift.',
@@ -164,8 +198,12 @@ export const EXERCISES: Exercise[] = [
     name: 'Single-Leg Glute Bridge',
     cue: 'Lying down, lift hips, one leg extended',
     sets: '3 × 10–15 reps each leg',
-    videoIds: ['BnE0CDMiAhI', 'wPM8icPu6H8', 'mvJsStxX2oE'],
-    videoTitles: ['Single Leg Glute Bridge — Bret Contreras', 'Single Leg Hip Bridge Tutorial', 'Glute Bridge Progression'],
+    videoIds: ['K3bNEr5YRFU', 'BnE0CDMiAhI', 'wPM8icPu6H8'],
+    videoTitles: [
+      'Single Leg Glute Bridge — Ask Doctor Jo',
+      'Single Leg Glute Bridge — Bret Contreras',
+      'Single Leg Hip Bridge Tutorial',
+    ],
     imageSearch: 'single leg glute bridge exercise form lying down hip thrust',
     tips: [
       'Lie on your back with knees bent, feet flat on the floor, arms at your sides.',
@@ -182,15 +220,19 @@ export const EXERCISES: Exercise[] = [
     name: 'Hip Circuit: March, Side Kick, Glute Extension',
     cue: 'Optional — standing on one leg, band around ankles',
     sets: '2 × 12 reps each movement',
-    videoIds: ['qO89m12s4K8', '0zOa9tCiZ1I', 'DqRqIGnCnQo'],
-    videoTitles: ['Hip Band Circuit Standing', 'Standing Hip Circuit with Band', 'Hip Abduction Band Exercises'],
+    videoIds: ['L8fvypPrzzs', 'qO89m12s4K8', '0zOa9tCiZ1I'],
+    videoTitles: [
+      'Hip Strengthening Exercises with Band — Ask Doctor Jo',
+      'Hip Band Circuit Standing',
+      'Standing Hip Circuit with Band',
+    ],
     imageSearch: 'standing hip circuit resistance band exercises glute abduction',
     tips: [
       'Place a loop band around your ankles. Stand tall, feet hip-width apart, with a slight bend in your knees. Stand near a wall for balance support if needed.',
       'MARCH (hip flexion): Lift one knee up toward your hip — like marching in place. Lower with control. Keep your standing leg stable and torso upright.',
       'SIDE KICK (hip abduction): Keeping your leg straight, kick it directly out to the side against the band resistance. Return slowly. Don\'t let your hip hike up on the standing side.',
       'GLUTE EXTENSION (hip extension): Kick one leg straight back and slightly diagonally. Squeeze your glute at the end. Keep your back from arching — lead with the glute, not your lower back.',
-      'Do all 3 movements back-to-back on one side, then switch. This is a circuit, so keep rest short between movements.',
+      'Do all 3 movements back-to-back on one side, then switch.',
       'The key is staying TALL — don\'t lean sideways to compensate. If you\'re leaning a lot, reduce the band resistance.',
     ],
     optional: true,
@@ -202,7 +244,11 @@ export const EXERCISES: Exercise[] = [
     cue: 'Optional — hook leg on cable, seated on a block',
     sets: '3 × 10–12 reps each leg',
     videoIds: ['YQmpO-tNFaA', 'FN5aFfGBZIA', 'tEpzOUkGkfk'],
-    videoTitles: ['Cable Hip Flexor Exercise', 'Hip Flexor Cable Machine', 'Hip Flexor Strength Cable'],
+    videoTitles: [
+      'Cable Hip Flexor Exercise',
+      'Hip Flexor Cable Machine',
+      'Hip Flexor Strength Cable',
+    ],
     imageSearch: 'cable machine hip flexor exercise seated block strengthen',
     tips: [
       'At a cable machine, set the cable to low (ankle height). Attach an ankle cuff and hook it to the ankle of the leg you\'re working.',
@@ -210,7 +256,7 @@ export const EXERCISES: Exercise[] = [
       'Start position: knee dropped down (hip in extension). This stretches the hip flexor before you fire it.',
       'Movement: Drive your knee up toward your chest (hip flexion) against the cable resistance. Go as high as you comfortably can. Pause at the top.',
       'Lower slowly back to the start (3–4 seconds down). This eccentric control is the most important part for hip flexor rehab.',
-      'Use a light weight to start — this is about range of motion and control, not max effort. Increase load gradually over weeks.',
+      'Use a light weight to start — this is about range of motion and control, not max effort.',
     ],
     optional: true,
   },
