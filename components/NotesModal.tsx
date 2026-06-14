@@ -35,11 +35,13 @@ export default function NotesModal({ exerciseName, date, initialNote, onSave, on
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-white rounded-2xl w-full max-w-md shadow-2xl"
         onClick={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
         style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
         <div className="p-4 border-b border-stone-100 flex items-center justify-between">

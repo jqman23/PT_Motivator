@@ -111,9 +111,14 @@ export default function VideoModal({ videoIds, videoTitles, exerciseName, tips, 
       playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
       events: {
         onError: (e) => {
-          // 100 = not found, 101/150 = embedding disabled by owner
-          if (e.data === 100 || e.data === 101 || e.data === 150) {
-            setEmbedBlocked(true);
+          // 2 = bad param, 100 = not found, 101/150 = embedding disabled
+          if ([2, 100, 101, 150].includes(e.data)) {
+            const nextIdx = idxRef.current + 1;
+            if (nextIdx < videoIds.length) {
+              setIdx(nextIdx); // Auto-skip silently
+            } else {
+              setEmbedBlocked(true); // All videos exhausted
+            }
           }
         },
       },
@@ -143,11 +148,13 @@ export default function VideoModal({ videoIds, videoTitles, exerciseName, tips, 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
         style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
         {/* Header */}

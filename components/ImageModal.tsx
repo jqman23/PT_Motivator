@@ -8,19 +8,24 @@ interface Props {
   onClose: () => void;
 }
 
-// hqdefault (480×360) is ALWAYS available for every YouTube video — never 404s
+// hqdefault (480×360) is always available for every real YouTube video.
+// YouTube returns a 120×90 gray placeholder for invalid/deleted video IDs.
 function thumbUrl(videoId: string) {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
 
 export default function ImageModal({ exercise, onClose }: Props) {
   const [idx, setIdx] = useState(0);
+  const [imgInvalid, setImgInvalid] = useState(false);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
   const total = exercise.videoIds.length;
   const videoId = exercise.videoIds[idx] ?? '';
   const title = exercise.videoTitles[idx] ?? exercise.name;
+
+  // Reset validity check when switching images
+  useEffect(() => setImgInvalid(false), [idx]);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -48,17 +53,29 @@ export default function ImageModal({ exercise, onClose }: Props) {
     else if (dx < -50) next();
   };
 
+  // Detect YouTube's 120×90 placeholder for invalid/deleted video IDs
+  const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (e.currentTarget.naturalWidth <= 120) setImgInvalid(true);
+  };
+
+  // Close backdrop: preventDefault on touchEnd cancels the ghost click on mobile
+  const handleBackdropTouchEnd = (e: React.TouchEvent) => {
+    e.preventDefault();
+    onClose();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.93)' }}
-      onPointerDown={onClose}
+      onClick={onClose}
+      onTouchEnd={handleBackdropTouchEnd}
     >
       <div
         className="relative w-full max-w-lg flex flex-col"
-        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+        onTouchEnd={(e) => { e.stopPropagation(); handleTouchEnd(e); }}
         style={{ userSelect: 'none' }}
       >
         {/* Close */}
@@ -77,15 +94,36 @@ export default function ImageModal({ exercise, onClose }: Props) {
         </div>
 
         {/* Thumbnail */}
-        <div className="mx-4 rounded-2xl overflow-hidden relative" style={{ background: '#000' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            key={videoId}
-            src={thumbUrl(videoId)}
-            alt={title}
-            className="w-full object-cover"
-            style={{ display: 'block', maxHeight: '55vh', minHeight: 180, width: '100%' }}
-          />
+        <div className="mx-4 rounded-2xl overflow-hidden relative" style={{ background: '#111', minHeight: 200 }}>
+          {imgInvalid ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 px-6">
+              <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5" className="w-10 h-10">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M3 9l4-4 4 4 4-4 4 4" strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="8.5" cy="13.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <p className="text-xs font-medium text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                Preview not available
+              </p>
+            </div>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              key={videoId}
+              src={thumbUrl(videoId)}
+              alt={title}
+              onLoad={handleImgLoad}
+              style={{
+                display: 'block',
+                width: '100%',
+                height: 'auto',
+                maxHeight: '55vh',
+                minHeight: 180,
+                objectFit: 'contain',
+              }}
+            />
+          )}
 
           {/* Prev / Next arrows on image */}
           {total > 1 && (

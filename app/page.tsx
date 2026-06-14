@@ -84,6 +84,14 @@ export default function Home() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [confirmClearDay, setConfirmClearDay] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
+  const [saveAllDone, setSaveAllDone] = useState(false);
+
+  // Restore last-viewed date from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('pt-selected-date');
+    if (stored && stored <= todayStr()) setSelectedDate(stored);
+  }, []);
 
   const weekStart = offsetDate(today, -6);
 
@@ -126,12 +134,44 @@ export default function Home() {
     Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false));
   }, [loadLog, loadNotes, selectedDate]);
 
+  const changeDate = (date: string) => {
+    setSelectedDate(date);
+    localStorage.setItem('pt-selected-date', date);
+    setNotes({});
+    setConfirmClearDay(false);
+  };
+
   const handleDateChange = (dir: -1 | 1) => {
     const next = offsetDate(selectedDate, dir);
     if (next > today) return;
-    setConfirmClearDay(false);
-    setSelectedDate(next);
-    setNotes({});
+    changeDate(next);
+  };
+
+  const handleSaveAll = async () => {
+    setSavingAll(true);
+    setSaveAllDone(false);
+    try {
+      const dayLog = log[selectedDate] || {};
+      const logEntries = EXERCISES.map((ex) => ({
+        exerciseId: ex.id,
+        completed: dayLog[ex.id] ?? false,
+      }));
+      const noteEntries = Object.entries(notes).map(([exerciseId, note]) => ({
+        exerciseId,
+        note,
+      }));
+      await fetch('/api/save-day', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: selectedDate, log: logEntries, notes: noteEntries }),
+      });
+      setSaveAllDone(true);
+      setTimeout(() => setSaveAllDone(false), 3000);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingAll(false);
+    }
   };
 
   const handleToggle = async (exerciseId: string) => {
@@ -252,6 +292,31 @@ export default function Home() {
 
           {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
 
+          {/* Today button + Save day */}
+          <div className="mt-2 flex items-center justify-center gap-2">
+            {!isToday && (
+              <button
+                onPointerDown={() => changeDate(today)}
+                className="text-xs font-semibold px-3 py-1 rounded-full"
+                style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}
+              >
+                ↩ Today
+              </button>
+            )}
+            <button
+              onPointerDown={handleSaveAll}
+              disabled={savingAll}
+              className="text-xs font-semibold px-3 py-1 rounded-full transition-colors"
+              style={{
+                color: saveAllDone ? '#fff' : '#5B9BD5',
+                background: saveAllDone ? '#5B9BD5' : '#dbeafe',
+                touchAction: 'manipulation',
+              }}
+            >
+              {savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}
+            </button>
+          </div>
+
           {/* Clear day */}
           <div className="mt-2 flex justify-center">
             {!confirmClearDay ? (
@@ -284,7 +349,7 @@ export default function Home() {
           <CalendarModal
             today={today}
             selectedDate={selectedDate}
-            onSelectDate={(d) => { setSelectedDate(d); setNotes({}); }}
+            onSelectDate={(d) => changeDate(d)}
             onClose={() => setShowCalendar(false)}
           />
         )}
