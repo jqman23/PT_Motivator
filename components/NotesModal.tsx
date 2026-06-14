@@ -40,6 +40,7 @@ export default function NotesModal({ exerciseName, date, initialNote, onSave, on
       <div
         className="bg-white rounded-2xl w-full max-w-md shadow-2xl"
         onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
         <div className="p-4 border-b border-stone-100 flex items-center justify-between">
           <div>

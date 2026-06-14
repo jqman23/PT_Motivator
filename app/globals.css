@@ -10,14 +10,36 @@
   color-scheme: light;
 }
 
-html, body {
+html {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
   color-scheme: light;
   background-color: #F6F1E7;
   color: #353B33;
   font-family: 'Montserrat', sans-serif;
-  -webkit-text-size-adjust: 100%;
+  /* Prevent rubber-band overscroll background flash */
+  overscroll-behavior: none;
 }
 
+/* Prevent iOS from zooming on input focus — must be >= 16px */
+input,
+textarea,
+select {
+  font-size: 16px !important;
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Remove browser tap highlight on mobile */
 * {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Minimum touch target size for interactive elements */
+button, a[role="button"] {
+  touch-action: manipulation;
+  min-height: 36px;
 }

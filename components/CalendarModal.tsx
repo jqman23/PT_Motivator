@@ -99,8 +99,8 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
   const hovered = hoveredDay ? getDaySummary(hoveredDay) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm pt-16 px-4 pb-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()} style={{ maxHeight: '90dvh', overflowY: 'auto' }}>
 
         {/* Header */}
         <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">

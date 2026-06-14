@@ -36,6 +36,7 @@ export default function VideoModal({ videoIds, videoTitles, exerciseName, tips, 
       <div
         className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
         {/* Header */}
         <div className="px-4 py-3 border-b border-stone-100 flex items-start justify-between gap-2">
