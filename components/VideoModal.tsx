@@ -15,7 +15,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
 
-  const query = `${exercise.name} how to exercise physical therapy`;
+  const query = `${exercise.imageSearch} how to exercise physical therapy`;
 
   useEffect(() => {
     setLoading(true);

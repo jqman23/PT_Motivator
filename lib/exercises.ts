@@ -28,7 +28,7 @@ export const EXERCISES: Exercise[] = [
       'Theraband Ankle Exercises — Bob & Brad',
       'Ankle Eversion & Inversion — Physical Therapy',
     ],
-    imageSearch: 'ankle resistance band exercise standing',
+    imageSearch: 'standing single leg ankle eversion inversion resistance band stability',
     tips: [
       'Stand on one leg with a resistance band looped around your ankle, anchored to something fixed (chair leg, door anchor, or table leg) at ground level.',
       'Keep a soft bend in your standing knee and find your balance. Use a wall lightly for support if needed.',
@@ -50,7 +50,7 @@ export const EXERCISES: Exercise[] = [
       'Single Leg Balance Training — Prehab Guys',
       'Ankle Balance & Proprioception Rehab',
     ],
-    imageSearch: 'single leg balance exercise proprioception',
+    imageSearch: 'single leg balance bosu ball training proprioception',
     tips: [
       'Start on a flat, firm surface. Stand near a wall or chair you can grab if you lose balance — safety first.',
       'Begin with BOTH feet on the surface for 30 seconds. If that\'s easy, progress to standing on one leg.',
@@ -72,7 +72,7 @@ export const EXERCISES: Exercise[] = [
       'Toe Yoga for Foot Strength',
       'Toe Separation Exercise',
     ],
-    imageSearch: 'toe exercises foot strengthening intrinsic muscles',
+    imageSearch: 'toe separation exercise big toe isolated foot intrinsic muscles',
     tips: [
       'Sit or stand barefoot. Press your entire foot flat on the floor — heel, ball, and all five toes making contact.',
       'Pattern 1 — Big toe lift: Keeping your four smaller toes pressed down, lift ONLY your big toe as high as it will go. Hold 2 sec, lower. This is hard at first.',
@@ -94,7 +94,7 @@ export const EXERCISES: Exercise[] = [
       'Gastrocnemius & Soleus Stretch',
       'Calf Stretch Variations',
     ],
-    imageSearch: 'calf stretch gastrocnemius soleus wall stretch',
+    imageSearch: 'standing wall calf stretch straight leg and bent knee soleus gastrocnemius',
     tips: [
       'Stand facing a wall, hands on wall at shoulder height. Step one foot back about 2–3 feet, keeping both feet pointing straight forward.',
       'STRAIGHT-LEG stretch (gastrocnemius — upper calf): Keep the back knee straight. Press your back heel firmly into the floor. Lean your hips toward the wall until you feel a pull in the upper part of your calf. Hold 30 sec.',
@@ -116,7 +116,7 @@ export const EXERCISES: Exercise[] = [
       'Hip Flexor Stretch with Band',
       'Kneeling Hip Flexor Band Mobilization',
     ],
-    imageSearch: 'kneeling hip flexor stretch lunge',
+    imageSearch: 'kneeling hip flexor resistance band mobilization lunge position',
     tips: [
       'Anchor a resistance band to a low point (door anchor, post) at foot level. Loop the band around the FRONT of your rear hip/upper thigh.',
       'Drop into a tall kneeling lunge: front foot flat on floor, back knee down on a cushion or mat, front shin roughly vertical.',
@@ -138,7 +138,7 @@ export const EXERCISES: Exercise[] = [
       'Single Leg RDL Tutorial',
       'Single Leg RDL — AthleanX',
     ],
-    imageSearch: 'single leg romanian deadlift balance exercise',
+    imageSearch: 'single leg romanian deadlift bodyweight balance ankle band side anchor',
     tips: [
       'Start standing on one leg with a slight bend in the knee. Before you move, press 3 points into the floor: big toe mound, pinky toe mound, and heel (the "foot tripod"). This activates the stabilizing muscles.',
       'Hinge forward at the hip — push your butt BACKWARD, not downward. Imagine your hip is a hinge; your chest and rear leg move simultaneously (like a seesaw).',
@@ -160,7 +160,7 @@ export const EXERCISES: Exercise[] = [
       'Single Leg Hip Thrust — Glute Lab',
       'Hip Thrust Single Leg Tutorial',
     ],
-    imageSearch: 'hip thrust bench single leg glute exercise',
+    imageSearch: 'single leg hip thrust bench glute and hamstring strengthening',
     tips: [
       'Set up with your upper back resting across a bench or couch — your shoulder blades should be on the edge. Feet flat on the floor, knees bent about 90 degrees.',
       'Tuck your chin slightly (don\'t crane your neck upward). Brace your core gently.',
@@ -182,7 +182,7 @@ export const EXERCISES: Exercise[] = [
       'Goblet Squat — Alan Thrall',
       'Split Squat Tutorial',
     ],
-    imageSearch: 'goblet squat split squat leg strengthening exercise',
+    imageSearch: 'goblet squat dumbbell kettlebell split squat lunge leg strengthening',
     tips: [
       'Choose ONE main movement per session: goblet squat, split squat (Bulgarian), step-up, or Romanian deadlift.',
       'GOBLET SQUAT: Hold a dumbbell/kettlebell at your chest. Feet shoulder-width, toes slightly out. Sit down between your heels — keep chest tall and knees tracking over toes.',
@@ -204,7 +204,7 @@ export const EXERCISES: Exercise[] = [
       'Single Leg Glute Bridge — Bret Contreras',
       'Single Leg Hip Bridge Tutorial',
     ],
-    imageSearch: 'single leg glute bridge exercise lying',
+    imageSearch: 'single leg glute bridge lying floor hip extension bodyweight',
     tips: [
       'Lie on your back with knees bent, feet flat on the floor, arms at your sides.',
       'Extend one leg straight out — keep it in line with your thigh (don\'t let it drop). This is your non-working leg.',
@@ -226,7 +226,7 @@ export const EXERCISES: Exercise[] = [
       'Hip Flexor Strengthening',
       'Standing Hip March Exercise',
     ],
-    imageSearch: 'standing hip march resistance band exercise',
+    imageSearch: 'standing hip march resistance band ankle flexion strengthening',
     tips: [
       'Place a loop band around your ankles. Stand tall, feet hip-width apart, slight bend in both knees. Hold a wall for balance if needed.',
       'Lift one knee upward toward your hip — like an exaggerated march. The band adds resistance as you lift.',
@@ -249,7 +249,7 @@ export const EXERCISES: Exercise[] = [
       'Standing Hip Abduction Strengthening',
       'Glute Med Band Exercise',
     ],
-    imageSearch: 'hip abduction side kick resistance band exercise',
+    imageSearch: 'standing side kick hip abduction resistance band ankle',
     tips: [
       'Place a loop band around your ankles. Stand with feet hip-width, slight knee bend. Use a wall for balance.',
       'Keeping your leg STRAIGHT, kick one leg directly out to the side — against the band resistance. Don\'t bend the knee.',
@@ -272,7 +272,7 @@ export const EXERCISES: Exercise[] = [
       'Single Leg Glute Extension',
       'Hip Extension Band Strengthening',
     ],
-    imageSearch: 'hip extension glute kickback resistance band standing',
+    imageSearch: 'standing hip extension glute kickback resistance band ankle',
     tips: [
       'Place a loop band around your ankles. Face a wall and hold it lightly for balance — you\'ll lean forward slightly as you kick back.',
       'Keeping your leg straight, kick it backward and slightly diagonally (not straight back — diagonal engages the glute more).',
@@ -295,7 +295,7 @@ export const EXERCISES: Exercise[] = [
       'Hip Flexor Cable Machine',
       'Hip Flexor Strength Cable',
     ],
-    imageSearch: 'cable hip flexor exercise machine strengthen',
+    imageSearch: 'seated cable hip flexor strengthening ankle cuff knee drive',
     tips: [
       'At a cable machine, set the cable to low (ankle height). Attach an ankle cuff and hook it to the ankle of the leg you\'re working.',
       'Sit on a high bench or plyo box facing the cable machine. Your working leg hangs off the edge, knee bent around 90°.',
