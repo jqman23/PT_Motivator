@@ -83,29 +83,21 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             </svg>
           </button>
 
-          {exercise.videoIds.length > 0 && (
-            <button
-              onClick={() => setShowVideo(true)}
-              className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
-              title="Watch video"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <circle cx="8" cy="8" r="6"/>
-                <polygon points="6.5,5.5 11,8 6.5,10.5" fill="currentColor" stroke="none"/>
-              </svg>
-            </button>
-          )}
+          <button
+            onClick={() => setShowVideo(true)}
+            className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
+            title="Watch video"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <circle cx="8" cy="8" r="6"/>
+              <polygon points="6.5,5.5 11,8 6.5,10.5" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
         </div>
       </div>
 
       {showVideo && (
-        <VideoModal
-          videoIds={exercise.videoIds}
-          videoTitles={exercise.videoTitles}
-          exerciseName={exercise.name}
-          tips={exercise.tips}
-          onClose={() => setShowVideo(false)}
-        />
+        <VideoModal exercise={exercise} onClose={() => setShowVideo(false)} />
       )}
 
       {showImages && (
