@@ -107,6 +107,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
       {showNotes && (
         <NotesModal
           exerciseName={exercise.name}
+          exerciseId={exercise.id}
           date={today}
           initialNote={note}
           onSave={onNoteSave}
