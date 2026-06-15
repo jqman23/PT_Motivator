@@ -8,7 +8,7 @@ interface Props {
   log: LogMap;
   today: string;
   selectedDate: string;
-  ptSessions?: string[];
+  ptSessions?: { date: string; note?: string }[];
 }
 
 function todayStr(d: Date): string {
@@ -67,7 +67,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
               const frac = categoryFraction(ds, cat);
               const isToday = ds === today;
               const isSelected = ds === selectedDate;
-              const hasPT = ptSessions?.includes(ds);
+              const hasPT = ptSessions?.some(s => s.date === ds);
               return (
                 <div key={ds} className="flex flex-col items-center gap-0.5">
                   <div
@@ -110,7 +110,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
         <p className="text-[10px] text-stone-400">
           Mobility: {mobComplete}/7 · Strength: {strComplete}/3
         </p>
-        {ptSessions && ptSessions.some(d => days.some(day => todayStr(day) === d)) && (
+        {ptSessions && ptSessions.some(s => days.some(day => todayStr(day) === s.date)) && (
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} />
             <span className="text-[10px] text-stone-400">PT session</span>

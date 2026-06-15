@@ -6,7 +6,7 @@ import { EXERCISES } from '@/lib/exercises';
 interface Props {
   onClose: () => void;
   today: string;
-  ptSessions: string[];
+  ptSessions: { date: string; note?: string }[];
 }
 
 type HealthRow = { date: string; pain?: number; energy?: number; mood?: number; sleep_hours?: number };
@@ -227,7 +227,7 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
     const totalDone = allDates.reduce((s, d) => s + nonOpt.filter(e => logMap[d]?.[e.id]).length, 0);
     const totalPossible = allDates.length * nonOpt.length;
     const overallRate = totalPossible ? Math.round((totalDone / totalPossible) * 100) : 0;
-    const ptInRange = ptSessions.filter(d => d >= startDate && d <= today).length;
+    const ptInRange = ptSessions.filter(s => s.date >= startDate && s.date <= today).length;
     const avgPain = painData.length
       ? (painData.reduce((s, d) => s + d.value, 0) / painData.length).toFixed(1)
       : null;

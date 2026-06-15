@@ -19,7 +19,7 @@ interface Props {
   onClose: () => void;
   today: string;
   selectedDate: string;
-  ptSessions?: string[];
+  ptSessions?: { date: string; note?: string }[];
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -150,7 +150,8 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
             const isSelected = ds === selectedDate;
             const summary = getDaySummary(ds);
             const hasAnyData = summary.mobilityFrac > 0 || summary.strengthFrac > 0 || summary.hasHealth;
-            const isPTSession = ptSessions?.includes(ds);
+            const ptSession = ptSessions?.find(s => s.date === ds);
+            const isPTSession = !!ptSession;
 
             return (
               <div
@@ -186,20 +187,9 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   {summary.hasHealth && (
                     <div className="w-2 h-2 rounded-full bg-[#5B9BD5] flex-shrink-0" />
                   )}
-                  {isPTSession && (
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#D9A94B' }} />
-                  )}
-                  {!hasAnyData && !isPTSession && !isFuture && <div className="w-2 h-2" />}
+                  {!hasAnyData && !isFuture && <div className="w-2 h-2" />}
                 </div>
 
-                {/* PT session corner badge */}
-                {isPTSession && !isFuture && (
-                  <div
-                    className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full"
-                    style={{ background: '#D9A94B' }}
-                    title="PT session"
-                  />
-                )}
               </div>
             );
           })}
@@ -213,7 +203,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 <p className="text-xs font-bold text-stone-700">
                   {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
                 </p>
-                {ptSessions?.includes(hoveredDay) && (
+                {ptSessions?.some(s => s.date === hoveredDay) && (
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: '#FBF5E8', color: '#D9A94B' }}>PT session</span>
                 )}
               </div>

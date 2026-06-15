@@ -17,6 +17,7 @@ import ReportingModal from '@/components/ReportingModal';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
+type PTSession = { date: string; note?: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export default function Home() {
   const [showReporting, setShowReporting] = useState(false);
 
   // PT Sessions
-  const [ptSessions, setPtSessions] = useState<string[]>([]);
+  const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -162,7 +163,15 @@ export default function Home() {
 
     fetch('/api/config?key=ptSessions')
       .then(r => r.json())
-      .then(data => { if (Array.isArray(data.value)) setPtSessions(data.value as string[]); })
+      .then(data => {
+        if (Array.isArray(data.value)) {
+          setPtSessions(
+            data.value.map((item: string | PTSession) =>
+              typeof item === 'string' ? { date: item, note: '' } : item
+            )
+          );
+        }
+      })
       .catch(console.error);
   }, []);
 
@@ -222,7 +231,7 @@ export default function Home() {
   }, []);
 
   // ── PT sessions save helper
-  const updatePtSessions = useCallback((next: string[]) => {
+  const updatePtSessions = useCallback((next: PTSession[]) => {
     setPtSessions(next);
     fetch('/api/config', {
       method: 'POST',
@@ -408,9 +417,9 @@ export default function Home() {
                 className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm transition-colors"
                 style={{
                   touchAction: 'manipulation',
-                  background: ptSessions.includes(today) ? '#FBF5E8' : 'white',
-                  borderColor: ptSessions.includes(today) ? '#D9A94B' : '#e7e5e4',
-                  color: ptSessions.includes(today) ? '#D9A94B' : '#78716c',
+                  background: ptSessions.some(s => s.date === today) ? '#FBF5E8' : 'white',
+                  borderColor: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#e7e5e4',
+                  color: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#78716c',
                 }}
                 title="PT sessions"
               >
