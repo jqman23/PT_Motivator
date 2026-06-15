@@ -338,8 +338,21 @@ export default function Home() {
 
   // ── Library actions
   const addExToCategory = (exId: string, catId: string) => {
-    const next = layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))
+    const currentCat = layout.find(c => c.exerciseIds.includes(exId));
+
+    if (currentCat?.id === catId) {
+      updateLayout(layout.map(c =>
+        c.id === catId
+          ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }
+          : c
+      ));
+      return;
+    }
+
+    const next = layout
+      .map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))
       .map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c);
+
     updateLayout(next);
   };
   const createCustom = (ex: Exercise) => updateCustom([...customExercises, ex]);
