@@ -126,6 +126,7 @@ export default function Home() {
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('blue');
+  const [appTitle, setAppTitle] = useState('Ankle PT');
 
   // Popups
   const [showManage, setShowManage] = useState(false);
@@ -193,6 +194,13 @@ export default function Home() {
       })
       .catch(() => setExerciseLibrary(seedExerciseLibrary()));
 
+    fetch('/api/config?key=appTitle')
+      .then(r => r.json())
+      .then(data => {
+        if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value);
+      })
+      .catch(console.error);
+
     fetch('/api/config?key=ptSessions')
       .then(r => r.json())
       .then(data => {
@@ -259,6 +267,16 @@ export default function Home() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'exerciseLibrary', value: next }),
+    }).catch(console.error);
+  }, []);
+
+  const updateAppTitle = useCallback((next: string) => {
+    const clean = next.trim() || 'Ankle PT';
+    setAppTitle(clean);
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'appTitle', value: clean }),
     }).catch(console.error);
   }, []);
 
