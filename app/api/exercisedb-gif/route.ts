@@ -71,9 +71,9 @@ export async function GET(req: NextRequest) {
       .filter(x => x.score > 0)
       .sort((a, b) => b.score - a.score)[0]?.item;
 
-    if (best?.gifUrl || best?.id) {
+    if (best?.gifUrl) {
       return NextResponse.json({
-        gifUrl: best.gifUrl ?? `/api/exercisedb-image/${best.id}`,
+        gifUrl: best.gifUrl,
         match: best,
         debug,
       });
