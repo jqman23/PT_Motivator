@@ -25,6 +25,21 @@ body {
   overscroll-behavior: none;
 }
 
+/* Keep the main title/action icon row visible while scrolling on mobile. */
+@media (max-width: 639px) {
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding: 0.5rem 1rem;
+    background: rgb(246 241 231 / 0.95);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+}
+
 /* Prevent iOS from zooming on input focus — must be >= 16px */
 input,
 textarea,
