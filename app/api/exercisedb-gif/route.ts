@@ -23,62 +23,66 @@ function scoreMatch(query: string, item: ExerciseDbItem) {
   return score;
 }
 
-async function callExerciseDb(path: string, apiKey: string) {
-  const url = `https://exercisedb.p.rapidapi.com${path}`;
-  const res = await fetch(url, {
-    headers: {
-      'x-rapidapi-host': 'exercisedb.p.rapidapi.com',
-      'x-rapidapi-key': apiKey,
-    },
-    cache: 'no-store',
+async function callExerciseDb(q: string, apiKey?: string) {
+  if (!apiKey) return null;
+
+  const res = await fetch(
+    `https://exercisedb.p.rapidapi.com/exercises/name/${encodeURIComponent(q)}?limit=10&offset=0`,
+    {
+      headers: {
+        'x-rapidapi-host': 'exercisedb.p.rapidapi.com',
+        'x-rapidapi-key': apiKey,
+      },
+      cache: 'no-store',
+    }
+  );
+
+  if (!res.ok) return null;
+  const items = (await res.json()) as ExerciseDbItem[];
+  const best = items
+    .filter(item => item.gifUrl)
+    .map(item => ({ item, score: scoreMatch(q, item) }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.item;
+
+  return best?.gifUrl ? { gifUrl: best.gifUrl, source: 'exercisedb', match: best } : null;
+}
+
+async function callGiphy(q: string, apiKey?: string) {
+  if (!apiKey) return null;
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    q: `${q} exercise workout demonstration`,
+    limit: '8',
+    rating: 'g',
+    lang: 'en',
   });
 
-  const text = await res.text();
-  let data: unknown = null;
-  try { data = JSON.parse(text); } catch { data = text; }
+  const res = await fetch(`https://api.giphy.com/v1/gifs/search?${params}`, { cache: 'no-store' });
+  if (!res.ok) return null;
 
-  return { ok: res.ok, status: res.status, url, data };
+  const data = await res.json();
+  const gif =
+    data?.data?.[0]?.images?.downsized_medium?.url ??
+    data?.data?.[0]?.images?.original?.url ??
+    data?.data?.[0]?.images?.fixed_height?.url;
+
+  return gif ? { gifUrl: gif, source: 'giphy', match: data.data[0]?.title ?? null } : null;
 }
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q') ?? '';
-  if (!q.trim()) return NextResponse.json({ gifUrl: null, debug: 'missing q' });
+  if (!q.trim()) return NextResponse.json({ gifUrl: null, error: 'missing query' });
 
-  const apiKey = process.env.EXERCISEDB_RAPIDAPI_KEY;
-  if (!apiKey) return NextResponse.json({ gifUrl: null, noKey: true });
+  const exerciseDb = await callExerciseDb(q, process.env.EXERCISEDB_RAPIDAPI_KEY);
+  if (exerciseDb) return NextResponse.json(exerciseDb);
 
-  const attempts = [
-    `/exercises/name/${encodeURIComponent(q)}?limit=20&offset=0`,
-    `/exercises?limit=1500&offset=0`,
-  ];
+  const giphy = await callGiphy(q, process.env.GIPHY_API_KEY);
+  if (giphy) return NextResponse.json(giphy);
 
-  const debug: unknown[] = [];
-
-  for (const path of attempts) {
-    const result = await callExerciseDb(path, apiKey);
-    debug.push({
-      path,
-      ok: result.ok,
-      status: result.status,
-      sample: Array.isArray(result.data) ? result.data.slice(0, 3) : result.data,
-    });
-
-    if (!result.ok || !Array.isArray(result.data)) continue;
-
-    const best = (result.data as ExerciseDbItem[])
-      .filter(item => item.gifUrl || item.id)
-      .map(item => ({ item, score: scoreMatch(q, item) }))
-      .filter(x => x.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.item;
-
-    if (best?.gifUrl) {
-      return NextResponse.json({
-        gifUrl: best.gifUrl,
-        match: best,
-        debug,
-      });
-    }
-  }
-
-  return NextResponse.json({ gifUrl: null, match: null, debug });
+  return NextResponse.json({
+    gifUrl: null,
+    error: 'No GIF found. ExerciseDB returned no gifUrl and GIPHY_API_KEY may be missing or no Giphy match found.',
+  });
 }
