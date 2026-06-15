@@ -98,7 +98,6 @@ export default function TimerWidget() {
 
   useEffect(() => { return () => stop(); }, [stop]);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -121,9 +120,8 @@ export default function TimerWidget() {
 
   return (
     <>
-      {/* Header icon button */}
       <button
-        onPointerDown={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o); }}
         className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border ${
           running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' :
           done    ? 'bg-[#7E9B86] border-[#7E9B86] text-white' :
@@ -140,29 +138,27 @@ export default function TimerWidget() {
         </svg>
       </button>
 
-      {/* Fixed-position panel — stays open while using the rest of the app */}
       {open && (
         <div
-          className="fixed bottom-5 right-4 z-50 bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
+          className="fixed right-3 bottom-2 sm:bottom-5 sm:right-4 z-50 bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
           style={{ width: 220, touchAction: 'manipulation' }}
           onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
-          {/* Close + label */}
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Timer</span>
             <button
-              onPointerDown={(e) => { e.stopPropagation(); setOpen(false); }}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
               className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none"
               style={{ touchAction: 'manipulation' }}
             >×</button>
           </div>
 
-          {/* Preset buttons */}
           <div className="flex gap-1.5 mb-4">
             {PRESETS.map(s => (
               <button
                 key={s}
-                onPointerDown={(e) => { e.stopPropagation(); selectPreset(s); }}
+                onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); selectPreset(s); }}
                 className="flex-1 rounded-lg text-xs font-bold transition-colors"
                 style={{
                   padding: '8px 0',
@@ -176,7 +172,6 @@ export default function TimerWidget() {
             ))}
           </div>
 
-          {/* Ring + time */}
           <div className="flex items-center justify-center mb-4">
             <div className="relative" style={{ width: 72, height: 72 }}>
               <svg viewBox="0 0 48 48" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
@@ -204,10 +199,9 @@ export default function TimerWidget() {
             <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓</p>
           )}
 
-          {/* Controls */}
           <div className="flex gap-2">
             <button
-              onPointerDown={(e) => { e.stopPropagation(); running ? stop() : start(); }}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); running ? stop() : start(); }}
               className="flex-1 rounded-lg text-xs font-bold transition-colors"
               style={{
                 padding: '10px 0',
@@ -219,7 +213,7 @@ export default function TimerWidget() {
               {running ? 'Pause' : done ? 'Restart' : 'Start'}
             </button>
             <button
-              onPointerDown={(e) => { e.stopPropagation(); reset(); }}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); reset(); }}
               className="rounded-lg text-xs font-semibold transition-colors"
               style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c', touchAction: 'manipulation' }}
             >
