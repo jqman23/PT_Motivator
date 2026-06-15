@@ -91,11 +91,11 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8"
-      onPointerDown={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col"
-        onPointerDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
         style={{ maxHeight: '92dvh' }}
       >
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
@@ -103,7 +103,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
             <h2 className="font-serif text-lg font-semibold text-stone-800">Meds / treatments</h2>
             <p className="text-[11px] text-stone-400">Assign notes to one day or bulk apply</p>
           </div>
-          <button onPointerDown={e => { e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
+          <button onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
 
         <div className="overflow-y-auto px-4 py-4 space-y-4">
@@ -116,7 +116,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
                 return (
                   <button
                     key={ds}
-                    onPointerDown={e => { e.stopPropagation(); chooseDate(ds); }}
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); chooseDate(ds); }}
                     className="flex-shrink-0 rounded-xl px-2.5 py-2 text-xs font-semibold border"
                     style={{
                       background: active ? '#E4ECE6' : has ? '#FBF5E8' : 'white',
@@ -138,7 +138,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
             <button
-              onPointerDown={e => { e.stopPropagation(); saveOne(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); saveOne(); }}
               className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white"
               style={{ background: '#7E9B86' }}
             >
@@ -154,7 +154,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
                 return (
                   <button
                     key={ds}
-                    onPointerDown={e => { e.stopPropagation(); toggleBulkDate(ds); }}
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); toggleBulkDate(ds); }}
                     className="rounded-lg px-2 py-2 text-xs font-semibold border text-left"
                     style={{
                       background: active ? '#E4ECE6' : 'white',
@@ -176,7 +176,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
             <button
-              onPointerDown={e => { e.stopPropagation(); applyBulk(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); applyBulk(); }}
               disabled={!bulkDates.length}
               className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40"
               style={{ background: '#5B9BD5' }}
