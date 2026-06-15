@@ -16,6 +16,32 @@ function pickMedia(item: ExerciseDbFullItem | null | undefined) {
   return item?.gifUrl || item?.videoUrl || item?.imageUrl || null;
 }
 
+function cleanWords(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !['the', 'and', 'with', 'from', 'into', 'hold', 'focus', 'gentle', 'super', 'band'].includes(w));
+}
+
+function score(query: string, item: ExerciseDbSearchItem) {
+  const words = cleanWords(query);
+  const name = String(item.name ?? '').toLowerCase();
+  let points = 0;
+
+  for (const w of words) {
+    if (name.includes(w)) points += 10;
+  }
+
+  if (name.includes(query.toLowerCase())) points += 50;
+  if (name.includes('lat') && !query.toLowerCase().includes('lat')) points -= 25;
+  if (name.includes('hip') && query.toLowerCase().includes('hip')) points += 20;
+  if (name.includes('flexor') && query.toLowerCase().includes('flexor')) points += 20;
+  if (name.includes('stretch') && query.toLowerCase().includes('stretch')) points += 10;
+
+  return points;
+}
+
 async function fetchJson(url: string) {
   const res = await fetch(url, {
     headers: { accept: 'application/json' },
@@ -38,7 +64,13 @@ export async function GET(req: NextRequest) {
   const searchData = await fetchJson(searchUrl.toString());
   const results: ExerciseDbSearchItem[] = Array.isArray(searchData) ? searchData : [];
 
-  for (const result of results.slice(0, 5)) {
+  const ranked = results
+    .map(item => ({ item, points: score(q, item) }))
+    .filter(x => x.points > 0)
+    .sort((a, b) => b.points - a.points)
+    .map(x => x.item);
+
+  for (const result of ranked.slice(0, 8)) {
     const immediate = pickMedia(result);
     if (immediate) {
       return NextResponse.json({
