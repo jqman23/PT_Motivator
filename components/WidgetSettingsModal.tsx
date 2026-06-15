@@ -26,11 +26,11 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
   return (
     <div
       className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8"
-      onPointerDown={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col"
-        onPointerDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
         style={{ maxHeight: '90dvh' }}
       >
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
@@ -39,7 +39,7 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
             <p className="text-[11px] text-stone-400">Choose which optional icons show up top.</p>
           </div>
           <button
-            onPointerDown={e => { e.stopPropagation(); onClose(); }}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }}
             className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl"
           >
             ×
@@ -58,7 +58,8 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
             return (
               <button
                 key={opt.key}
-                onPointerDown={e => {
+                onClick={e => {
+                  e.preventDefault();
                   e.stopPropagation();
                   if (isMobileDisabled && window.innerWidth < 640) return;
                   toggle(opt.key);
