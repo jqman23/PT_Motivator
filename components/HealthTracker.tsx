@@ -9,6 +9,7 @@ interface HealthData {
   mood: number | null;
   pain: number | null;
   sleep_notes: string;
+  sleep_quality_notes: string;
   energy_notes: string;
   mood_notes: string;
   pain_notes: string;
@@ -23,6 +24,7 @@ const EMPTY: HealthData = {
   mood: null,
   pain: null,
   sleep_notes: '',
+  sleep_quality_notes: '',
   energy_notes: '',
   mood_notes: '',
   pain_notes: '',
@@ -157,6 +159,7 @@ export default function HealthTracker({ today }: Props) {
             mood: row.mood !== null ? Number(row.mood) : null,
             pain: row.pain !== null ? Number(row.pain) : null,
             sleep_notes: row.sleep_notes ?? '',
+            sleep_quality_notes: row.sleep_quality_notes ?? '',
             energy_notes: row.energy_notes ?? '',
             mood_notes: row.mood_notes ?? '',
             pain_notes: row.pain_notes ?? '',
@@ -284,8 +287,8 @@ export default function HealthTracker({ today }: Props) {
         min={0} max={10} step={0.5}
         lowLabel="Poor" highLabel="Great"
         color="sky"
-        note={data.sleep_notes}
-        onNoteChange={(v) => updateNote('sleep_notes', v)}
+        note={data.sleep_quality_notes}
+        onNoteChange={(v) => updateNote('sleep_quality_notes', v)}
         onChange={(v) => updateNum('sleep_quality', v)}
       />
       <Slider
