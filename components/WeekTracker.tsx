@@ -12,6 +12,7 @@ interface Props {
   selectedDate: string;
   ptSessions?: { date: string; note?: string }[];
   exercises: Exercise[];
+  onSelectDate: (date: string) => void;
 }
 
 function todayStr(d: Date): string {
@@ -38,7 +39,7 @@ function displayDay(ds: string) {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-export default function WeekTracker({ log, today, selectedDate, ptSessions, exercises }: Props) {
+export default function WeekTracker({ log, today, selectedDate, ptSessions, exercises, onSelectDate }: Props) {
   const days = lastNDays(7);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
 
@@ -110,6 +111,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
                 <button
                   key={ds}
                   type="button"
+                  onClick={() => onSelectDate(ds)}
                   onMouseEnter={() => setHoveredDay(ds)}
                   onMouseLeave={() => setHoveredDay(null)}
                   onFocus={() => setHoveredDay(ds)}
@@ -117,7 +119,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
                   className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 transition-colors outline-none ${
                     isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
                   }`}
-                  title={`${displayDay(ds)} summary`}
+                  title={`Go to ${displayDay(ds)}`}
                 >
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden transition-transform ${

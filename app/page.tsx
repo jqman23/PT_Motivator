@@ -799,7 +799,7 @@ export default function Home() {
 
             {/* Week tracker */}
             <section className="mb-5">
-              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} />
+              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={changeDate} />
             </section>
 
             <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>
