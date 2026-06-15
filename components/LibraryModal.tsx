@@ -42,6 +42,7 @@ export default function LibraryModal({
   const [exerciseDbLoading, setExerciseDbLoading] = useState(false);
   const [exerciseDbImporting, setExerciseDbImporting] = useState<string | null>(null);
   const [exerciseDbError, setExerciseDbError] = useState('');
+  const [importedExerciseDbMeta, setImportedExerciseDbMeta] = useState<{ sourceId?: string; gifUrl?: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
@@ -76,6 +77,7 @@ export default function LibraryModal({
     setExerciseDbResults([]);
     setExerciseDbError('');
     setExerciseDbImporting(null);
+    setImportedExerciseDbMeta(null);
   };
 
   const inferCategoryFromExerciseDb = (exercise: ExerciseDbResult): Exercise['cat'] => {
@@ -102,6 +104,7 @@ export default function LibraryModal({
     setExerciseDbResults([]);
     setExerciseDbError('');
     setExerciseDbImporting(null);
+    setImportedExerciseDbMeta(null);
   };
 
   const searchExerciseDb = async () => {
@@ -158,6 +161,7 @@ export default function LibraryModal({
       setImageSearch([titleName, bodyText, equipmentText].filter(Boolean).join(' '));
       setTips(exercise.instructions?.length ? exercise.instructions : []);
       setCat(inferCategoryFromExerciseDb(exercise));
+      setImportedExerciseDbMeta({ sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
       setExerciseDbResults([]);
       setExerciseDbQuery('');
     } catch {
@@ -178,8 +182,9 @@ export default function LibraryModal({
         cat,
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
-        origin: imageSearch ? 'exercisedb' : 'patient_added',
-        sourceId: imageSearch ? 'exercisedb' : undefined,
+        origin: importedExerciseDbMeta?.sourceId ? 'exercisedb' : 'patient_added',
+        sourceId: importedExerciseDbMeta?.sourceId,
+        gifUrl: importedExerciseDbMeta?.gifUrl,
       }),
     };
 

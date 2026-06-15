@@ -19,6 +19,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showImages, setShowImages] = useState(false);
+  const [showGif, setShowGif] = useState(false);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -71,6 +72,18 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             </svg>
           </button>
 
+          {exercise.gifUrl && (
+            <button
+              onClick={() => setShowGif(v => !v)}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                showGif ? 'bg-[#7C3AED]/15 text-[#7C3AED]' : 'bg-stone-100 text-stone-400 hover:bg-stone-200'
+              }`}
+              title={showGif ? 'Hide GIF demo' : 'Show GIF demo'}
+            >
+              <span className="text-[10px] font-bold">GIF</span>
+            </button>
+          )}
+
           <button
             onClick={() => setShowImages(true)}
             className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
@@ -95,6 +108,20 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           </button>
         </div>
       </div>
+
+      {showGif && exercise.gifUrl && (
+        <div className="mt-2 rounded-2xl overflow-hidden border border-stone-100 bg-white p-2">
+          <img
+            src={exercise.gifUrl}
+            alt={`${exercise.name} GIF demo`}
+            className="w-full rounded-xl bg-stone-50"
+            loading="lazy"
+          />
+          <p className="text-[10px] text-stone-400 mt-1.5 text-center">
+            GIF demo from ExerciseDB / AscendAPI
+          </p>
+        </div>
+      )}
 
       {showVideo && (
         <VideoModal exercise={exercise} onClose={() => setShowVideo(false)} />
