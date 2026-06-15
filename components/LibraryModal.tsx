@@ -5,6 +5,7 @@ import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, makeCustomExercise } from '@/lib/layout';
 
 type ExerciseDbResult = {
+  source?: 'exercisedb';
   exerciseId: string;
   name: string;
   gifUrl?: string;
@@ -14,6 +15,20 @@ type ExerciseDbResult = {
   equipments?: string[];
   instructions?: string[];
 };
+
+type ApiNinjasResult = {
+  source: 'api_ninjas';
+  id: string;
+  name: string;
+  type?: string;
+  muscle?: string;
+  difficulty?: string;
+  instructions?: string;
+  equipments?: string[];
+  safety_info?: string;
+};
+
+type ExternalExerciseResult = ExerciseDbResult | ApiNinjasResult;
 
 interface Props {
   builtIns: Exercise[];
@@ -38,11 +53,11 @@ export default function LibraryModal({
   const [tips, setTips] = useState<string[]>([]);
   const [imageSearch, setImageSearch] = useState('');
   const [exerciseDbQuery, setExerciseDbQuery] = useState('');
-  const [exerciseDbResults, setExerciseDbResults] = useState<ExerciseDbResult[]>([]);
+  const [exerciseDbResults, setExerciseDbResults] = useState<ExternalExerciseResult[]>([]);
   const [exerciseDbLoading, setExerciseDbLoading] = useState(false);
   const [exerciseDbImporting, setExerciseDbImporting] = useState<string | null>(null);
   const [exerciseDbError, setExerciseDbError] = useState('');
-  const [importedExerciseDbMeta, setImportedExerciseDbMeta] = useState<{ sourceId?: string; gifUrl?: string } | null>(null);
+  const [importedExerciseDbMeta, setImportedExerciseDbMeta] = useState<{ source?: 'exercisedb' | 'api_ninjas'; sourceId?: string; gifUrl?: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
@@ -80,13 +95,18 @@ export default function LibraryModal({
     setImportedExerciseDbMeta(null);
   };
 
-  const inferCategoryFromExerciseDb = (exercise: ExerciseDbResult): Exercise['cat'] => {
+  const inferCategoryFromExerciseDb = (exercise: ExternalExerciseResult): Exercise['cat'] => {
     const text = [
       exercise.name,
-      ...(exercise.bodyParts ?? []),
-      ...(exercise.targetMuscles ?? []),
-      ...(exercise.equipments ?? []),
-      ...(exercise.instructions ?? []),
+      ...('bodyParts' in exercise ? (exercise.bodyParts ?? []) : []),
+      ...('targetMuscles' in exercise ? (exercise.targetMuscles ?? []) : []),
+      ...('equipments' in exercise ? (exercise.equipments ?? []) : []),
+      ...('type' in exercise ? [exercise.type ?? ''] : []),
+      ...('instructions' in exercise
+        ? Array.isArray(exercise.instructions)
+          ? exercise.instructions
+          : [exercise.instructions ?? '']
+        : []),
     ].join(' ').toLowerCase();
 
     const mobilityWords = ['stretch', 'mobility', 'flexibility', 'range of motion', 'rotation', 'circle', 'yoga', 'pose', 'release', 'warm up', 'warm-up'];
@@ -118,16 +138,32 @@ export default function LibraryModal({
     setExerciseDbError('');
 
     try {
-      const res = await fetch(`/api/exercisedb/search?search=${encodeURIComponent(q)}`);
-      const json = await res.json();
+      const [exerciseDbRes, apiNinjasRes] = await Promise.all([
+        fetch(`/api/exercisedb/search?search=${encodeURIComponent(q)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+        fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(q)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+      ]);
 
-      if (!res.ok || !json.success) {
-        setExerciseDbError(json.error || 'ExerciseDB search failed.');
-        setExerciseDbResults([]);
-        return;
+      const exerciseDbData: ExternalExerciseResult[] = Array.isArray(exerciseDbRes.data)
+        ? exerciseDbRes.data.map((item: ExerciseDbResult) => ({ ...item, source: 'exercisedb' as const }))
+        : [];
+
+      const apiNinjasData: ExternalExerciseResult[] = Array.isArray(apiNinjasRes.data)
+        ? apiNinjasRes.data.map((item: ApiNinjasResult, index: number) => ({
+            ...item,
+            source: 'api_ninjas' as const,
+            id: `api-ninjas-${item.name}-${index}`,
+          }))
+        : [];
+
+      setExerciseDbResults([...exerciseDbData, ...apiNinjasData]);
+
+      if (!exerciseDbRes.success && !apiNinjasRes.success) {
+        setExerciseDbError('External exercise search failed.');
+      } else if (!apiNinjasRes.success) {
+        setExerciseDbError('ExerciseDB results shown. API Ninjas unavailable or missing key.');
+      } else {
+        setExerciseDbError('');
       }
-
-      setExerciseDbResults(Array.isArray(json.data) ? json.data : []);
     } catch {
       setExerciseDbError('Could not search ExerciseDB.');
       setExerciseDbResults([]);
@@ -136,7 +172,21 @@ export default function LibraryModal({
     }
   };
 
-  const importExerciseDbResult = async (result: ExerciseDbResult) => {
+  const importExerciseDbResult = async (result: ExternalExerciseResult) => {
+    if (result.source === 'api_ninjas') {
+      const titleName = toTitleCase(result.name);
+      const cueParts = [result.type, result.muscle, result.difficulty].filter(Boolean);
+
+      setName(titleName);
+      setCue(cueParts.join(' · '));
+      setImageSearch([titleName, result.muscle, result.type, ...(result.equipments ?? [])].filter(Boolean).join(' '));
+      setTips([result.instructions, result.safety_info ? `Safety: ${result.safety_info}` : ''].filter(Boolean) as string[]);
+      setCat(result.type === 'stretching' ? 'mobility' : 'strength');
+      setImportedExerciseDbMeta({ source: 'api_ninjas', sourceId: result.name });
+      setExerciseDbResults([]);
+      setExerciseDbQuery('');
+      return;
+    }
     setExerciseDbImporting(result.exerciseId);
     setExerciseDbError('');
 
@@ -161,7 +211,7 @@ export default function LibraryModal({
       setImageSearch([titleName, bodyText, equipmentText].filter(Boolean).join(' '));
       setTips(exercise.instructions?.length ? exercise.instructions : []);
       setCat(inferCategoryFromExerciseDb(exercise));
-      setImportedExerciseDbMeta({ sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
+      setImportedExerciseDbMeta({ source: 'exercisedb', sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
       setExerciseDbResults([]);
       setExerciseDbQuery('');
     } catch {
@@ -182,7 +232,7 @@ export default function LibraryModal({
         cat,
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
-        origin: importedExerciseDbMeta?.sourceId ? 'exercisedb' : 'patient_added',
+        origin: importedExerciseDbMeta?.source === 'api_ninjas' ? 'patient_added' : importedExerciseDbMeta?.sourceId ? 'exercisedb' : 'patient_added',
         sourceId: importedExerciseDbMeta?.sourceId,
         gifUrl: importedExerciseDbMeta?.gifUrl,
       }),
@@ -327,9 +377,16 @@ export default function LibraryModal({
 
                 {exerciseDbResults.length > 0 && (
                   <div className="mt-2 max-h-36 overflow-y-auto space-y-1">
-                    {exerciseDbResults.map(result => (
+                    {exerciseDbResults.map(result => {
+                      const isApiNinjas = result.source === 'api_ninjas';
+                      const key = isApiNinjas ? result.id : result.exerciseId;
+                      const subtitle = isApiNinjas
+                        ? [result.type, result.muscle, result.difficulty].filter(Boolean).join(' · ')
+                        : [result.bodyParts?.join(', '), result.targetMuscles?.join(', '), result.equipments?.join(', ')].filter(Boolean).join(' · ');
+
+                      return (
                       <button
-                        key={result.exerciseId}
+                        key={key}
                         onClick={() => importExerciseDbResult(result)}
                         disabled={!!exerciseDbImporting}
                         className="w-full text-left bg-white border border-stone-100 rounded-lg px-2.5 py-2 hover:bg-stone-50 disabled:opacity-60"
