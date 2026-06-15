@@ -24,9 +24,33 @@ body {
   overscroll-behavior: none;
 }
 
+/* Desktop: keep widgets on their own horizontally scrollable row, title centered below. */
+@media (min-width: 640px) {
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > input {
+    display: block;
+    margin: 0 auto;
+    text-align: center;
+    max-width: 320px;
+  }
+
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div {
+    width: 100%;
+    justify-content: flex-start !important;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 @media (max-width: 639px) {
   main {
-    padding-top: 5.25rem !important;
+    padding-top: 5.05rem !important;
   }
 
   main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
@@ -40,6 +64,10 @@ body {
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     box-shadow: 0 1px 0 rgb(231 229 228 / 0.8);
+  }
+
+  main > div > div.mb-6 > h1.sm\:hidden {
+    margin-top: 0.35rem !important;
   }
 
   /* Category names are display-only on mobile to prevent accidental editing while scrolling. */
