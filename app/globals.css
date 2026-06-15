@@ -21,25 +21,27 @@ body {
   background-color: #F6F1E7;
   color: #353B33;
   font-family: 'Montserrat', sans-serif;
-  /* Prevent rubber-band overscroll background flash */
   overscroll-behavior: none;
 }
 
-/* Keep the main title/action icon row visible while scrolling on mobile. */
 @media (max-width: 639px) {
-  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
-    position: sticky;
-    top: 0;
-    z-index: 40;
-    margin-left: -1rem;
-    margin-right: -1rem;
-    padding: 0.5rem 1rem;
-    background: rgb(246 241 231 / 0.95);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+  main {
+    padding-top: 5.25rem !important;
   }
 
-  /* In Reorder & edit, category names display on mobile but are not editable. */
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    padding: calc(env(safe-area-inset-top) + 0.5rem) 1rem 0.5rem;
+    background: rgb(246 241 231 / 0.96);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 rgb(231 229 228 / 0.8);
+  }
+
   input.flex-1.min-w-0.text-sm.font-semibold {
     pointer-events: none;
     caret-color: transparent;
@@ -48,7 +50,6 @@ body {
   }
 }
 
-/* Prevent iOS from zooming on input focus — must be >= 16px */
 input,
 textarea,
 select {
@@ -56,12 +57,10 @@ select {
   font-family: 'Montserrat', sans-serif;
 }
 
-/* Remove browser tap highlight on mobile */
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Minimum touch target size for interactive elements */
 button, a[role="button"] {
   touch-action: manipulation;
   min-height: 36px;
