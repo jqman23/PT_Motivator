@@ -39,16 +39,34 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
   const fillGifs = async () => {
     setGifLoading(true);
+    let filled = 0;
+    let checked = 0;
     try {
       const next = [...draft];
       for (const id of target) {
         const idx = next.findIndex(e => e.id === id);
-        if (idx === -1 || next[idx].gifUrl) continue;
-        const res = await fetch(`/api/exercisedb-gif?q=${encodeURIComponent(next[idx].name)}`);
+        if (idx === -1) continue;
+
+        const current = next[idx].gifUrl ?? '';
+        const badOldGif =
+          current.includes('/api/exercisedb-image/') ||
+          current.includes('v2.exercisedb.io/image/') ||
+          current.includes('exercisedb-image');
+
+        if (current && !badOldGif) continue;
+
+        checked += 1;
+        const query = [next[idx].name, next[idx].cue, next[idx].imageSearch].filter(Boolean).join(' ');
+        const res = await fetch(`/api/exercisedb-gif?q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        if (data.gifUrl) next[idx] = { ...next[idx], gifUrl: data.gifUrl, origin: next[idx].origin ?? 'exercisedb' };
+
+        if (data.gifUrl) {
+          next[idx] = { ...next[idx], gifUrl: data.gifUrl, origin: next[idx].origin ?? data.source ?? 'curated' };
+          filled += 1;
+        }
       }
       setDraft(next);
+      alert(`GIF autofill complete: filled ${filled} of ${checked} checked rows. Save database to keep changes.`);
     } finally {
       setGifLoading(false);
     }
@@ -79,7 +97,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             <button onClick={() => setJson(JSON.stringify(draft,null,2))} className="w-full rounded-xl bg-white border py-2 text-xs font-semibold">Export JSON</button>
             {json && <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} className="w-full font-mono text-[10px] rounded-xl border p-2" />}
             {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
-            <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">{gifLoading ? 'Finding GIFs…' : 'Fill missing GIFs from ExerciseDB'}</button>
+            <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">{gifLoading ? 'Finding GIFs…' : 'Fill missing/broken GIFs'}</button>
             <button onClick={save} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#D9A94B]">{saved ? '✓ Saved' : 'Save database'}</button>
           </aside>
           <div className="flex-1 overflow-auto p-4">
