@@ -53,7 +53,7 @@ async function callGiphy(q: string, apiKey?: string) {
 
   const params = new URLSearchParams({
     api_key: apiKey,
-    q: `${q} exercise workout demonstration`,
+    q: `how to ${q} fitness form exercise`,
     limit: '8',
     rating: 'g',
     lang: 'en',
@@ -63,12 +63,20 @@ async function callGiphy(q: string, apiKey?: string) {
   if (!res.ok) return null;
 
   const data = await res.json();
-  const gif =
-    data?.data?.[0]?.images?.downsized_medium?.url ??
-    data?.data?.[0]?.images?.original?.url ??
-    data?.data?.[0]?.images?.fixed_height?.url;
+  const hits = data?.data ?? [];
+  const good = hits.find((hit: any) => {
+    const title = String(hit?.title ?? '').toLowerCase();
+    const slug = String(hit?.slug ?? '').toLowerCase();
+    const text = `${title} ${slug}`;
+    return text.includes(clean(q).split(' ')[0]) || text.includes('fitness') || text.includes('workout') || text.includes('exercise');
+  }) ?? hits[0];
 
-  return gif ? { gifUrl: gif, source: 'giphy', match: data.data[0]?.title ?? null } : null;
+  const gif =
+    good?.images?.downsized_medium?.url ??
+    good?.images?.original?.url ??
+    good?.images?.fixed_height?.url;
+
+  return gif ? { gifUrl: gif, source: 'giphy', match: good?.title ?? null } : null;
 }
 
 export async function GET(req: NextRequest) {
