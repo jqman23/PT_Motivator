@@ -172,6 +172,40 @@ async function hydrateIfNeeded(item: ExerciseDbItem) {
   return full ?? item;
 }
 
+async function findAnyRealExerciseDbMedia(original: string): Promise<LookupResult | null> {
+  const broadQueries = [
+    ...words(original),
+    'stretch',
+    'body weight',
+    'strength',
+    'mobility',
+    'balance',
+    'calf',
+    'hip',
+    'ankle',
+  ].filter(Boolean);
+
+  for (const query of Array.from(new Set(broadQueries))) {
+    const results = await searchExerciseDb(query);
+
+    for (const item of results.slice(0, 30)) {
+      const full = await hydrateIfNeeded(item);
+      const media = pickMedia(full);
+      if (!media) continue;
+
+      return {
+        gifUrl: media,
+        match: full.name ?? item.name ?? null,
+        query: `closest-real-db:${query}`,
+        id: full.exerciseId ?? full.id ?? item.exerciseId ?? item.id ?? null,
+        score: scoreCandidate(original, full),
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function findExerciseDbGif(input: { name?: string; cue?: string; imageSearch?: string }) {
   const original = [input.name, input.imageSearch, input.cue].filter(Boolean).join(' ');
   const queries = makeGifQueries(input);
@@ -218,7 +252,7 @@ export async function findExerciseDbGif(input: { name?: string; cue?: string; im
 
   candidates.sort((a, b) => b.score - a.score);
 
-  return candidates[0] ?? null;
+  return candidates[0] ?? await findAnyRealExerciseDbMedia(original);
 }
 
 export async function findExerciseDbGifCandidates(input: { name?: string; cue?: string; imageSearch?: string }, limit = 8) {

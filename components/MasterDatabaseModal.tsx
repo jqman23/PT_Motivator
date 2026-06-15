@@ -93,8 +93,11 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     setGifStatus('Starting GIF autofill…');
 
     try {
+      // GIF autofill intentionally uses ALL VISIBLE rows.
+      // This avoids accidentally filling only one checked/selected row.
+      const visibleIds = new Set(filtered.map(e => e.id));
       const targetExercises = draft
-        .filter(e => target.includes(e.id))
+        .filter(e => visibleIds.has(e.id))
         .map(e => ({
           id: e.id,
           name: e.name,
@@ -103,7 +106,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         }));
 
       if (!targetExercises.length) {
-        alert('No target rows selected or visible.');
+        alert('No visible rows to fill. Clear or change your search filter.');
         return;
       }
 
@@ -171,7 +174,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               <button onClick={() => setSelected({})} className="bg-white rounded-xl border py-2 text-xs font-semibold">Clear</button>
             </div>
 
-            <p className="text-xs text-stone-400">Target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
+            <p className="text-xs text-stone-400">Bulk target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
+            <p className="text-xs text-stone-400">GIF target: {filtered.length} visible rows</p>
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
@@ -193,7 +197,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
 
             <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">
-              {gifLoading ? 'Finding GIFs…' : 'Overwrite target GIFs from ExerciseDB'}
+              {gifLoading ? 'Finding GIFs…' : 'Overwrite visible GIFs from ExerciseDB'}
             </button>
             {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
 
