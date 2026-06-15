@@ -23,9 +23,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showGif, setShowGif] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
   const isStrength = exercise.cat === 'strength';
-  const gifSrc = exercise.gifUrl?.includes('v2.exercisedb.io/image/')
-    ? `/api/exercisedb-image/${exercise.gifUrl.split('/').pop()}`
-    : exercise.gifUrl;
+  const gifSrc = exercise.gifUrl;
+  const exerciseDbId = exercise.gifUrl?.match(/(?:exercisedb-image\/|v2\.exercisedb\.io\/image\/)([a-zA-Z0-9_-]+)/)?.[1];
 
   const cardColor = done
     ? isStrength ? 'bg-[#F4E3D6] border-[#C17B4F]/25' : 'bg-[#E4ECE6] border-[#7E9B86]/25'
@@ -127,14 +126,24 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
       {showGif && exercise.gifUrl && (
         <div className="mt-2 rounded-2xl overflow-hidden border border-stone-100 bg-white p-2">
-          <img
-            src={gifSrc}
-            alt={`${exercise.name} GIF demo`}
-            className="w-full rounded-xl bg-stone-50"
-            loading="lazy"
-          />
+          {exerciseDbId ? (
+            <iframe
+              src={`https://exercisedb.dev/exercise/${exerciseDbId}`}
+              title={`${exercise.name} ExerciseDB demo`}
+              className="w-full rounded-xl bg-stone-50"
+              style={{ height: 360, border: 0 }}
+              loading="lazy"
+            />
+          ) : (
+            <img
+              src={gifSrc}
+              alt={`${exercise.name} GIF demo`}
+              className="w-full rounded-xl bg-stone-50"
+              loading="lazy"
+            />
+          )}
           <p className="text-[10px] text-stone-400 mt-1.5 text-center">
-            GIF demo from ExerciseDB / AscendAPI
+            Demo from ExerciseDB
           </p>
         </div>
       )}
