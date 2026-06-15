@@ -1,17 +1,21 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
 
 export default function TimerWidget() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [duration, setDuration] = useState(30);
   const [remaining, setRemaining] = useState(30);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => setMounted(true), []);
 
   const unlockAudio = useCallback(() => {
     try {
@@ -113,6 +117,84 @@ export default function TimerWidget() {
   const circumference = 2 * Math.PI * 22;
   const offset = circumference * (1 - pct);
 
+  const panel = open ? (
+    <div
+      className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
+      style={{ width: 220, touchAction: 'manipulation' }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Timer</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+          className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none"
+          style={{ touchAction: 'manipulation' }}
+        >×</button>
+      </div>
+
+      <div className="flex gap-1.5 mb-4">
+        {PRESETS.map(seconds => (
+          <button
+            key={seconds}
+            onClick={(e) => { e.stopPropagation(); selectPreset(seconds); }}
+            className="flex-1 rounded-lg text-xs font-bold transition-colors"
+            style={{
+              padding: '8px 0',
+              background: duration === seconds && !running && !done ? '#D9A94B' : '#f5f5f4',
+              color: duration === seconds && !running && !done ? '#fff' : '#57534e',
+              touchAction: 'manipulation',
+            }}
+          >
+            {seconds}s
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-center mb-4">
+        <div className="relative" style={{ width: 72, height: 72 }}>
+          <svg viewBox="0 0 48 48" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+            <circle cx="24" cy="24" r="22" fill="none" stroke="#E7E5E4" strokeWidth="3.5"/>
+            <circle
+              cx="24" cy="24" r="22"
+              fill="none"
+              stroke={done ? '#7E9B86' : running ? '#D9A94B' : '#C17B4F'}
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>
+              {mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${secs}s`}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {done && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓</p>}
+
+      <div className="flex gap-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); running ? stop() : start(); }}
+          className="flex-1 rounded-lg text-xs font-bold transition-colors"
+          style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff', touchAction: 'manipulation' }}
+        >
+          {running ? 'Pause' : done ? 'Restart' : 'Start'}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); reset(); }}
+          className="rounded-lg text-xs font-semibold transition-colors"
+          style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c', touchAction: 'manipulation' }}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <button
@@ -132,84 +214,7 @@ export default function TimerWidget() {
           <path d="M10 2.5v2"/>
         </svg>
       </button>
-
-      {open && (
-        <div
-          className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[80] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-          style={{ width: 220, touchAction: 'manipulation' }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Timer</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-              className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none"
-              style={{ touchAction: 'manipulation' }}
-            >×</button>
-          </div>
-
-          <div className="flex gap-1.5 mb-4">
-            {PRESETS.map(seconds => (
-              <button
-                key={seconds}
-                onClick={(e) => { e.stopPropagation(); selectPreset(seconds); }}
-                className="flex-1 rounded-lg text-xs font-bold transition-colors"
-                style={{
-                  padding: '8px 0',
-                  background: duration === seconds && !running && !done ? '#D9A94B' : '#f5f5f4',
-                  color: duration === seconds && !running && !done ? '#fff' : '#57534e',
-                  touchAction: 'manipulation',
-                }}
-              >
-                {seconds}s
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-center mb-4">
-            <div className="relative" style={{ width: 72, height: 72 }}>
-              <svg viewBox="0 0 48 48" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
-                <circle cx="24" cy="24" r="22" fill="none" stroke="#E7E5E4" strokeWidth="3.5"/>
-                <circle
-                  cx="24" cy="24" r="22"
-                  fill="none"
-                  stroke={done ? '#7E9B86' : running ? '#D9A94B' : '#C17B4F'}
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={offset}
-                  style={{ transition: 'stroke-dashoffset 0.9s linear' }}
-                />
-              </svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>
-                  {mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${secs}s`}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {done && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓</p>}
-
-          <div className="flex gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); running ? stop() : start(); }}
-              className="flex-1 rounded-lg text-xs font-bold transition-colors"
-              style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff', touchAction: 'manipulation' }}
-            >
-              {running ? 'Pause' : done ? 'Restart' : 'Start'}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); reset(); }}
-              className="rounded-lg text-xs font-semibold transition-colors"
-              style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c', touchAction: 'manipulation' }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-      )}
+      {mounted && panel ? createPortal(panel, document.body) : null}
     </>
   );
 }
