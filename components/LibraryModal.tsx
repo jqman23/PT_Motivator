@@ -346,7 +346,7 @@ export default function LibraryModal({
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">New exercise</p>
 
               <div className="mb-3 rounded-xl border border-[#E4ECE6] bg-[#F8FBF8] p-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86] mb-1.5">Import from ExerciseDB</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86] mb-1.5">Import from external libraries</p>
                 <div className="flex gap-1.5">
                   <input
                     value={exerciseDbQuery}
@@ -385,20 +385,30 @@ export default function LibraryModal({
                         : [result.bodyParts?.join(', '), result.targetMuscles?.join(', '), result.equipments?.join(', ')].filter(Boolean).join(' · ');
 
                       return (
-                      <button
-                        key={key}
-                        onClick={() => importExerciseDbResult(result)}
-                        disabled={!!exerciseDbImporting}
-                        className="w-full text-left bg-white border border-stone-100 rounded-lg px-2.5 py-2 hover:bg-stone-50 disabled:opacity-60"
-                      >
-                        <p className="text-xs font-semibold text-stone-800 truncate">
-                          {exerciseDbImporting === result.exerciseId ? 'Importing…' : toTitleCase(result.name)}
-                        </p>
-                        <p className="text-[10px] text-stone-400 truncate">
-                          {[result.targetMuscles?.join(', '), result.equipments?.join(', ')].filter(Boolean).join(' · ') || 'Tap to import'}
-                        </p>
-                      </button>
-                    ))}
+                        <button
+                          key={key}
+                          onClick={() => importExerciseDbResult(result)}
+                          disabled={!!exerciseDbImporting}
+                          className="w-full text-left bg-white border border-stone-100 rounded-lg px-2.5 py-2 hover:bg-stone-50 disabled:opacity-60"
+                        >
+                          <p className="text-xs font-semibold text-stone-800 truncate">
+                            {exerciseDbImporting === key ? 'Importing…' : toTitleCase(result.name)}
+                            <span
+                              className="ml-1.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                              style={{
+                                color: isApiNinjas ? '#5B9BD5' : '#7C3AED',
+                                background: isApiNinjas ? '#dbeafe' : '#ede9fe',
+                              }}
+                            >
+                              {isApiNinjas ? 'API Ninjas' : 'ExerciseDB'}
+                            </span>
+                          </p>
+                          <p className="text-[10px] text-stone-400 truncate">
+                            {subtitle || 'Tap to import'}
+                          </p>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
