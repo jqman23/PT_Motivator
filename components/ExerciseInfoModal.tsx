@@ -18,11 +18,11 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8"
-      onPointerDown={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col"
-        onPointerDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
         style={{ maxHeight: '92dvh' }}
       >
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
@@ -30,7 +30,7 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
             <h2 className="font-serif text-lg font-semibold text-stone-800">Exercise guide</h2>
             <p className="text-[11px] text-stone-400">Consolidated cues, sets, tips, and demos</p>
           </div>
-          <button onPointerDown={e => { e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
+          <button onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
 
         <div className="overflow-y-auto px-4 py-4 space-y-4">
