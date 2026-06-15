@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
 
 export default function MasterDatabaseModal({ exercises, layout, onLibraryChange, onLayoutChange, onClose }: {
   exercises: Exercise[]; layout: CategoryConfig[]; onLibraryChange: (e: Exercise[]) => void; onLayoutChange: (l: CategoryConfig[]) => void; onClose: () => void;
@@ -68,7 +68,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             <div className="grid grid-cols-2 gap-2"><button onClick={() => setSelected(Object.fromEntries(filtered.map(e => [e.id,true])))} className="bg-white rounded-xl border py-2 text-xs font-semibold">Select visible</button><button onClick={() => setSelected({})} className="bg-white rounded-xl border py-2 text-xs font-semibold">Clear</button></div>
             <p className="text-xs text-stone-400">Target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
-              <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">{['name','cue','sets','imageSearch','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}</select>
+              <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">{['name','cue','sets','imageSearch','gifUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}</select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#7E9B86]">Apply bulk value</button>
             </div>
