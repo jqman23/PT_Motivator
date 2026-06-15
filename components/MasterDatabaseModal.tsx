@@ -90,57 +90,48 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
   const fillGifs = async () => {
     setGifLoading(true);
-    setGifStatus('Starting GIF autofill…');
+    setGifStatus('Starting selected GIF autofill…');
 
     try {
-      // GIF autofill intentionally uses ALL VISIBLE rows.
-      // This avoids accidentally filling only one checked/selected row.
-      const visibleIds = new Set(filtered.map(e => e.id));
-      const targetExercises = draft
-        .filter(e => visibleIds.has(e.id))
-        .map(e => ({
-          id: e.id,
-          name: e.name,
-          cue: e.cue,
-          imageSearch: e.imageSearch,
-        }));
+      const selectedIds = Object.keys(selected).filter(id => selected[id]);
+      const selectedRows = draft.filter(e => selectedIds.includes(e.id));
 
-      if (!targetExercises.length) {
-        alert('No visible rows to fill. Clear or change your search filter.');
+      if (!selectedRows.length) {
+        alert('Select/check the rows you want to fill first.');
+        setGifStatus('No selected rows.');
         return;
       }
 
-      const res = await fetch('/api/exercisedb-gif/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ exercises: targetExercises }),
-      });
+      let filled = 0;
+      let checked = 0;
+      let next = [...draft];
+      const debugLines: string[] = [];
 
-      const data = await res.json();
+      for (const ex of selectedRows) {
+        checked += 1;
+        setGifStatus(`Checking ${checked} of ${selectedRows.length}: ${ex.name}`);
 
-      if (!res.ok || !data.success) {
-        setGifStatus('GIF autofill failed.');
-        alert(`GIF autofill failed: ${data?.error ?? res.status}`);
-        return;
+        const query = [ex.name, ex.imageSearch, ex.cue].filter(Boolean).join(' ');
+        const res = await fetch(`/api/exercisedb-gif?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
+        const data = await res.json();
+
+        if (data.gifUrl) {
+          next = next.map(row =>
+            row.id === ex.id
+              ? { ...row, gifUrl: data.gifUrl, origin: row.origin ?? 'exercisedb' }
+              : row
+          );
+
+          setDraft(next);
+          filled += 1;
+          debugLines.push(`filled: ${ex.name} → ${data.match ?? 'ExerciseDB match'}`);
+        } else {
+          debugLines.push(`not found: ${ex.name}`);
+        }
       }
 
-      const updates = data.updates ?? {};
-      const filled = Number(data.filled ?? 0);
-      const checked = Number(data.checked ?? targetExercises.length);
-
-      setDraft(prev => prev.map(row =>
-        updates[row.id]
-          ? { ...row, gifUrl: updates[row.id], origin: row.origin ?? 'exercisedb' }
-          : row
-      ));
-
-      const firstDebug = Array.isArray(data.debug)
-        ? data.debug.slice(0, 5).map((d: any) => `${d.status}: ${d.name ?? d.id}${d.match ? ` → ${d.match}` : ''}`).join('\n')
-        : '';
-
-      setGifStatus(`Done: filled ${filled} of ${checked}. Click Save database.`);
-      alert(`GIF autofill done: filled ${filled} of ${checked}. Click Save database.\n\n${firstDebug}`);
+      setGifStatus(`Done: filled ${filled} of ${checked} selected rows. Click Save database.`);
+      alert(`GIF autofill done: filled ${filled} of ${checked} selected rows. Click Save database.\n\n${debugLines.slice(0, 10).join('\n')}`);
     } catch (err) {
       setGifStatus('GIF autofill failed.');
       alert(`GIF autofill failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -148,7 +139,6 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       setGifLoading(false);
     }
   };
-
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-5" onPointerDown={onClose}>
@@ -175,7 +165,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             </div>
 
             <p className="text-xs text-stone-400">Bulk target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
-            <p className="text-xs text-stone-400">GIF target: {filtered.length} visible rows</p>
+            <p className="text-xs text-stone-400">GIF target: {ids.length} selected rows</p>
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
@@ -197,7 +187,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
 
             <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">
-              {gifLoading ? 'Finding GIFs…' : 'Overwrite visible GIFs from ExerciseDB'}
+              {gifLoading ? 'Finding GIFs…' : 'Overwrite selected GIFs from ExerciseDB'}
             </button>
             {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
 
