@@ -12,14 +12,12 @@ import LibraryModal from '@/components/LibraryModal';
 import TimerWidget from '@/components/TimerWidget';
 import PTSessionsModal from '@/components/PTSessionsModal';
 import ReportingModal from '@/components/ReportingModal';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+import TreatmentsModal from '@/components/TreatmentsModal';
+import ExerciseInfoModal from '@/components/ExerciseInfoModal';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
 type PTSession = { date: string; note?: string };
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const QUOTES = [
   "Recovery is not linear. Every rep, every day counts.",
@@ -51,44 +49,23 @@ function getDailyQuote() {
 
 function seedExerciseLibrary(legacyCustom: Exercise[] = []): Exercise[] {
   const byId = new Map<string, Exercise>();
-
-  for (const ex of EXERCISES) {
-    byId.set(ex.id, { ...ex, origin: ex.origin ?? 'hep' });
-  }
-
-  for (const ex of legacyCustom) {
-    byId.set(ex.id, { ...ex, origin: ex.origin ?? 'patient_added' });
-  }
-
+  for (const ex of EXERCISES) byId.set(ex.id, { ...ex, origin: ex.origin ?? 'hep' });
+  for (const ex of legacyCustom) byId.set(ex.id, { ...ex, origin: ex.origin ?? 'patient_added' });
   return Array.from(byId.values());
 }
 
 function makeDefaultLayout(): CategoryConfig[] {
   return [
-    {
-      id: 'daily-mobility',
-      name: 'Daily mobility & balance',
-      color: 'green',
-      exerciseIds: EXERCISES.filter(e => e.cat === 'mobility').map(e => e.id),
-    },
-    {
-      id: 'strength-day',
-      name: 'Strength day',
-      color: 'orange',
-      exerciseIds: EXERCISES.filter(e => e.cat === 'strength').map(e => e.id),
-    },
+    { id: 'daily-mobility', name: 'Daily mobility & balance', color: 'green', exerciseIds: EXERCISES.filter(e => e.cat === 'mobility').map(e => e.id) },
+    { id: 'strength-day', name: 'Strength day', color: 'orange', exerciseIds: EXERCISES.filter(e => e.cat === 'strength').map(e => e.id) },
   ];
 }
-
-// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function dateStr(d: Date) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 function todayStr() { return dateStr(new Date()); }
-function offsetDate(base: string, days: number) {
-  const d = new Date(base + 'T12:00:00'); d.setDate(d.getDate() + days); return dateStr(d);
-}
+function offsetDate(base: string, days: number) { const d = new Date(base + 'T12:00:00'); d.setDate(d.getDate() + days); return dateStr(d); }
 function displayForDate(ds: string) {
   const today = todayStr(); const yesterday = offsetDate(today, -1);
   if (ds === today) return 'Today';
@@ -96,12 +73,9 @@ function displayForDate(ds: string) {
   return new Date(ds + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function Home() {
   const today = todayStr();
 
-  // ── Workout state
   const [selectedDate, setSelectedDate] = useState(today);
   const [log, setLog] = useState<LogMap>({});
   const [notes, setNotes] = useState<NotesMap>({});
@@ -113,13 +87,11 @@ export default function Home() {
   const [confirmClearDay, setConfirmClearDay] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  // ── Layout / category state
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
 
-  // Inline editing
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [colorMenuCat, setColorMenuCat] = useState<string | null>(null);
@@ -128,45 +100,35 @@ export default function Home() {
   const [newCatColor, setNewCatColor] = useState('blue');
   const [appTitle, setAppTitle] = useState('Ankle PT');
 
-  // Popups
   const [showManage, setShowManage] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [libraryCatId, setLibraryCatId] = useState<string | null>(null);
   const [showPTSessions, setShowPTSessions] = useState(false);
   const [showReporting, setShowReporting] = useState(false);
+  const [showTreatments, setShowTreatments] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
-  // PT Sessions
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Active exercise library.
-  // EXERCISES is now only first-run seed data; the editable library lives in config.
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
 
-  // ── Restore date from localStorage
   useEffect(() => {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
 
-  // ── Load layout + exercise library from DB
   useEffect(() => {
     fetch('/api/config?key=layout')
       .then(r => r.json())
       .then(data => {
-        if (data.value && Array.isArray(data.value) && data.value.length > 0) {
-          setLayout(data.value as CategoryConfig[]);
-        } else {
+        if (data.value && Array.isArray(data.value) && data.value.length > 0) setLayout(data.value as CategoryConfig[]);
+        else {
           const def = makeDefaultLayout();
           setLayout(def);
-          fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'layout', value: def }),
-          }).catch(console.error);
+          fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: def }) }).catch(console.error);
         }
       })
       .catch(() => setLayout(makeDefaultLayout()))
@@ -177,45 +139,23 @@ export default function Home() {
       fetch('/api/config?key=customExercises').then(r => r.json()).catch(() => ({ value: null })),
     ])
       .then(([libraryData, legacyCustomData]) => {
-        if (Array.isArray(libraryData.value) && libraryData.value.length > 0) {
-          setExerciseLibrary(libraryData.value as Exercise[]);
-          return;
-        }
-
+        if (Array.isArray(libraryData.value) && libraryData.value.length > 0) { setExerciseLibrary(libraryData.value as Exercise[]); return; }
         const legacyCustom = Array.isArray(legacyCustomData.value) ? legacyCustomData.value as Exercise[] : [];
         const seeded = seedExerciseLibrary(legacyCustom);
-
         setExerciseLibrary(seeded);
-        fetch('/api/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'exerciseLibrary', value: seeded }),
-        }).catch(console.error);
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: seeded }) }).catch(console.error);
       })
       .catch(() => setExerciseLibrary(seedExerciseLibrary()));
 
-    fetch('/api/config?key=appTitle')
-      .then(r => r.json())
-      .then(data => {
-        if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value);
-      })
-      .catch(console.error);
-
+    fetch('/api/config?key=appTitle').then(r => r.json()).then(data => { if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value); }).catch(console.error);
     fetch('/api/config?key=ptSessions')
       .then(r => r.json())
       .then(data => {
-        if (Array.isArray(data.value)) {
-          setPtSessions(
-            data.value.map((item: string | PTSession) =>
-              typeof item === 'string' ? { date: item, note: '' } : item
-            )
-          );
-        }
+        if (Array.isArray(data.value)) setPtSessions(data.value.map((item: string | PTSession) => typeof item === 'string' ? { date: item, note: '' } : item));
       })
       .catch(console.error);
   }, []);
 
-  // ── Load workout log + notes
   const loadLog = useCallback(async (selected: string) => {
     const rangeStart = selected < weekStart ? selected : weekStart;
     try {
@@ -245,81 +185,43 @@ export default function Home() {
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false));
-  }, [loadLog, loadNotes, selectedDate]);
+  useEffect(() => { setLoading(true); Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false)); }, [loadLog, loadNotes, selectedDate]);
 
-  // ── Layout save helper
   const updateLayout = useCallback((next: CategoryConfig[]) => {
     setLayout(next);
-    fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'layout', value: next }),
-    }).catch(console.error);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: next }) }).catch(console.error);
   }, []);
 
-  // ── Exercise library save helper
   const updateExerciseLibrary = useCallback((next: Exercise[]) => {
     setExerciseLibrary(next);
-    fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'exerciseLibrary', value: next }),
-    }).catch(console.error);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: next }) }).catch(console.error);
   }, []);
 
   const updateAppTitle = useCallback((next: string) => {
     const clean = next.trim() || 'Ankle PT';
     setAppTitle(clean);
-    fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'appTitle', value: clean }),
-    }).catch(console.error);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'appTitle', value: clean }) }).catch(console.error);
   }, []);
 
-  // ── PT sessions save helper
   const updatePtSessions = useCallback((next: PTSession[]) => {
     setPtSessions(next);
-    fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'ptSessions', value: next }),
-    }).catch(console.error);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ptSessions', value: next }) }).catch(console.error);
   }, []);
 
-  // ── Date navigation
   const changeDate = (date: string) => {
     setSelectedDate(date);
     localStorage.setItem('pt-selected-date', date);
     setNotes({});
     setConfirmClearDay(false);
   };
-  const handleDateChange = (dir: -1 | 1) => {
-    const next = offsetDate(selectedDate, dir);
-    if (next > today) return;
-    changeDate(next);
-  };
+  const handleDateChange = (dir: -1 | 1) => { const next = offsetDate(selectedDate, dir); if (next > today) return; changeDate(next); };
 
-  // ── Save all
   const handleSaveAll = async () => {
-    setSavingAll(true);
-    setSaveAllDone(false);
+    setSavingAll(true); setSaveAllDone(false);
     try {
       const dayLog = log[selectedDate] || {};
-      await fetch('/api/save-day', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: selectedDate,
-          log: allExercises.map(ex => ({ exerciseId: ex.id, completed: dayLog[ex.id] ?? false })),
-          notes: Object.entries(notes).map(([exerciseId, note]) => ({ exerciseId, note })),
-        }),
-      });
-      setSaveAllDone(true);
-      setTimeout(() => setSaveAllDone(false), 3000);
+      await fetch('/api/save-day', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, log: allExercises.map(ex => ({ exerciseId: ex.id, completed: dayLog[ex.id] ?? false })), notes: Object.entries(notes).map(([exerciseId, note]) => ({ exerciseId, note })) }) });
+      setSaveAllDone(true); setTimeout(() => setSaveAllDone(false), 3000);
     } catch (err) { console.error(err); }
     finally { setSavingAll(false); }
   };
@@ -329,314 +231,104 @@ export default function Home() {
     const next = !current;
     setLog(prev => ({ ...prev, [selectedDate]: { ...(prev[selectedDate] || {}), [exerciseId]: next } }));
     setSaving(true);
-    try {
-      await fetch('/api/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: selectedDate, exerciseId, completed: next }),
-      });
-    } catch {
-      setLog(prev => ({ ...prev, [selectedDate]: { ...(prev[selectedDate] || {}), [exerciseId]: current } }));
-    } finally { setSaving(false); }
+    try { await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, exerciseId, completed: next }) }); }
+    catch { setLog(prev => ({ ...prev, [selectedDate]: { ...(prev[selectedDate] || {}), [exerciseId]: current } })); }
+    finally { setSaving(false); }
   };
 
   const handleNoteSave = async (exerciseId: string, note: string) => {
     setNotes(prev => ({ ...prev, [exerciseId]: note }));
-    try {
-      await fetch('/api/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: selectedDate, exerciseId, note }),
-      });
-    } catch (err) { console.error(err); }
+    try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, exerciseId, note }) }); }
+    catch (err) { console.error(err); }
   };
 
   const handleClearDay = async () => {
     setClearing(true); setConfirmClearDay(false);
     try {
-      await Promise.all([
-        fetch(`/api/log?date=${selectedDate}`, { method: 'DELETE' }),
-        fetch(`/api/notes?date=${selectedDate}`, { method: 'DELETE' }),
-        fetch(`/api/health?date=${selectedDate}`, { method: 'DELETE' }),
-      ]);
-      setLog(prev => ({ ...prev, [selectedDate]: {} }));
-      setNotes({});
+      await Promise.all([fetch(`/api/log?date=${selectedDate}`, { method: 'DELETE' }), fetch(`/api/notes?date=${selectedDate}`, { method: 'DELETE' }), fetch(`/api/health?date=${selectedDate}`, { method: 'DELETE' })]);
+      setLog(prev => ({ ...prev, [selectedDate]: {} })); setNotes({});
     } catch (err) { console.error(err); }
     finally { setClearing(false); }
   };
 
-  // ── Category management (inline)
-  const renameCat = (catId: string, name: string) => {
-    updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c));
-    setRenamingCat(null);
-  };
-  const changeColor = (catId: string, color: string) => {
-    updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c));
-    setColorMenuCat(null);
-  };
+  const renameCat = (catId: string, name: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c)); setRenamingCat(null); };
+  const changeColor = (catId: string, color: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c)); setColorMenuCat(null); };
   const addNewCategory = () => {
     if (!newCatName.trim()) return;
-    updateLayout([...layout, {
-      id: `cat-${Date.now()}`,
-      name: newCatName.trim(),
-      color: newCatColor,
-      exerciseIds: [],
-    }]);
-    setNewCatName('');
-    setAddingCategory(false);
+    updateLayout([...layout, { id: `cat-${Date.now()}`, name: newCatName.trim(), color: newCatColor, exerciseIds: [] }]);
+    setNewCatName(''); setAddingCategory(false);
   };
 
-  // ── Library actions
   const addExToCategory = (exId: string, catId: string) => {
     const currentCat = layout.find(c => c.exerciseIds.includes(exId));
-
     if (currentCat?.id === catId) {
-      updateLayout(layout.map(c =>
-        c.id === catId
-          ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }
-          : c
-      ));
+      updateLayout(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c));
       return;
     }
-
-    const next = layout
-      .map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))
-      .map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c);
-
-    updateLayout(next);
+    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })).map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c));
   };
-  const createCustom = (ex: Exercise) => {
-    updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
-  };
-
-  const updateExercise = (nextExercise: Exercise) => {
-    updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
-  };
-
-  const deleteCustom = (exId: string) => {
-    updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId));
-    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })));
-  };
+  const createCustom = (ex: Exercise) => updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
+  const updateExercise = (nextExercise: Exercise) => updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
+  const deleteCustom = (exId: string) => { updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId)); updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))); };
   const openLibraryFor = (catId: string) => { setLibraryCatId(catId); setShowLibrary(true); };
 
-  useEffect(() => {
-    if (renamingCat && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [renamingCat]);
+  useEffect(() => { if (renamingCat && renameInputRef.current) { renameInputRef.current.focus(); renameInputRef.current.select(); } }, [renamingCat]);
 
-  // ── Derived
   const dayLog = log[selectedDate] || {};
   const isToday = selectedDate === today;
+
+  const DayControls = ({ bottom = false }: { bottom?: boolean }) => (
+    <div className={`flex items-center gap-3 ${bottom ? 'sm:hidden mt-2' : 'mt-3'}`}>
+      <button onClick={() => handleDateChange(-1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }}>‹</button>
+      <div className="flex-1 text-center">
+        <span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>
+        {!isToday && <span className="text-xs text-stone-400 ml-2">{selectedDate}</span>}
+      </div>
+      <button onClick={() => handleDateChange(1)} disabled={isToday} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 disabled:opacity-30 text-lg" style={{ touchAction: 'manipulation' }}>›</button>
+    </div>
+  );
 
   return (
     <main className="min-h-screen bg-[#F6F1E7] py-8 px-4" style={{ colorScheme: 'light' }}>
       <div className="max-w-xl mx-auto">
-
-        {/* ── Header ────────────────────────────────────────────────────── */}
         <div className="mb-6">
-          <div className="flex items-center justify-between">
-            <h1 className="font-serif text-3xl font-semibold text-stone-800 sm:hidden">{appTitle}</h1>
-              <input
-                value={appTitle}
-                onChange={e => setAppTitle(e.target.value)}
-                onBlur={e => updateAppTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]"
-                style={{ fontSize: 30, colorScheme: 'light' }}
-                title="Edit app title"
-              />
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="font-serif text-3xl font-semibold text-stone-800 sm:hidden flex-shrink-0 truncate max-w-[118px]">{appTitle}</h1>
+            <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
+            <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
               <TimerWidget />
-              {/* Library */}
-              <button
-                onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}
-                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
-                style={{ touchAction: 'manipulation' }}
-                title="Exercise library"
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z" />
-                  <path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z" />
-                </svg>
-              </button>
-              {/* Manage / reorder */}
-              <button
-                onClick={() => setShowManage(true)}
-                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
-                style={{ touchAction: 'manipulation' }}
-                title="Reorder & edit"
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <path d="M7 5h10M7 10h10M7 15h10" />
-                  <circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none" />
-                  <circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none" />
-                  <circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none" />
-                </svg>
-              </button>
-              {/* Calendar */}
-              <button
-                onClick={() => setShowCalendar(true)}
-                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
-                style={{ touchAction: 'manipulation' }}
-                title="Calendar"
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/>
-                  <path d="M6 1v4M14 1v4"/>
-                  <rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
-                  <rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
-                  <rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
-                </svg>
-              </button>
-              {/* PT Sessions */}
-              <button
-                onClick={() => setShowPTSessions(true)}
-                className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm transition-colors"
-                style={{
-                  touchAction: 'manipulation',
-                  background: ptSessions.some(s => s.date === today) ? '#FBF5E8' : 'white',
-                  borderColor: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#e7e5e4',
-                  color: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#78716c',
-                }}
-                title="PT sessions"
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <circle cx="8.5" cy="5.5" r="2.5" />
-                  <path d="M2 18v-1.5a6 6 0 0 1 11.5-1" />
-                  <path d="M16 11v5M13.5 13.5h5" />
-                </svg>
-              </button>
-              {/* Reporting */}
-              <button
-                onClick={() => setShowReporting(true)}
-                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
-                style={{ touchAction: 'manipulation' }}
-                title="Progress report"
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <path d="M3 15l3.5-5.5 3.5 3 4-6" />
-                  <path d="M2 17.5h16" />
-                  <path d="M2 3v14.5" />
-                </svg>
-              </button>
+              <button onClick={() => { setLibraryCatId(null); setShowLibrary(true); }} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Exercise library"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></button>
+              <button onClick={() => setShowInfo(true)} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Exercise guide"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></button>
+              <button onClick={() => setShowManage(true)} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Reorder & edit"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></button>
+              <button onClick={() => setShowCalendar(true)} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Calendar"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></button>
+              <button onClick={() => setShowTreatments(true)} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Meds / treatments"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 3h6v4H7z"/><path d="M6 7h8l1 10H5z"/><path d="M8 12h4M10 10v4"/></svg></button>
+              <button onClick={() => setShowPTSessions(true)} className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm transition-colors flex-shrink-0" style={{ background: ptSessions.some(s => s.date === today) ? '#FBF5E8' : 'white', borderColor: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#e7e5e4', color: ptSessions.some(s => s.date === today) ? '#D9A94B' : '#78716c' }} title="PT sessions"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="8.5" cy="5.5" r="2.5"/><path d="M2 18v-1.5a6 6 0 0 1 11.5-1"/><path d="M16 11v5M13.5 13.5h5"/></svg></button>
+              <button onClick={() => setShowReporting(true)} className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm flex-shrink-0" title="Progress report"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></button>
             </div>
           </div>
 
-          {/* Date navigator */}
-          <div className="flex items-center gap-3 mt-3">
-            <button onClick={() => handleDateChange(-1)}
-              className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg"
-              style={{ touchAction: 'manipulation' }}>‹</button>
-            <div className="flex-1 text-center">
-              <span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>
-              {!isToday && <span className="text-xs text-stone-400 ml-2">{selectedDate}</span>}
-            </div>
-            <button onClick={() => handleDateChange(1)} disabled={isToday}
-              className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 disabled:opacity-30 text-lg"
-              style={{ touchAction: 'manipulation' }}>›</button>
-          </div>
-
+          <DayControls />
           {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
-
-          {/* Action row: Today / Save day / Clear day — all horizontal */}
           <div className="mt-2 flex items-center justify-center gap-2">
-            {!isToday && (
-              <button onPointerDown={() => changeDate(today)}
-                className="text-xs font-semibold px-3 py-1 rounded-full"
-                style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>
-                ↩ Today
-              </button>
-            )}
-            <button onPointerDown={handleSaveAll} disabled={savingAll}
-              className="text-xs font-semibold px-3 py-1 rounded-full transition-colors"
-              style={{
-                color: saveAllDone ? '#fff' : '#5B9BD5',
-                background: saveAllDone ? '#5B9BD5' : '#dbeafe',
-                touchAction: 'manipulation',
-              }}>
-              {savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}
-            </button>
-            {!confirmClearDay && (
-              <button onPointerDown={() => setConfirmClearDay(true)}
-                className="text-xs font-medium px-3 py-1 rounded-full"
-                style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>
-                {clearing ? 'Clearing…' : '× Clear'}
-              </button>
-            )}
+            {!isToday && <button onPointerDown={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
+            <button onPointerDown={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
+            {!confirmClearDay && <button onPointerDown={() => setConfirmClearDay(true)} className="text-xs font-medium px-3 py-1 rounded-full" style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>{clearing ? 'Clearing…' : '× Clear'}</button>}
           </div>
-
-          {/* Confirm clear — drops below when triggered */}
           {confirmClearDay && (
-            <div className="mt-2 flex justify-center">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
-                <span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Clear ALL data for {displayForDate(selectedDate)}?</span>
-                <button onPointerDown={handleClearDay}
-                  className="text-xs font-bold px-2.5 py-1 rounded-lg text-white"
-                  style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button>
-                <button onPointerDown={() => setConfirmClearDay(false)}
-                  className="text-xs font-semibold px-2.5 py-1 rounded-lg"
-                  style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button>
-              </div>
-            </div>
+            <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Clear ALL data for {displayForDate(selectedDate)}?</span><button onPointerDown={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onPointerDown={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>
           )}
         </div>
 
-        {showCalendar && (
-          <CalendarModal today={today} selectedDate={selectedDate}
-            ptSessions={ptSessions}
-            exercises={allExercises}
-            onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />
-        )}
+        {showCalendar && <CalendarModal today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />}
+        {showPTSessions && <PTSessionsModal sessions={ptSessions} today={today} onChange={updatePtSessions} onClose={() => setShowPTSessions(false)} />}
+        {showReporting && <ReportingModal today={today} ptSessions={ptSessions} onClose={() => setShowReporting(false)} />}
+        {showTreatments && <TreatmentsModal today={today} selectedDate={selectedDate} onClose={() => setShowTreatments(false)} />}
+        {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} onClose={() => setShowInfo(false)} />}
+        {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
+        {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
 
-        {showPTSessions && (
-          <PTSessionsModal
-            sessions={ptSessions}
-            today={today}
-            onChange={updatePtSessions}
-            onClose={() => setShowPTSessions(false)}
-          />
-        )}
-
-        {showReporting && (
-          <ReportingModal
-            today={today}
-            ptSessions={ptSessions}
-            onClose={() => setShowReporting(false)}
-          />
-        )}
-
-        {showManage && (
-          <ManageModal
-            layout={layout}
-            exerciseMap={exerciseMap}
-            onChange={updateLayout}
-            onRequestAddExercise={openLibraryFor}
-            onDeleteExercise={deleteCustom}
-            onClose={() => setShowManage(false)}
-          />
-        )}
-
-        {showLibrary && (
-          <LibraryModal
-            builtIns={[]}
-            customExercises={exerciseLibrary}
-            layout={layout}
-            addToCatId={libraryCatId}
-            onPick={addExToCategory}
-            onCreateCustom={createCustom}
-            onUpdateCustom={updateExercise}
-            onDeleteCustom={deleteCustom}
-            onClose={() => { setShowLibrary(false); setLibraryCatId(null); }}
-          />
-        )}
-
-        {/* ── Exercise sections ──────────────────────────────────────────── */}
         {loading || layoutLoading ? (
-          <div className="flex items-center justify-center h-40">
-            <div className="w-6 h-6 border-2 border-[#7E9B86] border-t-transparent rounded-full animate-spin" />
-          </div>
+          <div className="flex items-center justify-center h-40"><div className="w-6 h-6 border-2 border-[#7E9B86] border-t-transparent rounded-full animate-spin" /></div>
         ) : (
           <>
             {layout.map((cat) => {
@@ -646,174 +338,28 @@ export default function Home() {
               const done = catExercises.filter(e => dayLog[e.id]).length;
               const total = catExercises.length;
               const isRenaming = renamingCat === cat.id;
-
               return (
                 <section key={cat.id} className="mb-5">
-                  {/* ── Category header */}
                   <div className="flex items-center gap-1.5 mb-2.5">
-                    {/* Collapse toggle */}
-                    <button
-                      onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
-                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-stone-400 rounded hover:bg-stone-100"
-                      style={{ touchAction: 'manipulation' }}
-                    >
-                      <svg viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 transition-transform"
-                        style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
-                        <path d="M1 3l5 5 5-5z"/>
-                      </svg>
-                    </button>
-
-                    {/* Name (tap to rename) */}
-                    {isRenaming ? (
-                      <input
-                        ref={renameInputRef}
-                        value={renameValue}
-                        onChange={e => setRenameValue(e.target.value)}
-                        onBlur={() => renameCat(cat.id, renameValue.trim() || cat.name)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') renameCat(cat.id, renameValue.trim() || cat.name);
-                          if (e.key === 'Escape') setRenamingCat(null);
-                        }}
-                        className="flex-1 min-w-0 text-lg font-semibold text-stone-800 bg-stone-50 border border-stone-300 rounded-lg px-2 py-0.5 focus:outline-none"
-                        style={{ fontSize: 16, fontFamily: 'Georgia, serif' }}
-                      />
-                    ) : (
-                      <h2
-                        className="flex-1 min-w-0 font-serif text-lg font-semibold text-stone-800 leading-tight truncate cursor-text"
-                        onPointerDown={() => { setRenamingCat(cat.id); setRenameValue(cat.name); }}
-                        title="Tap to rename"
-                      >
-                        {cat.name}
-                      </h2>
-                    )}
-
-                    {/* Count */}
+                    <button onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))} className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-stone-400 rounded hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><svg viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 transition-transform" style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}><path d="M1 3l5 5 5-5z"/></svg></button>
+                    {isRenaming ? <input ref={renameInputRef} value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => renameCat(cat.id, renameValue.trim() || cat.name)} onKeyDown={e => { if (e.key === 'Enter') renameCat(cat.id, renameValue.trim() || cat.name); if (e.key === 'Escape') setRenamingCat(null); }} className="flex-1 min-w-0 text-lg font-semibold text-stone-800 bg-stone-50 border border-stone-300 rounded-lg px-2 py-0.5 focus:outline-none" style={{ fontSize: 16, fontFamily: 'Georgia, serif' }} /> : <h2 className="flex-1 min-w-0 font-serif text-lg font-semibold text-stone-800 leading-tight truncate cursor-text" onPointerDown={() => { setRenamingCat(cat.id); setRenameValue(cat.name); }} title="Tap to rename">{cat.name}</h2>}
                     <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
-
-                    {/* Color swatch / menu */}
-                    <div className="relative flex-shrink-0">
-                      <button
-                        onPointerDown={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)}
-                        className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
-                        style={{ background: palette.accent, touchAction: 'manipulation' }}
-                        title="Change color"
-                      />
-                      {colorMenuCat === cat.id && (
-                        <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">
-                          {COLOR_KEYS.map(c => (
-                            <button key={c} onPointerDown={() => changeColor(cat.id, c)}
-                              className="w-6 h-6 rounded-full"
-                              style={{
-                                background: COLOR_PALETTE[c].accent,
-                                boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
-                                touchAction: 'manipulation',
-                              }} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <div className="relative flex-shrink-0"><button onPointerDown={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)} className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: palette.accent, touchAction: 'manipulation' }} title="Change color" />{colorMenuCat === cat.id && <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">{COLOR_KEYS.map(c => <button key={c} onPointerDown={() => changeColor(cat.id, c)} className="w-6 h-6 rounded-full" style={{ background: COLOR_PALETTE[c].accent, boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div>}</div>
                   </div>
-
-                  {/* ── Exercise list */}
-                  {!isCollapsed && (
-                    <div className="space-y-2">
-                      {catExercises.map((ex) => (
-                        <ExerciseCard
-                          key={ex.id}
-                          exercise={ex}
-                          done={dayLog[ex.id] ?? false}
-                          note={notes[ex.id] ?? ''}
-                          today={selectedDate}
-                          onToggle={() => handleToggle(ex.id)}
-                          onNoteSave={note => handleNoteSave(ex.id, note)}
-                        />
-                      ))}
-
-                      {/* Add exercise (from library) */}
-                      <button
-                        onPointerDown={() => openLibraryFor(cat.id)}
-                        className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100"
-                        style={{ touchAction: 'manipulation' }}
-                      >
-                        <span className="text-base leading-none">＋</span> Add exercise
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Collapsed summary */}
-                  {isCollapsed && (
-                    <button
-                      onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))}
-                      className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed"
-                      style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}
-                    >
-                      {done}/{total} done · tap to expand
-                    </button>
-                  )}
+                  {!isCollapsed && <div className="space-y-2">{catExercises.map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} />)}<button onPointerDown={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
+                  {isCollapsed && <button onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))} className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed" style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}>{done}/{total} done · tap to expand</button>}
                 </section>
               );
             })}
 
-            {/* ── Add new category */}
             <div className="mb-5">
-              {addingCategory ? (
-                <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">New category</p>
-                  <input
-                    value={newCatName}
-                    onChange={e => setNewCatName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addNewCategory()}
-                    placeholder="Category name…"
-                    autoFocus
-                    className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 mb-3 focus:outline-none"
-                    style={{ fontSize: 16, colorScheme: 'light' }}
-                  />
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Color</p>
-                  <div className="flex gap-3 mb-4">
-                    {COLOR_KEYS.map(c => (
-                      <button key={c} onPointerDown={() => setNewCatColor(c)}
-                        className="w-8 h-8 rounded-full"
-                        style={{
-                          background: COLOR_PALETTE[c].accent,
-                          transform: newCatColor === c ? 'scale(1.25)' : 'scale(1)',
-                          boxShadow: newCatColor === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
-                          touchAction: 'manipulation',
-                        }} />
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onPointerDown={addNewCategory}
-                      className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl"
-                      style={{ background: COLOR_PALETTE[newCatColor].accent, touchAction: 'manipulation' }}>Add category</button>
-                    <button onPointerDown={() => { setAddingCategory(false); setNewCatName(''); }}
-                      className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100"
-                      style={{ touchAction: 'manipulation' }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onPointerDown={() => setAddingCategory(true)}
-                  className="w-full py-3.5 rounded-2xl border-2 border-dashed border-stone-200 text-sm font-semibold text-stone-400 hover:border-stone-300 hover:text-stone-500"
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  ＋ Add category
-                </button>
-              )}
+              {addingCategory ? <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">New category</p><input value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewCategory()} placeholder="Category name…" autoFocus className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 mb-3 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} /><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Color</p><div className="flex gap-3 mb-4">{COLOR_KEYS.map(c => <button key={c} onPointerDown={() => setNewCatColor(c)} className="w-8 h-8 rounded-full" style={{ background: COLOR_PALETTE[c].accent, transform: newCatColor === c ? 'scale(1.25)' : 'scale(1)', boxShadow: newCatColor === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div><div className="flex gap-2"><button onPointerDown={addNewCategory} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: COLOR_PALETTE[newCatColor].accent, touchAction: 'manipulation' }}>Add category</button><button onPointerDown={() => { setAddingCategory(false); setNewCatName(''); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100" style={{ touchAction: 'manipulation' }}>Cancel</button></div></div> : <button onPointerDown={() => setAddingCategory(true)} className="w-full py-3.5 rounded-2xl border-2 border-dashed border-stone-200 text-sm font-semibold text-stone-400 hover:border-stone-300 hover:text-stone-500" style={{ touchAction: 'manipulation' }}>＋ Add category</button>}
             </div>
 
-            {/* Health tracker */}
-            <section className="mb-5">
-              <HealthTracker today={selectedDate} />
-            </section>
-
-            {/* Week tracker */}
-            <section className="mb-5">
-              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={changeDate} />
-            </section>
-
-            <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>
-              &ldquo;{getDailyQuote()}&rdquo;
-            </p>
+            <section className="mb-5"><HealthTracker today={selectedDate} /></section>
+            <section className="mb-5"><WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={changeDate} /></section>
+            <div className="mb-5 rounded-2xl border border-stone-100 bg-white p-3 shadow-sm"><DayControls bottom /></div>
+            <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>&ldquo;{getDailyQuote()}&rdquo;</p>
           </>
         )}
       </div>
