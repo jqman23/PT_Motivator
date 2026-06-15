@@ -11,13 +11,36 @@ export default function TimerWidget() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const unlockAudio = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return null;
+
+      const ctx = audioCtxRef.current ?? new AudioCtx();
+      audioCtxRef.current = ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.value = 0.0001;
+      osc.start();
+      osc.stop(ctx.currentTime + 0.01);
+
+      return ctx;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const playAlarm = useCallback(() => {
     try {
-      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
+      const ctx = unlockAudio();
+      if (!ctx) return;
 
-      const ctx = new AudioCtx();
       const start = ctx.currentTime;
       const pattern = [0, 0.45, 0.9, 1.35, 1.8, 2.25];
 
@@ -40,9 +63,8 @@ export default function TimerWidget() {
         osc.stop(t + 0.3);
       });
 
-      setTimeout(() => ctx.close().catch(() => undefined), 3000);
     } catch { /* AudioContext not available */ }
-  }, []);
+  }, [unlockAudio]);
 
   const stop = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -58,6 +80,7 @@ export default function TimerWidget() {
   }, [stop, duration]);
 
   const start = useCallback(() => {
+    unlockAudio();
     if (done) { reset(); return; }
     setRunning(true);
     intervalRef.current = setInterval(() => {
@@ -71,7 +94,7 @@ export default function TimerWidget() {
         return prev - 1;
       });
     }, 1000);
-  }, [done, reset, stop, playAlarm]);
+  }, [done, reset, stop, playAlarm, unlockAudio]);
 
   useEffect(() => { return () => stop(); }, [stop]);
 
