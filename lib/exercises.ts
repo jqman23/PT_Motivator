@@ -11,7 +11,7 @@ export interface Exercise {
   imageSearch: string;
   tips: string[];
   optional?: boolean;
-  origin?: 'hep' | 'patient_added' | 'exercisedb';
+  origin?: 'hep' | 'patient_added' | 'exercisedb' | 'api_ninjas';
   sourceId?: string;
   gifUrl?: string;
 }

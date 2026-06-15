@@ -37,21 +37,35 @@ interface Props {
   addToCatId?: string | null;
   onPick: (exId: string, catId: string) => void;
   onCreateCustom: (ex: Exercise) => void;
+  onUpdateCustom: (ex: Exercise) => void;
   onDeleteCustom: (exId: string) => void;
   onClose: () => void;
 }
 
+const ORIGIN_OPTIONS: { value: NonNullable<Exercise['origin']>; label: string }[] = [
+  { value: 'hep', label: 'HEP' },
+  { value: 'exercisedb', label: 'ExerciseDB' },
+  { value: 'api_ninjas', label: 'API Ninjas' },
+  { value: 'patient_added', label: 'Added' },
+];
+
 export default function LibraryModal({
-  builtIns, customExercises, layout, addToCatId, onPick, onCreateCustom, onDeleteCustom, onClose,
+  builtIns, customExercises, layout, addToCatId, onPick, onCreateCustom, onUpdateCustom, onDeleteCustom, onClose,
 }: Props) {
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Exercise | null>(null);
+
   const [name, setName] = useState('');
   const [cue, setCue] = useState('');
   const [sets, setSets] = useState('');
   const [cat, setCat] = useState<Exercise['cat']>('mobility');
-  const [tips, setTips] = useState<string[]>([]);
+  const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>('patient_added');
+  const [tipsText, setTipsText] = useState('');
   const [imageSearch, setImageSearch] = useState('');
+  const [sourceId, setSourceId] = useState<string | undefined>();
+  const [gifUrl, setGifUrl] = useState<string | undefined>();
+
   const [exerciseDbQuery, setExerciseDbQuery] = useState('');
   const [exerciseDbResults, setExerciseDbResults] = useState<ExternalExerciseResult[]>([]);
   const [exerciseDbLoading, setExerciseDbLoading] = useState(false);
@@ -62,7 +76,6 @@ export default function LibraryModal({
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
 
-  // exId -> category name (where it currently lives)
   const assignment = useMemo(() => {
     const m: Record<string, string> = {};
     for (const c of layout) for (const id of c.exerciseIds) m[id] = c.name;
@@ -79,14 +92,13 @@ export default function LibraryModal({
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
     if (e.origin === 'exercisedb') return { text: 'ExerciseDB', color: '#7C3AED', bg: '#ede9fe' };
+    if (e.origin === 'api_ninjas') return { text: 'API Ninjas', color: '#5B9BD5', bg: '#dbeafe' };
     if (e.origin === 'patient_added') return { text: 'Added', color: '#5B9BD5', bg: '#dbeafe' };
     return { text: 'HEP', color: '#7E9B86', bg: '#E4ECE6' };
   };
 
   const toTitleCase = (value: string) =>
-    value.replace(/\w\S*/g, word =>
-      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    );
+    value.replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
 
   const clearExerciseDbResults = () => {
     setExerciseDbResults([]);
@@ -113,18 +125,37 @@ export default function LibraryModal({
     return mobilityWords.some(word => text.includes(word)) ? 'mobility' : 'strength';
   };
 
-  const resetCreateForm = () => {
+  const resetForm = () => {
     setName('');
     setCue('');
     setSets('');
     setCat('mobility');
-    setTips([]);
+    setOrigin('patient_added');
+    setTipsText('');
     setImageSearch('');
+    setSourceId(undefined);
+    setGifUrl(undefined);
     setExerciseDbQuery('');
     setExerciseDbResults([]);
     setExerciseDbError('');
     setExerciseDbImporting(null);
     setImportedExerciseDbMeta(null);
+    setEditing(null);
+  };
+
+  const beginEdit = (ex: Exercise) => {
+    setCreating(false);
+    setEditing(ex);
+    setName(ex.name);
+    setCue(ex.cue);
+    setSets(ex.sets ?? '');
+    setCat(ex.cat);
+    setOrigin(ex.origin ?? 'hep');
+    setTipsText((ex.tips ?? []).join('\n'));
+    setImageSearch(ex.imageSearch ?? ex.name);
+    setSourceId(ex.sourceId);
+    setGifUrl(ex.gifUrl);
+    clearExerciseDbResults();
   };
 
   const searchExerciseDb = async () => {
@@ -165,7 +196,7 @@ export default function LibraryModal({
         setExerciseDbError('');
       }
     } catch {
-      setExerciseDbError('Could not search ExerciseDB.');
+      setExerciseDbError('Could not search external libraries.');
       setExerciseDbResults([]);
     } finally {
       setExerciseDbLoading(false);
@@ -180,13 +211,17 @@ export default function LibraryModal({
       setName(titleName);
       setCue(cueParts.join(' · '));
       setImageSearch([titleName, result.muscle, result.type, ...(result.equipments ?? [])].filter(Boolean).join(' '));
-      setTips([result.instructions, result.safety_info ? `Safety: ${result.safety_info}` : ''].filter(Boolean) as string[]);
+      setTipsText([result.instructions, result.safety_info ? `Safety: ${result.safety_info}` : ''].filter(Boolean).join('\n'));
       setCat(result.type === 'stretching' ? 'mobility' : 'strength');
+      setOrigin('api_ninjas');
       setImportedExerciseDbMeta({ source: 'api_ninjas', sourceId: result.name });
+      setSourceId(result.name);
+      setGifUrl(undefined);
       setExerciseDbResults([]);
       setExerciseDbQuery('');
       return;
     }
+
     setExerciseDbImporting(result.exerciseId);
     setExerciseDbError('');
 
@@ -203,15 +238,17 @@ export default function LibraryModal({
       const targetText = exercise.targetMuscles?.length ? exercise.targetMuscles.join(', ') : '';
       const equipmentText = exercise.equipments?.length ? exercise.equipments.join(', ') : '';
       const bodyText = exercise.bodyParts?.length ? exercise.bodyParts.join(', ') : '';
-
       const titleName = toTitleCase(exercise.name);
 
       setName(titleName);
       setCue([targetText, equipmentText].filter(Boolean).join(' · '));
       setImageSearch([titleName, bodyText, equipmentText].filter(Boolean).join(' '));
-      setTips(exercise.instructions?.length ? exercise.instructions : []);
+      setTipsText(exercise.instructions?.length ? exercise.instructions.join('\n') : '');
       setCat(inferCategoryFromExerciseDb(exercise));
+      setOrigin('exercisedb');
       setImportedExerciseDbMeta({ source: 'exercisedb', sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
+      setSourceId(exercise.exerciseId);
+      setGifUrl(exercise.gifUrl);
       setExerciseDbResults([]);
       setExerciseDbQuery('');
     } catch {
@@ -220,6 +257,8 @@ export default function LibraryModal({
       setExerciseDbImporting(null);
     }
   };
+
+  const tips = tipsText.split('\n').map(t => t.trim()).filter(Boolean);
 
   const submitCreate = () => {
     if (!name.trim()) return;
@@ -232,17 +271,79 @@ export default function LibraryModal({
         cat,
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
-        origin: importedExerciseDbMeta?.source === 'api_ninjas' ? 'patient_added' : importedExerciseDbMeta?.sourceId ? 'exercisedb' : 'patient_added',
-        sourceId: importedExerciseDbMeta?.sourceId,
-        gifUrl: importedExerciseDbMeta?.gifUrl,
+        origin: importedExerciseDbMeta?.source ?? origin,
+        sourceId: importedExerciseDbMeta?.sourceId ?? sourceId,
+        gifUrl: importedExerciseDbMeta?.gifUrl ?? gifUrl,
       }),
     };
 
     onCreateCustom(ex);
     if (addToCatId) onPick(ex.id, addToCatId);
-    resetCreateForm();
+    resetForm();
     setCreating(false);
   };
+
+  const submitEdit = () => {
+    if (!editing || !name.trim()) return;
+
+    onUpdateCustom({
+      ...editing,
+      name: name.trim(),
+      cue: cue.trim(),
+      sets: sets.trim() || undefined,
+      cat,
+      origin,
+      imageSearch: imageSearch.trim() || name.trim(),
+      tips,
+      sourceId,
+      gifUrl,
+    });
+
+    resetForm();
+  };
+
+  const sourceSelect = (
+    <select
+      value={origin}
+      onChange={e => setOrigin(e.target.value as NonNullable<Exercise['origin']>)}
+      className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none bg-white"
+      style={{ fontSize: 16, colorScheme: 'light' }}
+    >
+      {ORIGIN_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+    </select>
+  );
+
+  const formFields = (
+    <>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Name (required)"
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} autoFocus />
+      <input value={cue} onChange={e => setCue(e.target.value)} placeholder="Short cue"
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      <input value={sets} onChange={e => setSets(e.target.value)} placeholder="Sets / reps (optional)"
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      <input value={imageSearch} onChange={e => setImageSearch(e.target.value)} placeholder="Media search terms"
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      {sourceSelect}
+      <textarea
+        value={tipsText}
+        onChange={e => setTipsText(e.target.value)}
+        placeholder="Instructions / tips — one per line"
+        rows={4}
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none resize-none"
+        style={{ fontSize: 16, colorScheme: 'light' }}
+      />
+      <div className="flex gap-2 mb-3">
+        {(['mobility', 'strength'] as const).map(c => (
+          <button key={c} onClick={() => setCat(c)}
+            className="flex-1 text-xs font-semibold py-2 rounded-lg capitalize"
+            style={{
+              background: cat === c ? (c === 'strength' ? '#F4E3D6' : '#E4ECE6') : '#f5f5f4',
+              color: cat === c ? (c === 'strength' ? '#C17B4F' : '#7E9B86') : '#a8a29e',
+            }}>{c}</button>
+        ))}
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -254,7 +355,6 @@ export default function LibraryModal({
         onClick={e => e.stopPropagation()}
         style={{ maxHeight: '92dvh' }}
       >
-        {/* Header */}
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
           <div className="min-w-0">
             <h2 className="font-serif text-lg font-semibold text-stone-800 truncate">
@@ -267,81 +367,107 @@ export default function LibraryModal({
           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button>
         </div>
 
-        {/* Search */}
-        <div className="px-3 pt-3 flex-shrink-0">
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search exercises…"
-            className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300"
-            style={{ fontSize: 16, colorScheme: 'light' }}
-          />
-        </div>
+        {!creating && !editing && (
+          <div className="px-3 pt-3 flex-shrink-0">
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search exercises…"
+              className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300"
+              style={{ fontSize: 16, colorScheme: 'light' }}
+            />
+          </div>
+        )}
 
-        {/* List */}
-        <div className="overflow-y-auto px-3 py-3 flex-1">
-          <div className="space-y-1.5">
-            {filtered.map(e => {
-              const inCatName = assignment[e.id];
-              const inTarget = targetCat && targetCat.exerciseIds.includes(e.id);
-              return (
-                <div key={e.id} className="bg-white rounded-xl border border-stone-100 px-3 py-2 flex items-center gap-2">
-                  <button
-                    disabled={!addToCatId}
-                    onClick={() => addToCatId && onPick(e.id, addToCatId)}
-                    className="flex-1 min-w-0 text-left"
-                    style={{ cursor: addToCatId ? 'pointer' : 'default' }}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-semibold text-stone-800 truncate">{e.name}</span>
-                      {(() => {
-                        const label = originLabel(e);
-                        return (
-                          <span
-                            className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                            style={{ color: label.color, background: label.bg }}
-                          >
-                            {label.text}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    {e.cue && <p className="text-[11px] text-stone-400 leading-snug truncate">{e.cue}</p>}
-                    {inCatName && <p className="text-[10px] text-stone-400 mt-0.5">in {inCatName}</p>}
-                  </button>
+        {!creating && !editing && (
+          <div className="overflow-y-auto px-3 py-3 flex-1">
+            <div className="space-y-1.5">
+              {filtered.map(e => {
+                const inCatName = assignment[e.id];
+                const inTarget = targetCat && targetCat.exerciseIds.includes(e.id);
+                const label = originLabel(e);
 
-                  {addToCatId ? (
-                    inTarget ? (
-                      <span className="flex-shrink-0 text-[#7E9B86] text-sm font-bold">✓</span>
-                    ) : (
-                      <button onClick={() => onPick(e.id, addToCatId)}
-                        className="flex-shrink-0 w-7 h-7 rounded-lg bg-[#E4ECE6] text-[#7E9B86] flex items-center justify-center text-lg font-bold">＋</button>
-                    )
-                  ) : (
-                    confirmDelete === e.id ? (
+                return (
+                  <div key={e.id} className="bg-white rounded-xl border border-stone-100 px-3 py-2 flex items-center gap-2">
+                    <button
+                      disabled={!addToCatId}
+                      onClick={() => addToCatId && onPick(e.id, addToCatId)}
+                      className="flex-1 min-w-0 text-left"
+                      style={{ cursor: addToCatId ? 'pointer' : 'default' }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-stone-800 truncate">{e.name}</span>
+                        <span
+                          className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                          style={{ color: label.color, background: label.bg }}
+                        >
+                          {label.text}
+                        </span>
+                      </div>
+                      {e.cue && <p className="text-[11px] text-stone-400 leading-snug truncate">{e.cue}</p>}
+                      {inCatName && <p className="text-[10px] text-stone-400 mt-0.5">in {inCatName}</p>}
+                    </button>
+
+                    {addToCatId ? (
+                      inTarget ? (
+                        <button
+                          onClick={() => onPick(e.id, addToCatId)}
+                          className="flex-shrink-0 w-7 h-7 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 flex items-center justify-center text-lg font-bold"
+                          title="Remove from this category"
+                        >
+                          −
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onPick(e.id, addToCatId)}
+                          className="flex-shrink-0 w-7 h-7 rounded-lg bg-[#E4ECE6] text-[#7E9B86] flex items-center justify-center text-lg font-bold"
+                          title="Add to this category"
+                        >
+                          ＋
+                        </button>
+                      )
+                    ) : confirmDelete === e.id ? (
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button onClick={() => { onDeleteCustom(e.id); setConfirmDelete(null); }} className="text-[11px] font-bold px-2 py-1 rounded-lg text-white bg-red-500">Delete</button>
                         <button onClick={() => setConfirmDelete(null)} className="text-[11px] font-semibold px-2 py-1 rounded-lg text-stone-500 bg-stone-100">No</button>
                       </div>
                     ) : (
-                      <button onClick={() => setConfirmDelete(e.id)}
-                        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-red-50 hover:text-red-500" title="Delete custom exercise">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                          <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.5 9.5h7L12 4" />
-                        </svg>
-                      </button>
-                    )
-                  )}
-                </div>
-              );
-            })}
-            {filtered.length === 0 && <p className="text-xs text-stone-400 italic text-center py-6">No exercises match “{query}”.</p>}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button onClick={() => beginEdit(e)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-stone-100 hover:text-stone-500" title="Edit exercise">
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                            <path d="M2 12.5V14h1.5l8-8L10 4.5l-8 8z"/><path d="M11.5 3l1.5 1.5"/>
+                          </svg>
+                        </button>
+                        <button onClick={() => setConfirmDelete(e.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-red-50 hover:text-red-500" title="Delete exercise">
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                            <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.5 9.5h7L12 4" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filtered.length === 0 && <p className="text-xs text-stone-400 italic text-center py-6">No exercises match “{query}”.</p>}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Create new */}
         <div className="px-3 py-3 border-t border-stone-200 flex-shrink-0">
-          {creating ? (
+          {editing ? (
+            <div className="bg-white rounded-xl border border-stone-100 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Edit exercise</p>
+              {formFields}
+              <div className="flex gap-2">
+                <button onClick={submitEdit} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>
+                  Save changes
+                </button>
+                <button onClick={resetForm} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
+              </div>
+            </div>
+          ) : creating ? (
             <div className="bg-white rounded-xl border border-stone-100 p-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">New exercise</p>
 
@@ -413,43 +539,21 @@ export default function LibraryModal({
                 )}
 
                 <p className="text-[10px] text-stone-400 mt-1.5">
-                  Imports name, muscles/equipment cue, instructions as tips, and search terms. Review before saving.
+                  Imports name, source label, instructions, safety cues, GIFs when available, and media search terms.
                 </p>
               </div>
 
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Name (required)"
-                className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} autoFocus />
-              <input value={cue} onChange={e => setCue(e.target.value)} placeholder="Short cue (e.g. 3 × 30 sec)"
-                className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
-              <input value={sets} onChange={e => setSets(e.target.value)} placeholder="Sets / reps (optional)"
-                className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
-              {tips.length > 0 && (
-                <div className="mb-2 rounded-lg bg-stone-50 border border-stone-100 px-3 py-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Imported tips</p>
-                  <p className="text-[11px] text-stone-500 leading-snug line-clamp-3">
-                    {tips.slice(0, 3).join(' ')}
-                  </p>
-                </div>
-              )}
-              <div className="flex gap-2 mb-3">
-                {(['mobility', 'strength'] as const).map(c => (
-                  <button key={c} onClick={() => setCat(c)}
-                    className="flex-1 text-xs font-semibold py-2 rounded-lg capitalize"
-                    style={{
-                      background: cat === c ? (c === 'strength' ? '#F4E3D6' : '#E4ECE6') : '#f5f5f4',
-                      color: cat === c ? (c === 'strength' ? '#C17B4F' : '#7E9B86') : '#a8a29e',
-                    }}>{c}</button>
-                ))}
-              </div>
+              {formFields}
+
               <div className="flex gap-2">
                 <button onClick={submitCreate} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>
                   {addToCatId ? 'Create & add' : 'Create'}
                 </button>
-                <button onClick={() => { setCreating(false); resetCreateForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
+                <button onClick={() => { setCreating(false); resetForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setCreating(true)}
+            <button onClick={() => { resetForm(); setCreating(true); }}
               className="w-full py-3 rounded-xl border-2 border-dashed border-stone-300 text-sm font-semibold text-stone-400 hover:border-stone-400 hover:text-stone-500">
               ＋ Create new exercise
             </button>

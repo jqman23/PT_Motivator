@@ -391,6 +391,10 @@ export default function Home() {
     updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
   };
 
+  const updateExercise = (nextExercise: Exercise) => {
+    updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
+  };
+
   const deleteCustom = (exId: string) => {
     updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId));
     updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })));
@@ -595,6 +599,7 @@ export default function Home() {
             addToCatId={libraryCatId}
             onPick={addExToCategory}
             onCreateCustom={createCustom}
+            onUpdateCustom={updateExercise}
             onDeleteCustom={deleteCustom}
             onClose={() => { setShowLibrary(false); setLibraryCatId(null); }}
           />
