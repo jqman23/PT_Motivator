@@ -9,9 +9,10 @@ interface Props {
   ptSessions: { date: string; note?: string }[];
 }
 
-type HealthRow = { date: string; pain?: number; energy?: number; mood?: number; sleep_hours?: number };
+type HealthRow = { date: string; pain?: number; energy?: number; mood?: number; sleep_hours?: number; treatment_notes?: string };
 type LogRow = { date: string; exercise_id: string; completed: boolean };
 type Range = '1W' | '2W' | '1M' | '3M';
+type ReportTab = 'overview' | 'pt';
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function offsetDate(base: string, days: number): string {
@@ -25,8 +26,6 @@ function datesInRange(start: string, end: string): string[] {
   while (cur <= end) { out.push(cur); cur = offsetDate(cur, 1); }
   return out;
 }
-
-// ── Charts ────────────────────────────────────────────────────────────────────
 
 function LineChart({ data, color, max = 10 }: {
   data: Array<{ date: string; value: number }>;
@@ -143,10 +142,9 @@ function WeeklyBarChart({ weeks }: {
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
-
 export default function ReportingModal({ onClose, today, ptSessions }: Props) {
   const [range, setRange] = useState<Range>('1M');
+  const [tab, setTab] = useState<ReportTab>('overview');
   const [healthData, setHealthData] = useState<HealthRow[]>([]);
   const [logData, setLogData] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,15 +166,15 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
   }, [startDate, today]);
 
   const painData = useMemo(() =>
-    healthData.filter(h => h.pain != null).map(h => ({ date: h.date, value: h.pain! })).sort((a, b) => a.date.localeCompare(b.date)),
+    healthData.filter(h => h.pain != null).map(h => ({ date: h.date, value: Number(h.pain) })).sort((a, b) => a.date.localeCompare(b.date)),
     [healthData]);
 
   const energyData = useMemo(() =>
-    healthData.filter(h => h.energy != null).map(h => ({ date: h.date, value: h.energy! })).sort((a, b) => a.date.localeCompare(b.date)),
+    healthData.filter(h => h.energy != null).map(h => ({ date: h.date, value: Number(h.energy) })).sort((a, b) => a.date.localeCompare(b.date)),
     [healthData]);
 
   const moodData = useMemo(() =>
-    healthData.filter(h => h.mood != null).map(h => ({ date: h.date, value: h.mood! })).sort((a, b) => a.date.localeCompare(b.date)),
+    healthData.filter(h => h.mood != null).map(h => ({ date: h.date, value: Number(h.mood) })).sort((a, b) => a.date.localeCompare(b.date)),
     [healthData]);
 
   const weeklyData = useMemo(() => {
@@ -234,6 +232,30 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
     return { streak, daysActive, overallRate, ptInRange, avgPain };
   }, [logData, startDate, today, ptSessions, painData]);
 
+  const ptImpact = useMemo(() => {
+    const byDate = Object.fromEntries(healthData.map(h => [h.date, h]));
+    const ptDates = ptSessions.filter(s => s.date >= startDate && s.date <= today).map(s => s.date);
+    const allDates = datesInRange(startDate, today);
+    const nonPtDates = allDates.filter(d => !ptDates.includes(d));
+    const avg = (dates: string[], field: 'pain' | 'energy' | 'mood') => {
+      const vals = dates.map(d => byDate[d]?.[field]).filter((v): v is number => typeof v === 'number').map(Number);
+      return vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : null;
+    };
+    const nextDayDates = ptDates.map(d => offsetDate(d, 1)).filter(d => d <= today);
+    const treatmentDays = healthData.filter(h => h.treatment_notes?.trim()).length;
+    return {
+      ptDays: ptDates.length,
+      treatmentDays,
+      painPT: avg(ptDates, 'pain'),
+      painNonPT: avg(nonPtDates, 'pain'),
+      painNext: avg(nextDayDates, 'pain'),
+      energyPT: avg(ptDates, 'energy'),
+      energyNonPT: avg(nonPtDates, 'energy'),
+      moodPT: avg(ptDates, 'mood'),
+      moodNonPT: avg(nonPtDates, 'mood'),
+    };
+  }, [healthData, ptSessions, startDate, today]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6"
@@ -244,7 +266,6 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
         onClick={e => e.stopPropagation()}
         style={{ maxHeight: '92dvh' }}
       >
-        {/* Header */}
         <div className="px-5 pt-4 pb-3 border-b border-stone-100 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg font-semibold text-stone-800">Progress Report</h2>
@@ -260,7 +281,6 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
           </button>
         </div>
 
-        {/* Range selector */}
         <div className="px-5 py-2.5 border-b border-stone-100 flex gap-2 flex-shrink-0">
           {(['1W', '2W', '1M', '3M'] as const).map(r => (
             <button
@@ -278,7 +298,23 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
           ))}
         </div>
 
-        {/* Content */}
+        <div className="px-5 py-2.5 border-b border-stone-100 flex gap-2 flex-shrink-0">
+          {(['overview', 'pt'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all"
+              style={{
+                background: tab === t ? '#E4ECE6' : 'transparent',
+                color: tab === t ? '#476653' : '#a8a29e',
+                border: tab === t ? '1px solid #cfded3' : '1px solid transparent',
+              }}
+            >
+              {t === 'overview' ? 'Overview' : 'PT impact'}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="h-48 flex items-center justify-center">
@@ -286,80 +322,107 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
             </div>
           ) : (
             <div className="px-5 py-4 space-y-6">
-
-              {/* Stats row */}
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-stone-800 leading-none">{stats.streak}</p>
-                  <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">day streak</p>
-                </div>
-                <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold leading-none" style={{ color: '#7E9B86' }}>{stats.overallRate}%</p>
-                  <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">completion</p>
-                </div>
-                <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold leading-none" style={{ color: '#D9A94B' }}>{stats.ptInRange}</p>
-                  <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">PT sessions</p>
-                </div>
-              </div>
-
-              {/* Pain trend */}
-              <div>
-                <div className="flex items-baseline justify-between mb-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Pain Level</p>
-                  {stats.avgPain && (
-                    <p className="text-[10px] text-stone-400">avg <span className="font-semibold text-stone-500">{stats.avgPain}/10</span></p>
-                  )}
-                </div>
-                <LineChart data={painData} color="#E88E8E" />
-              </div>
-
-              {/* Wellbeing */}
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Wellbeing</p>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full" style={{ background: '#D9A94B' }} />
-                      <span className="text-[10px] text-stone-400">Energy</span>
+              {tab === 'pt' ? (
+                <>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-stone-800 leading-none">{ptImpact.ptDays}</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">PT days</p>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full" style={{ background: '#9B8EC4' }} />
-                      <span className="text-[10px] text-stone-400">Mood</span>
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold leading-none" style={{ color: '#C96B7A' }}>{ptImpact.painNext ?? '—'}</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">next-day pain</p>
+                    </div>
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold leading-none" style={{ color: '#5B9BD5' }}>{ptImpact.treatmentDays}</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">treatment days</p>
                     </div>
                   </div>
-                </div>
-                <MultiLineChart
-                  series={[
-                    { data: energyData, color: '#D9A94B' },
-                    { data: moodData, color: '#9B8EC4' },
-                  ]}
-                />
-              </div>
 
-              {/* Weekly completion */}
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Weekly Completion</p>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full bg-[#7E9B86]" />
-                      <span className="text-[10px] text-stone-400">Mobility</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full bg-[#C17B4F]" />
-                      <span className="text-[10px] text-stone-400">Strength</span>
+                  <div className="rounded-xl border border-stone-100 p-3 bg-stone-50">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">PT day vs non-PT day averages</p>
+                    <div className="space-y-2 text-xs text-stone-600">
+                      <p>Pain: <span className="font-semibold text-[#C96B7A]">{ptImpact.painPT ?? '—'}</span> on PT days vs <span className="font-semibold">{ptImpact.painNonPT ?? '—'}</span> non-PT</p>
+                      <p>Energy: <span className="font-semibold text-[#D9A94B]">{ptImpact.energyPT ?? '—'}</span> on PT days vs <span className="font-semibold">{ptImpact.energyNonPT ?? '—'}</span> non-PT</p>
+                      <p>Mood: <span className="font-semibold text-[#7E9B86]">{ptImpact.moodPT ?? '—'}</span> on PT days vs <span className="font-semibold">{ptImpact.moodNonPT ?? '—'}</span> non-PT</p>
                     </div>
                   </div>
-                </div>
-                <WeeklyBarChart weeks={weeklyData} />
-              </div>
 
-              {/* Active days note */}
-              <p className="text-[11px] text-stone-400 text-center pb-1">
-                {stats.daysActive} active day{stats.daysActive !== 1 ? 's' : ''} in this period
-              </p>
+                  <p className="text-[11px] text-stone-400 leading-relaxed text-center">
+                    These are simple averages, not medical conclusions. They help spot patterns between PT sessions, next-day symptoms, wellbeing, and treatment logs.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-stone-800 leading-none">{stats.streak}</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">day streak</p>
+                    </div>
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold leading-none" style={{ color: '#7E9B86' }}>{stats.overallRate}%</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">completion</p>
+                    </div>
+                    <div className="bg-[#F6F1E7] rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold leading-none" style={{ color: '#D9A94B' }}>{stats.ptInRange}</p>
+                      <p className="text-[10px] text-stone-500 mt-1 font-medium leading-tight">PT sessions</p>
+                    </div>
+                  </div>
 
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Pain Level</p>
+                      {stats.avgPain && (
+                        <p className="text-[10px] text-stone-400">avg <span className="font-semibold text-stone-500">{stats.avgPain}/10</span></p>
+                      )}
+                    </div>
+                    <LineChart data={painData} color="#E88E8E" />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Wellbeing</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full" style={{ background: '#D9A94B' }} />
+                          <span className="text-[10px] text-stone-400">Energy</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full" style={{ background: '#9B8EC4' }} />
+                          <span className="text-[10px] text-stone-400">Mood</span>
+                        </div>
+                      </div>
+                    </div>
+                    <MultiLineChart
+                      series={[
+                        { data: energyData, color: '#D9A94B' },
+                        { data: moodData, color: '#9B8EC4' },
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Weekly Completion</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full bg-[#7E9B86]" />
+                          <span className="text-[10px] text-stone-400">Mobility</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full bg-[#C17B4F]" />
+                          <span className="text-[10px] text-stone-400">Strength</span>
+                        </div>
+                      </div>
+                    </div>
+                    <WeeklyBarChart weeks={weeklyData} />
+                  </div>
+
+                  <p className="text-[11px] text-stone-400 text-center pb-1">
+                    {stats.daysActive} active day{stats.daysActive !== 1 ? 's' : ''} in this period
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>
