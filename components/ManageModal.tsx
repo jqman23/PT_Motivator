@@ -9,6 +9,7 @@ interface Props {
   exerciseMap: Record<string, Exercise>;
   onChange: (next: CategoryConfig[]) => void;
   onRequestAddExercise: (catId: string) => void;
+  onDeleteExercise: (exId: string) => void;
   onClose: () => void;
 }
 
@@ -24,10 +25,11 @@ function DragHandle() {
   );
 }
 
-export default function ManageModal({ layout, exerciseMap, onChange, onRequestAddExercise, onClose }: Props) {
+export default function ManageModal({ layout, exerciseMap, onChange, onRequestAddExercise, onDeleteExercise, onClose }: Props) {
   const [drag, setDrag] = useState<Drag>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
+  const [confirmDeleteEx, setConfirmDeleteEx] = useState<string | null>(null);
 
   const catSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const exRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -127,6 +129,7 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
     e.stopPropagation();
     setDrag({ type, id });
     setConfirmDeleteCat(null);
+    setConfirmDeleteEx(null);
   };
 
   // ── Edits ───────────────────────────────────────────────────────────────────
@@ -140,6 +143,11 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
   };
   const removeEx = (catId: string, exId: string) =>
     onChange(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c));
+
+  const permanentlyDeleteEx = (exId: string) => {
+    onDeleteExercise(exId);
+    setConfirmDeleteEx(null);
+  };
 
   const insertLine = (color: string) => (
     <div className="h-0.5 rounded-full my-0.5" style={{ background: color }} />
@@ -255,15 +263,44 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
                             <span className="flex-1 min-w-0 text-sm text-stone-700 truncate">
                               {ex ? ex.name : <span className="italic text-stone-400">Unknown exercise</span>}
                             </span>
-                            <button
-                              onClick={() => removeEx(cat.id, exId)}
-                              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-red-50 hover:text-red-500"
-                              title="Remove from this category"
-                            >
-                              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5">
-                                <path d="M4 4l8 8M12 4l-8 8" />
-                              </svg>
-                            </button>
+                            {confirmDeleteEx === exId ? (
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  onClick={() => permanentlyDeleteEx(exId)}
+                                  className="text-[11px] font-bold px-2 py-1 rounded-lg text-white bg-red-500"
+                                  title="Permanently delete from library"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteEx(null)}
+                                  className="text-[11px] font-semibold px-2 py-1 rounded-lg text-stone-500 bg-stone-100"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => removeEx(cat.id, exId)}
+                                  className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-stone-100 hover:text-stone-500"
+                                  title="Remove from this category only"
+                                >
+                                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3.5 h-3.5">
+                                    <path d="M4 4l8 8M12 4l-8 8" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteEx(exId)}
+                                  className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-stone-300 hover:bg-red-50 hover:text-red-500"
+                                  title="Permanently delete from exercise library"
+                                >
+                                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                                    <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.5 9.5h7L12 4" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );

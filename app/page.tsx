@@ -582,6 +582,7 @@ export default function Home() {
             exerciseMap={exerciseMap}
             onChange={updateLayout}
             onRequestAddExercise={openLibraryFor}
+            onDeleteExercise={deleteCustom}
             onClose={() => setShowManage(false)}
           />
         )}
