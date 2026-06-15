@@ -66,13 +66,17 @@ export async function GET(req: NextRequest) {
     if (!result.ok || !Array.isArray(result.data)) continue;
 
     const best = (result.data as ExerciseDbItem[])
-      .filter(item => item.gifUrl)
+      .filter(item => item.gifUrl || item.id)
       .map(item => ({ item, score: scoreMatch(q, item) }))
       .filter(x => x.score > 0)
       .sort((a, b) => b.score - a.score)[0]?.item;
 
-    if (best?.gifUrl) {
-      return NextResponse.json({ gifUrl: best.gifUrl, match: best, debug });
+    if (best?.gifUrl || best?.id) {
+      return NextResponse.json({
+        gifUrl: best.gifUrl ?? `https://v2.exercisedb.io/image/${best.id}`,
+        match: best,
+        debug,
+      });
     }
   }
 
