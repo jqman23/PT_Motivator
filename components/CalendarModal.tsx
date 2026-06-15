@@ -186,34 +186,36 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
           })}
         </div>
 
-        {/* Hover summary */}
-        {hoveredDay && hovered && (
-          <div className="border-t border-stone-100 px-4 py-3 bg-stone-50 min-h-[72px]">
-            <p className="text-xs font-bold text-stone-700 mb-1.5">
-              {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-            </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span className="text-xs text-stone-500">
-                <span className="font-semibold text-[#7E9B86]">{Math.round(hovered.mobilityFrac * mobilityItems.length)}/{mobilityItems.length}</span> mobility
-              </span>
-              <span className="text-xs text-stone-500">
-                <span className="font-semibold text-[#C17B4F]">{Math.round(hovered.strengthFrac * strengthItems.length)}/{strengthItems.length}</span> strength
-              </span>
-              {hovered.hasHealth && <>
-                {hovered.health.pain != null && <span className="text-xs text-stone-500">Pain: <span className="font-semibold">{hovered.health.pain}/10</span></span>}
-                {hovered.health.energy != null && <span className="text-xs text-stone-500">Energy: <span className="font-semibold">{hovered.health.energy}/10</span></span>}
-                {hovered.health.mood != null && <span className="text-xs text-stone-500">Mood: <span className="font-semibold">{hovered.health.mood}/10</span></span>}
-                {hovered.health.sleep_hours != null && <span className="text-xs text-stone-500">Sleep: <span className="font-semibold">{hovered.health.sleep_hours}h</span></span>}
-              </>}
-              {!hovered.hasHealth && hovered.mobilityFrac === 0 && hovered.strengthFrac === 0 && (
-                <span className="text-xs text-stone-400 italic">No activity logged</span>
-              )}
+        {/* Summary — always rendered so the grid never shifts when hovering */}
+        <div className="border-t border-stone-100 px-4 py-3 bg-stone-50 h-[84px] overflow-hidden">
+          {hoveredDay && hovered ? (
+            <>
+              <p className="text-xs font-bold text-stone-700 mb-1.5">
+                {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-xs text-stone-500">
+                  <span className="font-semibold text-[#7E9B86]">{Math.round(hovered.mobilityFrac * mobilityItems.length)}/{mobilityItems.length}</span> mobility
+                </span>
+                <span className="text-xs text-stone-500">
+                  <span className="font-semibold text-[#C17B4F]">{Math.round(hovered.strengthFrac * strengthItems.length)}/{strengthItems.length}</span> strength
+                </span>
+                {hovered.hasHealth && <>
+                  {hovered.health.pain != null && <span className="text-xs text-stone-500">Pain: <span className="font-semibold">{hovered.health.pain}/10</span></span>}
+                  {hovered.health.energy != null && <span className="text-xs text-stone-500">Energy: <span className="font-semibold">{hovered.health.energy}/10</span></span>}
+                  {hovered.health.mood != null && <span className="text-xs text-stone-500">Mood: <span className="font-semibold">{hovered.health.mood}/10</span></span>}
+                  {hovered.health.sleep_hours != null && <span className="text-xs text-stone-500">Sleep: <span className="font-semibold">{hovered.health.sleep_hours}h</span></span>}
+                </>}
+                {!hovered.hasHealth && hovered.mobilityFrac === 0 && hovered.strengthFrac === 0 && (
+                  <span className="text-xs text-stone-400 italic">No activity logged</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-[11px] text-stone-400 text-center">Hover a day for a summary · tap to view &amp; edit it</p>
             </div>
-          </div>
-        )}
-
-        <div className="px-4 py-2 border-t border-stone-100 text-center">
-          <p className="text-[10px] text-stone-400">Tap a day to view & edit it</p>
+          )}
         </div>
       </div>
     </div>

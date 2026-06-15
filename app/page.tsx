@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { EXERCISES, Exercise } from '@/lib/exercises';
+import { CategoryConfig, COLOR_PALETTE, COLOR_KEYS } from '@/lib/layout';
 import ExerciseCard from '@/components/ExerciseCard';
 import WeekTracker from '@/components/WeekTracker';
 import HealthTracker from '@/components/HealthTracker';
 import CalendarModal from '@/components/CalendarModal';
+import ManageModal from '@/components/ManageModal';
+import LibraryModal from '@/components/LibraryModal';
 import TimerWidget from '@/components/TimerWidget';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -13,29 +16,7 @@ import TimerWidget from '@/components/TimerWidget';
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
 
-export interface CategoryConfig {
-  id: string;
-  name: string;
-  color: string; // 'green' | 'orange' | 'blue' | 'purple'
-  exerciseIds: string[];
-}
-
-type DragState =
-  | { kind: 'ex'; id: string; fromCat: string }
-  | { kind: 'cat'; id: string }
-  | null;
-
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const EXERCISE_MAP = Object.fromEntries(EXERCISES.map(e => [e.id, e]));
-
-const COLOR_PALETTE: Record<string, { accent: string; light: string }> = {
-  green:  { accent: '#7E9B86', light: '#E4ECE6' },
-  orange: { accent: '#C17B4F', light: '#F4E3D6' },
-  blue:   { accent: '#5B9BD5', light: '#dbeafe' },
-  purple: { accent: '#7C3AED', light: '#ede9fe' },
-};
-const COLOR_KEYS = ['green', 'orange', 'blue', 'purple'] as const;
 
 const QUOTES = [
   "Recovery is not linear. Every rep, every day counts.",
@@ -119,22 +100,27 @@ export default function Home() {
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
 
-  // Inline editing (no edit mode — always available)
+  // Inline editing
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [colorMenuCat, setColorMenuCat] = useState<string | null>(null);
-  const [addingExToCat, setAddingExToCat] = useState<string | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('blue');
 
-  // Drag & drop
-  const [drag, setDrag] = useState<DragState>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null); // exId or catId currently hovered
+  // Popups
+  const [showManage, setShowManage] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [libraryCatId, setLibraryCatId] = useState<string | null>(null);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Merged master exercise list (built-ins + custom)
+  const allExercises = useMemo(() => [...EXERCISES, ...customExercises], [customExercises]);
+  const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
 
   // ── Restore date from localStorage
   useEffect(() => {
@@ -142,7 +128,7 @@ export default function Home() {
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
 
-  // ── Load layout from DB
+  // ── Load layout + custom exercises from DB
   useEffect(() => {
     fetch('/api/config?key=layout')
       .then(r => r.json())
@@ -161,6 +147,11 @@ export default function Home() {
       })
       .catch(() => setLayout(makeDefaultLayout()))
       .finally(() => setLayoutLoading(false));
+
+    fetch('/api/config?key=customExercises')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data.value)) setCustomExercises(data.value as Exercise[]); })
+      .catch(console.error);
   }, []);
 
   // ── Load workout log + notes
@@ -208,6 +199,16 @@ export default function Home() {
     }).catch(console.error);
   }, []);
 
+  // ── Custom exercise save helper
+  const updateCustom = useCallback((next: Exercise[]) => {
+    setCustomExercises(next);
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'customExercises', value: next }),
+    }).catch(console.error);
+  }, []);
+
   // ── Date navigation
   const changeDate = (date: string) => {
     setSelectedDate(date);
@@ -232,7 +233,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           date: selectedDate,
-          log: EXERCISES.map(ex => ({ exerciseId: ex.id, completed: dayLog[ex.id] ?? false })),
+          log: allExercises.map(ex => ({ exerciseId: ex.id, completed: dayLog[ex.id] ?? false })),
           notes: Object.entries(notes).map(([exerciseId, note]) => ({ exerciseId, note })),
         }),
       });
@@ -283,7 +284,7 @@ export default function Home() {
     finally { setClearing(false); }
   };
 
-  // ── Category management
+  // ── Category management (inline)
   const renameCat = (catId: string, name: string) => {
     updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c));
     setRenamingCat(null);
@@ -291,9 +292,6 @@ export default function Home() {
   const changeColor = (catId: string, color: string) => {
     updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c));
     setColorMenuCat(null);
-  };
-  const deleteCat = (catId: string) => {
-    updateLayout(layout.filter(c => c.id !== catId));
   };
   const addNewCategory = () => {
     if (!newCatName.trim()) return;
@@ -307,63 +305,18 @@ export default function Home() {
     setAddingCategory(false);
   };
 
-  // Arrow reorder (mobile-friendly)
-  const moveCat = (catId: string, dir: -1 | 1) => {
-    const idx = layout.findIndex(c => c.id === catId);
-    const target = idx + dir;
-    if (target < 0 || target >= layout.length) return;
-    const next = [...layout];
-    [next[idx], next[target]] = [next[target], next[idx]];
-    updateLayout(next);
-  };
-  const moveEx = (catId: string, exId: string, dir: -1 | 1) => {
-    updateLayout(layout.map(c => {
-      if (c.id !== catId) return c;
-      const ids = [...c.exerciseIds];
-      const i = ids.indexOf(exId);
-      const t = i + dir;
-      if (t < 0 || t >= ids.length) return c;
-      [ids[i], ids[t]] = [ids[t], ids[i]];
-      return { ...c, exerciseIds: ids };
-    }));
-  };
-
+  // ── Library actions
   const addExToCategory = (exId: string, catId: string) => {
-    // remove from any category, then append to target
     const next = layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))
       .map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c);
     updateLayout(next);
-    setAddingExToCat(null);
   };
-
-  // ── Drag & drop
-  const dropExerciseBefore = (targetCatId: string, targetExId: string | null) => {
-    if (!drag || drag.kind !== 'ex') return;
-    const exId = drag.id;
-    let next = layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }));
-    next = next.map(c => {
-      if (c.id !== targetCatId) return c;
-      const ids = [...c.exerciseIds];
-      const idx = targetExId ? ids.indexOf(targetExId) : ids.length;
-      ids.splice(idx < 0 ? ids.length : idx, 0, exId);
-      return { ...c, exerciseIds: ids };
-    });
-    updateLayout(next);
-    setDrag(null);
-    setDragOver(null);
+  const createCustom = (ex: Exercise) => updateCustom([...customExercises, ex]);
+  const deleteCustom = (exId: string) => {
+    updateCustom(customExercises.filter(e => e.id !== exId));
+    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })));
   };
-
-  const dropCategoryBefore = (targetCatId: string) => {
-    if (!drag || drag.kind !== 'cat' || drag.id === targetCatId) { setDrag(null); setDragOver(null); return; }
-    const moved = layout.find(c => c.id === drag.id);
-    if (!moved) return;
-    const without = layout.filter(c => c.id !== drag.id);
-    const idx = without.findIndex(c => c.id === targetCatId);
-    without.splice(idx, 0, moved);
-    updateLayout(without);
-    setDrag(null);
-    setDragOver(null);
-  };
+  const openLibraryFor = (catId: string) => { setLibraryCatId(catId); setShowLibrary(true); };
 
   useEffect(() => {
     if (renamingCat && renameInputRef.current) {
@@ -375,16 +328,6 @@ export default function Home() {
   // ── Derived
   const dayLog = log[selectedDate] || {};
   const isToday = selectedDate === today;
-  const allAssignedExIds = new Set(layout.flatMap(c => c.exerciseIds));
-  const unassignedExercises = EXERCISES.filter(e => !allAssignedExIds.has(e.id));
-
-  const GripIcon = () => (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-      <circle cx="5.5" cy="3.5" r="1.3"/><circle cx="10.5" cy="3.5" r="1.3"/>
-      <circle cx="5.5" cy="8" r="1.3"/><circle cx="10.5" cy="8" r="1.3"/>
-      <circle cx="5.5" cy="12.5" r="1.3"/><circle cx="10.5" cy="12.5" r="1.3"/>
-    </svg>
-  );
 
   return (
     <main className="min-h-screen bg-[#F6F1E7] py-8 px-4" style={{ colorScheme: 'light' }}>
@@ -396,10 +339,38 @@ export default function Home() {
             <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
             <div className="flex items-center gap-2">
               <TimerWidget />
+              {/* Library */}
               <button
-                onPointerDown={() => setShowCalendar(true)}
+                onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}
                 className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
                 style={{ touchAction: 'manipulation' }}
+                title="Exercise library"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z" />
+                  <path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z" />
+                </svg>
+              </button>
+              {/* Manage / reorder */}
+              <button
+                onClick={() => setShowManage(true)}
+                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
+                style={{ touchAction: 'manipulation' }}
+                title="Reorder & edit"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <path d="M7 5h10M7 10h10M7 15h10" />
+                  <circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none" />
+                  <circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none" />
+                  <circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+              {/* Calendar */}
+              <button
+                onClick={() => setShowCalendar(true)}
+                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
+                style={{ touchAction: 'manipulation' }}
+                title="Calendar"
               >
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                   <rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/>
@@ -475,6 +446,29 @@ export default function Home() {
             onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />
         )}
 
+        {showManage && (
+          <ManageModal
+            layout={layout}
+            exerciseMap={exerciseMap}
+            onChange={updateLayout}
+            onRequestAddExercise={openLibraryFor}
+            onClose={() => setShowManage(false)}
+          />
+        )}
+
+        {showLibrary && (
+          <LibraryModal
+            builtIns={EXERCISES}
+            customExercises={customExercises}
+            layout={layout}
+            addToCatId={libraryCatId}
+            onPick={addExToCategory}
+            onCreateCustom={createCustom}
+            onDeleteCustom={deleteCustom}
+            onClose={() => { setShowLibrary(false); setLibraryCatId(null); }}
+          />
+        )}
+
         {/* ── Exercise sections ──────────────────────────────────────────── */}
         {loading || layoutLoading ? (
           <div className="flex items-center justify-center h-40">
@@ -482,57 +476,18 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {layout.map((cat, catIdx) => {
+            {layout.map((cat) => {
               const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
               const isCollapsed = !!collapsed[cat.id];
-              const catExercises: Exercise[] = cat.exerciseIds.map(id => EXERCISE_MAP[id]).filter(Boolean);
+              const catExercises: Exercise[] = cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean);
               const done = catExercises.filter(e => dayLog[e.id]).length;
               const total = catExercises.length;
               const isRenaming = renamingCat === cat.id;
 
-              const availableToAdd = EXERCISES.filter(e => !cat.exerciseIds.includes(e.id));
-              const isCatDropTarget = drag?.kind === 'cat' && dragOver === cat.id && drag.id !== cat.id;
-
               return (
-                <section
-                  key={cat.id}
-                  className="mb-5"
-                  // Category-level drop zone (reordering categories)
-                  onDragOver={(e) => {
-                    if (drag?.kind === 'cat') { e.preventDefault(); setDragOver(cat.id); }
-                  }}
-                  onDrop={(e) => {
-                    if (drag?.kind === 'cat') { e.preventDefault(); dropCategoryBefore(cat.id); }
-                  }}
-                  style={{
-                    borderTop: isCatDropTarget ? `3px solid ${palette.accent}` : '3px solid transparent',
-                    paddingTop: 2,
-                    transition: 'border-color 0.1s',
-                  }}
-                >
+                <section key={cat.id} className="mb-5">
                   {/* ── Category header */}
                   <div className="flex items-center gap-1.5 mb-2.5">
-                    {/* Drag handle (desktop) */}
-                    <span
-                      draggable
-                      onDragStart={() => setDrag({ kind: 'cat', id: cat.id })}
-                      onDragEnd={() => { setDrag(null); setDragOver(null); }}
-                      className="flex-shrink-0 w-5 h-7 flex items-center justify-center text-stone-300 hover:text-stone-500 cursor-grab active:cursor-grabbing"
-                      title="Drag to reorder"
-                    >
-                      <GripIcon />
-                    </span>
-
-                    {/* Up/down (mobile) */}
-                    <div className="flex flex-col flex-shrink-0">
-                      <button onPointerDown={() => moveCat(cat.id, -1)} disabled={catIdx === 0}
-                        className="w-5 h-3.5 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
-                        style={{ touchAction: 'manipulation' }}>▲</button>
-                      <button onPointerDown={() => moveCat(cat.id, 1)} disabled={catIdx === layout.length - 1}
-                        className="w-5 h-3.5 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
-                        style={{ touchAction: 'manipulation' }}>▼</button>
-                    </div>
-
                     {/* Collapse toggle */}
                     <button
                       onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
@@ -591,11 +546,6 @@ export default function Home() {
                                 touchAction: 'manipulation',
                               }} />
                           ))}
-                          {cat.exerciseIds.length === 0 && (
-                            <button onPointerDown={() => deleteCat(cat.id)}
-                              className="w-6 h-6 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-sm"
-                              style={{ touchAction: 'manipulation' }} title="Delete empty category">×</button>
-                          )}
                         </div>
                       )}
                     </div>
@@ -603,101 +553,27 @@ export default function Home() {
 
                   {/* ── Exercise list */}
                   {!isCollapsed && (
-                    <div
-                      className="space-y-2"
-                      // Drop into this category (append) — handles empty cats and cross-category moves
-                      onDragOver={(e) => { if (drag?.kind === 'ex') { e.preventDefault(); } }}
-                      onDrop={(e) => {
-                        if (drag?.kind === 'ex') {
-                          e.preventDefault();
-                          // Only append if not dropped on a specific row (rows stop propagation)
-                          dropExerciseBefore(cat.id, null);
-                        }
-                      }}
-                    >
-                      {catExercises.map((ex, exIdx) => {
-                        const isExDropTarget = drag?.kind === 'ex' && dragOver === ex.id && drag.id !== ex.id;
-                        return (
-                          <div
-                            key={ex.id}
-                            onDragOver={(e) => { if (drag?.kind === 'ex') { e.preventDefault(); setDragOver(ex.id); } }}
-                            onDrop={(e) => {
-                              if (drag?.kind === 'ex') { e.preventDefault(); e.stopPropagation(); dropExerciseBefore(cat.id, ex.id); }
-                            }}
-                            style={{
-                              borderTop: isExDropTarget ? `3px solid ${palette.accent}` : '3px solid transparent',
-                              borderRadius: 4,
-                              opacity: drag?.kind === 'ex' && drag.id === ex.id ? 0.4 : 1,
-                            }}
-                          >
-                            <div className="flex items-stretch gap-1.5">
-                              {/* Drag rail */}
-                              <div className="flex flex-col items-center justify-center flex-shrink-0 gap-0.5">
-                                <button onPointerDown={() => moveEx(cat.id, ex.id, -1)} disabled={exIdx === 0}
-                                  className="w-5 h-4 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
-                                  style={{ touchAction: 'manipulation' }}>▲</button>
-                                <span
-                                  draggable
-                                  onDragStart={() => setDrag({ kind: 'ex', id: ex.id, fromCat: cat.id })}
-                                  onDragEnd={() => { setDrag(null); setDragOver(null); }}
-                                  className="w-5 h-5 flex items-center justify-center text-stone-300 hover:text-stone-500 cursor-grab active:cursor-grabbing"
-                                  title="Drag to move"
-                                >
-                                  <GripIcon />
-                                </span>
-                                <button onPointerDown={() => moveEx(cat.id, ex.id, 1)} disabled={exIdx === catExercises.length - 1}
-                                  className="w-5 h-4 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
-                                  style={{ touchAction: 'manipulation' }}>▼</button>
-                              </div>
+                    <div className="space-y-2">
+                      {catExercises.map((ex) => (
+                        <ExerciseCard
+                          key={ex.id}
+                          exercise={ex}
+                          done={dayLog[ex.id] ?? false}
+                          note={notes[ex.id] ?? ''}
+                          today={selectedDate}
+                          onToggle={() => handleToggle(ex.id)}
+                          onNoteSave={note => handleNoteSave(ex.id, note)}
+                        />
+                      ))}
 
-                              <div className="flex-1 min-w-0">
-                                <ExerciseCard
-                                  exercise={ex}
-                                  done={dayLog[ex.id] ?? false}
-                                  note={notes[ex.id] ?? ''}
-                                  today={selectedDate}
-                                  onToggle={() => handleToggle(ex.id)}
-                                  onNoteSave={note => handleNoteSave(ex.id, note)}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Add exercise */}
-                      {addingExToCat === cat.id ? (
-                        <div className="bg-white rounded-xl border border-stone-100 p-3 ml-6">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Add an exercise:</p>
-                          {availableToAdd.length > 0 ? (
-                            <div className="space-y-1 max-h-56 overflow-y-auto">
-                              {availableToAdd.map(e => {
-                                const inCat = layout.find(c => c.exerciseIds.includes(e.id));
-                                return (
-                                  <button key={e.id} onPointerDown={() => addExToCategory(e.id, cat.id)}
-                                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-stone-50 text-stone-700 flex items-center gap-2"
-                                    style={{ touchAction: 'manipulation' }}>
-                                    <span className="font-medium">{e.name}</span>
-                                    <span className="text-stone-400 text-[10px] ml-auto">{inCat ? `in ${inCat.name}` : 'unassigned'}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-stone-400 py-2">All exercises are already here.</p>
-                          )}
-                          <button onPointerDown={() => setAddingExToCat(null)}
-                            className="mt-2 text-xs text-stone-400 font-medium" style={{ touchAction: 'manipulation' }}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          onPointerDown={() => setAddingExToCat(cat.id)}
-                          className="ml-6 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100"
-                          style={{ touchAction: 'manipulation' }}
-                        >
-                          <span className="text-base leading-none">＋</span> Add exercise
-                        </button>
-                      )}
+                      {/* Add exercise (from library) */}
+                      <button
+                        onPointerDown={() => openLibraryFor(cat.id)}
+                        className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100"
+                        style={{ touchAction: 'manipulation' }}
+                      >
+                        <span className="text-base leading-none">＋</span> Add exercise
+                      </button>
                     </div>
                   )}
 
