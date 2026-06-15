@@ -437,7 +437,16 @@ export default function Home() {
         {/* ── Header ────────────────────────────────────────────────────── */}
         <div className="mb-6">
           <div className="flex items-center justify-between">
-            <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
+            <h1 className="font-serif text-3xl font-semibold text-stone-800 sm:hidden">{appTitle}</h1>
+              <input
+                value={appTitle}
+                onChange={e => setAppTitle(e.target.value)}
+                onBlur={e => updateAppTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]"
+                style={{ fontSize: 30, colorScheme: 'light' }}
+                title="Edit app title"
+              />
             <div className="flex items-center gap-1.5">
               <TimerWidget />
               {/* Library */}
