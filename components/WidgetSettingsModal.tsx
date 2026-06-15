@@ -38,32 +38,55 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
             <h2 className="font-serif text-lg font-semibold text-stone-800">Widget settings</h2>
             <p className="text-[11px] text-stone-400">Choose which optional icons show up top.</p>
           </div>
-          <button onPointerDown={e => {
-                e.stopPropagation();
-                if (opt.key === 'masterDatabase' && window.innerWidth < 640) return;
-                toggle(opt.key);
-              }}
-              className={`w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left ${opt.key === 'masterDatabase' ? 'opacity-60 sm:opacity-100 cursor-not-allowed sm:cursor-pointer' : ''}`}
-              style={{ touchAction: 'manipulation' }}
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-stone-800">{opt.label}</p>
-                <p className="text-xs text-stone-400 mt-0.5">{opt.description}</p>
-                {opt.key === 'masterDatabase' && (
-                  <p className="sm:hidden text-[10px] font-semibold text-stone-400 mt-1">Desktop only — disabled on mobile.</p>
-                )}
-              </div>
-              <span
-                className="w-11 h-6 rounded-full p-0.5 flex-shrink-0 transition-colors"
-                style={{ background: prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
+          <button
+            onPointerDown={e => { e.stopPropagation(); onClose(); }}
+            className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="px-4 py-4 space-y-2 overflow-y-auto">
+          <div className="bg-white rounded-xl border border-stone-100 px-3 py-3">
+            <p className="text-sm font-semibold text-stone-800">Always shown</p>
+            <p className="text-xs text-stone-400 mt-1">Exercise Library, Reorder & Edit, and Widget Settings stay visible.</p>
+          </div>
+
+          {OPTIONS.map(opt => {
+            const isMobileDisabled = opt.key === 'masterDatabase';
+
+            return (
+              <button
+                key={opt.key}
+                onPointerDown={e => {
+                  e.stopPropagation();
+                  if (isMobileDisabled && window.innerWidth < 640) return;
+                  toggle(opt.key);
+                }}
+                className={`w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left ${
+                  isMobileDisabled ? 'opacity-60 sm:opacity-100 cursor-not-allowed sm:cursor-pointer' : ''
+                }`}
+                style={{ touchAction: 'manipulation' }}
               >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-stone-800">{opt.label}</p>
+                  <p className="text-xs text-stone-400 mt-0.5">{opt.description}</p>
+                  {isMobileDisabled && (
+                    <p className="sm:hidden text-[10px] font-semibold text-stone-400 mt-1">Desktop only — disabled on mobile.</p>
+                  )}
+                </div>
                 <span
-                  className="block w-5 h-5 rounded-full bg-white shadow-sm transition-transform"
-                  style={{ transform: prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
-                />
-              </span>
-            </button>
-          ))}
+                  className="w-11 h-6 rounded-full p-0.5 flex-shrink-0 transition-colors"
+                  style={{ background: prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
+                >
+                  <span
+                    className="block w-5 h-5 rounded-full bg-white shadow-sm transition-transform"
+                    style={{ transform: prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
+                  />
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
