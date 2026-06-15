@@ -17,6 +17,7 @@ async function ensureTable() {
     )
   `;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_quality_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS energy_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS mood_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS pain_notes TEXT`;
@@ -53,15 +54,15 @@ export async function POST(req: NextRequest) {
   try {
     const {
       date, sleep_hours, sleep_quality, energy, mood, pain,
-      sleep_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
+      sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
     } = await req.json();
     if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
     await ensureTable();
     await sql`
       INSERT INTO health_log (date, sleep_hours, sleep_quality, energy, mood, pain,
-        sleep_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes, updated_at)
+        sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes, updated_at)
       VALUES (${date}::date, ${sleep_hours}, ${sleep_quality}, ${energy}, ${mood}, ${pain},
-        ${sleep_notes ?? null}, ${energy_notes ?? null}, ${mood_notes ?? null},
+        ${sleep_notes ?? null}, ${sleep_quality_notes ?? null}, ${energy_notes ?? null}, ${mood_notes ?? null},
         ${pain_notes ?? null}, ${general_notes ?? null}, ${treatment_notes ?? null}, NOW())
       ON CONFLICT (date) DO UPDATE SET
         sleep_hours = ${sleep_hours},
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
         mood = ${mood},
         pain = ${pain},
         sleep_notes = ${sleep_notes ?? null},
+        sleep_quality_notes = ${sleep_quality_notes ?? null},
         energy_notes = ${energy_notes ?? null},
         mood_notes = ${mood_notes ?? null},
         pain_notes = ${pain_notes ?? null},
