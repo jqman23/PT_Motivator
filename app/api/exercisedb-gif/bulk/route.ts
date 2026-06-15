@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const exercises: InputExercise[] = Array.isArray(body?.exercises) ? body.exercises : [];
 
   const updates: Record<string, string> = {};
-  const debug: { id: string; name?: string; status: string; query?: string; match?: string | null; gifUrl?: string }[] = [];
+  const debug: { id: string; name?: string; status: string; query?: string; match?: string | null; score?: number; gifUrl?: string }[] = [];
 
   for (const ex of exercises) {
     const found = await findExerciseDbGif(ex);
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
         status: 'filled',
         query: found.query,
         match: found.match,
+        score: found.score,
         gifUrl: found.gifUrl,
       });
     } else {

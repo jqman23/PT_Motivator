@@ -5,6 +5,11 @@ type ExerciseDbItem = {
   gifUrl?: string;
   imageUrl?: string;
   videoUrl?: string;
+  targetMuscles?: string[];
+  secondaryMuscles?: string[];
+  bodyParts?: string[];
+  equipments?: string[];
+  instructions?: string[];
 };
 
 type LookupResult = {
@@ -12,6 +17,7 @@ type LookupResult = {
   match: string | null;
   query: string;
   id: string | null;
+  score: number;
 };
 
 function pickMedia(item: ExerciseDbItem | null | undefined) {
@@ -21,7 +27,7 @@ function pickMedia(item: ExerciseDbItem | null | undefined) {
 function clean(value: string) {
   return value
     .toLowerCase()
-    .replace(/[()&:/-]/g, ' ')
+    .replace(/[()&:/_-]/g, ' ')
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -32,25 +38,60 @@ function words(value: string) {
     .split(/\s+/)
     .filter(w => w.length > 2 && ![
       'the','and','with','from','into','hold','focus','gentle','super','band',
-      'reps','sets','wall','straight','bent','right','left','optional','around'
+      'reps','sets','wall','straight','bent','right','left','optional','around',
+      'slow','controlled','seconds','minute','minutes','each','side'
     ].includes(w));
 }
 
-function score(query: string, item: ExerciseDbItem) {
-  const qWords = words(query);
+function itemText(item: ExerciseDbItem) {
+  return clean([
+    item.name,
+    ...(item.targetMuscles ?? []),
+    ...(item.secondaryMuscles ?? []),
+    ...(item.bodyParts ?? []),
+    ...(item.equipments ?? []),
+    ...(item.instructions ?? []),
+  ].filter(Boolean).join(' '));
+}
+
+function scoreCandidate(original: string, item: ExerciseDbItem) {
+  const inputWords = words(original);
   const name = clean(String(item.name ?? ''));
+  const text = itemText(item);
+
   let points = 0;
 
-  for (const w of qWords) if (name.includes(w)) points += 10;
-  if (name === clean(query)) points += 100;
-  if (name.includes(clean(query))) points += 50;
+  for (const w of inputWords) {
+    if (name.includes(w)) points += 18;
+    else if (text.includes(w)) points += 7;
+  }
 
-  if (name.includes('lat') && !clean(query).includes('lat')) points -= 35;
-  if (name.includes('hip') && clean(query).includes('hip')) points += 20;
-  if (name.includes('flexor') && clean(query).includes('flexor')) points += 20;
-  if (name.includes('calf') && clean(query).includes('calf')) points += 20;
-  if (name.includes('stretch') && clean(query).includes('stretch')) points += 15;
-  if (name.includes('ankle') && clean(query).includes('ankle')) points += 15;
+  const originalClean = clean(original);
+  if (name === originalClean) points += 200;
+  if (name.includes(originalClean)) points += 100;
+
+  const inputSet = new Set(inputWords);
+  const nameSet = new Set(words(name));
+  const intersection = [...inputSet].filter(w => nameSet.has(w)).length;
+  const union = new Set([...inputSet, ...nameSet]).size || 1;
+  points += Math.round((intersection / union) * 60);
+
+  // Important PT-specific nudges
+  if (originalClean.includes('calf') && name.includes('calf')) points += 40;
+  if (originalClean.includes('calves') && name.includes('calves')) points += 40;
+  if (originalClean.includes('hip') && name.includes('hip')) points += 35;
+  if (originalClean.includes('flexor') && name.includes('flexor')) points += 35;
+  if (originalClean.includes('hamstring') && name.includes('hamstring')) points += 35;
+  if (originalClean.includes('quad') && (name.includes('quad') || name.includes('quadriceps'))) points += 35;
+  if (originalClean.includes('glute') && name.includes('glute')) points += 35;
+  if (originalClean.includes('ankle') && name.includes('ankle')) points += 30;
+  if (originalClean.includes('balance') && (name.includes('balance') || name.includes('single leg'))) points += 25;
+  if (originalClean.includes('stretch') && name.includes('stretch')) points += 30;
+
+  // Avoid common wrong but high-frequency matches
+  if (name.includes('lat') && !originalClean.includes('lat')) points -= 60;
+  if (name.includes('chest') && !originalClean.includes('chest')) points -= 40;
+  if (name.includes('biceps') && !originalClean.includes('bicep')) points -= 30;
 
   return points;
 }
@@ -69,117 +110,147 @@ export function makeGifQueries(input: { name?: string; cue?: string; imageSearch
     .filter(v => v.length > 1);
 
   const text = clean(raw.join(' '));
-  const fallback: string[] = [];
+  const q: string[] = [];
 
-  if (text.includes('calf') && text.includes('stretch')) {
-    fallback.push('standing calves calf stretch', 'standing calf stretch', 'calf stretch');
-  }
-
-  if (text.includes('hip') && text.includes('flexor')) {
-    fallback.push('kneeling hip flexor stretch', 'exercise ball hip flexor stretch', 'hip flexor stretch');
-  }
-
-  if (text.includes('quad') && text.includes('stretch')) {
-    fallback.push('standing quadriceps stretch', 'quad stretch');
-  }
-
-  if (text.includes('hamstring')) {
-    fallback.push('hamstring stretch', 'standing hamstring stretch');
-  }
-
-  if (text.includes('eversion')) {
-    fallback.push('ankle eversion', 'band ankle eversion');
-  }
-
-  if (text.includes('inversion')) {
-    fallback.push('ankle inversion', 'band ankle inversion');
-  }
-
-  if (text.includes('balance')) {
-    fallback.push('single leg balance', 'single leg stand');
-  }
-
-  if (text.includes('toe yoga') || (text.includes('toe') && text.includes('separation'))) {
-    fallback.push('toe yoga', 'toe raises');
-  }
-
-  if (text.includes('single') && (text.includes('rdl') || text.includes('romanian'))) {
-    fallback.push('single leg deadlift', 'single leg romanian deadlift');
-  }
-
-  if (text.includes('glute') && text.includes('bridge')) {
-    fallback.push('single leg glute bridge', 'glute bridge');
-  }
+  // Strong semantic translations from PT wording → ExerciseDB wording
+  if (text.includes('calf') && text.includes('stretch')) q.push('standing calves calf stretch', 'standing calf stretch', 'calf stretch');
+  if (text.includes('hip') && text.includes('flexor')) q.push('kneeling hip flexor stretch', 'hip flexor stretch');
+  if (text.includes('quad') && text.includes('stretch')) q.push('standing quadriceps stretch', 'quadriceps stretch');
+  if (text.includes('hamstring')) q.push('hamstring stretch', 'standing hamstring stretch');
+  if (text.includes('eversion')) q.push('ankle eversion');
+  if (text.includes('inversion')) q.push('ankle inversion');
+  if (text.includes('balance')) q.push('single leg balance', 'single leg stand');
+  if (text.includes('single') && (text.includes('rdl') || text.includes('romanian'))) q.push('single leg deadlift', 'single leg romanian deadlift');
+  if (text.includes('glute') && text.includes('bridge')) q.push('glute bridge', 'single leg glute bridge');
 
   const meaningfulWords = words(raw.join(' '));
   const simplified = meaningfulWords.slice(0, 6).join(' ');
-  if (simplified) fallback.push(simplified);
+  if (simplified) q.push(simplified);
 
-  // Aggressive closest-match fallback: try smaller chunks and single strong terms
-  for (let size = Math.min(4, meaningfulWords.length); size >= 2; size--) {
+  for (let size = Math.min(5, meaningfulWords.length); size >= 2; size--) {
     for (let i = 0; i <= meaningfulWords.length - size; i++) {
-      fallback.push(meaningfulWords.slice(i, i + size).join(' '));
+      q.push(meaningfulWords.slice(i, i + size).join(' '));
     }
   }
 
-  for (const w of meaningfulWords) fallback.push(w);
+  for (const w of meaningfulWords) q.push(w);
 
-  // Last-resort generic category fallback
-  if (text.includes('stretch')) fallback.push('stretch');
-  if (text.includes('balance')) fallback.push('balance');
-  if (text.includes('ankle')) fallback.push('ankle');
-  if (text.includes('hip')) fallback.push('hip');
-  if (text.includes('calf')) fallback.push('calf');
-  if (text.includes('toe')) fallback.push('toe');
-  if (text.includes('glute')) fallback.push('glute');
-  if (text.includes('hamstring')) fallback.push('hamstring');
+  // Broad real-DB category fallbacks. Still searches ExerciseDB, not hardcoded media.
+  if (text.includes('stretch')) q.push('stretch');
+  if (text.includes('mobility')) q.push('mobility');
+  if (text.includes('balance')) q.push('balance');
+  if (text.includes('strength')) q.push('strength');
+  if (text.includes('ankle')) q.push('ankle');
+  if (text.includes('hip')) q.push('hip');
+  if (text.includes('calf') || text.includes('calves')) q.push('calf', 'calves');
+  if (text.includes('toe')) q.push('toe');
+  if (text.includes('glute')) q.push('glute');
+  if (text.includes('hamstring')) q.push('hamstring');
 
-  return Array.from(new Set([...fallback, ...raw].map(v => v.trim()).filter(Boolean)));
+  // Absolute last real-database searches.
+  q.push('stretch', 'body weight', 'strength');
+
+  return Array.from(new Set([...q, ...raw].map(v => v.trim()).filter(Boolean)));
+}
+
+async function searchExerciseDb(query: string) {
+  const url = new URL('https://oss.exercisedb.dev/api/v1/exercises/search');
+  url.searchParams.set('search', query);
+  url.searchParams.set('threshold', '0.0');
+
+  const data = await fetchJson(url.toString());
+  return Array.isArray(data) ? data as ExerciseDbItem[] : [];
+}
+
+async function hydrateIfNeeded(item: ExerciseDbItem) {
+  if (pickMedia(item)) return item;
+
+  const id = item.exerciseId ?? item.id;
+  if (!id) return item;
+
+  const full = await fetchJson(`https://oss.exercisedb.dev/api/v1/exercises/${encodeURIComponent(id)}`) as ExerciseDbItem | null;
+  return full ?? item;
 }
 
 export async function findExerciseDbGif(input: { name?: string; cue?: string; imageSearch?: string }) {
+  const original = [input.name, input.imageSearch, input.cue].filter(Boolean).join(' ');
   const queries = makeGifQueries(input);
 
+  const byId = new Map<string, { item: ExerciseDbItem; query: string }>();
+
   for (const query of queries) {
-    const searchUrl = new URL('https://oss.exercisedb.dev/api/v1/exercises/search');
-    searchUrl.searchParams.set('search', query);
-    searchUrl.searchParams.set('threshold', '0.0');
+    const results = await searchExerciseDb(query);
 
-    const searchData = await fetchJson(searchUrl.toString());
-    const results: ExerciseDbItem[] = Array.isArray(searchData) ? searchData : [];
-
-    const ranked = results
-      .map(item => ({ item, points: score(query, item) }))
-      .sort((a, b) => b.points - a.points)
-      .map(x => x.item);
-
-    for (const result of ranked.slice(0, 10)) {
-      const immediate = pickMedia(result);
-      if (immediate) {
-        return {
-          gifUrl: immediate,
-          match: result.name ?? null,
-          query,
-          id: result.exerciseId ?? result.id ?? null,
-        } satisfies LookupResult;
-      }
-
-      const id = result.exerciseId ?? result.id;
+    for (const item of results.slice(0, 25)) {
+      const id = item.exerciseId ?? item.id ?? item.name;
       if (!id) continue;
+      if (!byId.has(id)) byId.set(id, { item, query });
+    }
 
-      const full = await fetchJson(`https://oss.exercisedb.dev/api/v1/exercises/${encodeURIComponent(id)}`) as ExerciseDbItem | null;
-      const media = pickMedia(full);
+    // Don't overfetch forever once we have a real candidate pool
+    if (byId.size >= 100) break;
+  }
 
-      if (media) {
-        return {
-          gifUrl: media,
-          match: full?.name ?? result.name ?? null,
-          query,
-          id,
-        } satisfies LookupResult;
-      }
+  // If the API gave nothing somehow, do one final broad real DB search.
+  if (byId.size === 0) {
+    const broad = await searchExerciseDb('stretch');
+    for (const item of broad.slice(0, 25)) {
+      const id = item.exerciseId ?? item.id ?? item.name;
+      if (id) byId.set(id, { item, query: 'stretch' });
     }
   }
 
-  return null;
+  const candidates = [];
+
+  for (const entry of byId.values()) {
+    const full = await hydrateIfNeeded(entry.item);
+    const media = pickMedia(full);
+    if (!media) continue;
+
+    candidates.push({
+      gifUrl: media,
+      match: full.name ?? entry.item.name ?? null,
+      query: entry.query,
+      id: full.exerciseId ?? full.id ?? entry.item.exerciseId ?? entry.item.id ?? null,
+      score: scoreCandidate(original, full),
+    });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  return candidates[0] ?? null;
+}
+
+export async function findExerciseDbGifCandidates(input: { name?: string; cue?: string; imageSearch?: string }, limit = 8) {
+  const original = [input.name, input.imageSearch, input.cue].filter(Boolean).join(' ');
+  const queries = makeGifQueries(input);
+  const byId = new Map<string, { item: ExerciseDbItem; query: string }>();
+
+  for (const query of queries) {
+    const results = await searchExerciseDb(query);
+    for (const item of results.slice(0, 25)) {
+      const id = item.exerciseId ?? item.id ?? item.name;
+      if (!id) continue;
+      if (!byId.has(id)) byId.set(id, { item, query });
+    }
+    if (byId.size >= 100) break;
+  }
+
+  const candidates = [];
+
+  for (const entry of byId.values()) {
+    const full = await hydrateIfNeeded(entry.item);
+    const media = pickMedia(full);
+    if (!media) continue;
+
+    candidates.push({
+      gifUrl: media,
+      match: full.name ?? entry.item.name ?? null,
+      query: entry.query,
+      id: full.exerciseId ?? full.id ?? entry.item.exerciseId ?? entry.item.id ?? null,
+      score: scoreCandidate(original, full),
+    });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
 }
