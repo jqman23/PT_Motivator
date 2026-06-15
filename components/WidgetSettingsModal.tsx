@@ -10,7 +10,6 @@ const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },
   { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
-  { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
 ];
 
 export type WidgetPrefs = Record<WidgetKey, boolean>;
@@ -39,19 +38,7 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
             <h2 className="font-serif text-lg font-semibold text-stone-800">Widget settings</h2>
             <p className="text-[11px] text-stone-400">Choose which optional icons show up top.</p>
           </div>
-          <button onPointerDown={e => { e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
-        </div>
-
-        <div className="px-4 py-4 space-y-2 overflow-y-auto">
-          <div className="bg-white rounded-xl border border-stone-100 px-3 py-3">
-            <p className="text-sm font-semibold text-stone-800">Always shown</p>
-            <p className="text-xs text-stone-400 mt-1">Exercise Library, Reorder & Edit, and Widget Settings stay visible.</p>
-          </div>
-
-          {OPTIONS.map(opt => (
-            <button
-              key={opt.key}
-              onPointerDown={e => {
+          <button onPointerDown={e => {
                 e.stopPropagation();
                 if (opt.key === 'masterDatabase' && window.innerWidth < 640) return;
                 toggle(opt.key);
