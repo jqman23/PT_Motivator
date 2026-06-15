@@ -74,9 +74,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const makeQueries = (ex: Exercise) => {
     const base = [
       ex.name,
+      `${ex.name} ${ex.cue}`,
       ex.imageSearch,
       ex.cue,
-      `${ex.name} ${ex.cue}`,
     ].filter(Boolean);
 
     return Array.from(new Set(base.map(v => String(v).trim()).filter(v => v.length > 1)));
@@ -105,11 +105,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
         const ex = next[idx];
 
-        if (!isBrokenGif(ex.gifUrl)) {
-          skipped += 1;
-          continue;
-        }
-
+        // Force overwrite every targeted row so old/random GIFs get replaced too.
         checked += 1;
         setGifStatus(`Checking ${checked}: ${ex.name}`);
 
@@ -132,8 +128,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         }
       }
 
-      setGifStatus(`Done: filled ${filled}, checked ${checked}, skipped ${skipped}. Click Save database.`);
-      alert(`GIF autofill done: filled ${filled}, checked ${checked}, skipped ${skipped}. Click Save database.`);
+      setGifStatus(`Done: filled ${filled} of ${checked}. Click Save database.`);
+      alert(`GIF autofill done: filled ${filled} of ${checked}. Click Save database.`);
     } finally {
       setGifLoading(false);
     }
@@ -185,7 +181,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
 
             <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">
-              {gifLoading ? 'Finding GIFs…' : 'Fill missing/broken GIFs'}
+              {gifLoading ? 'Finding GIFs…' : 'Overwrite target GIFs from ExerciseDB'}
             </button>
             {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
 
