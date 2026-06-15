@@ -60,6 +60,15 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
     return items.length ? done / items.length : 0;
   }
 
+  const handleDayClick = (ds: string) => {
+    const isTouchLike = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+    if (isTouchLike) {
+      setHoveredDay(ds);
+      return;
+    }
+    onSelectDate(ds);
+  };
+
   let mobComplete = 0, strComplete = 0;
   days.forEach((d) => {
     const ds = todayStr(d);
@@ -111,7 +120,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
                 <button
                   key={ds}
                   type="button"
-                  onClick={() => onSelectDate(ds)}
+                  onClick={() => handleDayClick(ds)}
                   onMouseEnter={() => setHoveredDay(ds)}
                   onMouseLeave={() => setHoveredDay(null)}
                   onFocus={() => setHoveredDay(ds)}
@@ -119,7 +128,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
                   className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 transition-colors outline-none ${
                     isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
                   }`}
-                  title={`Go to ${displayDay(ds)}`}
+                  title={`Show ${displayDay(ds)} summary`}
                 >
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden transition-transform ${
@@ -188,7 +197,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
           </>
         ) : (
           <div className="h-full flex items-center justify-center">
-            <p className="text-[11px] text-stone-400 text-center">Hover a day for a summary</p>
+            <p className="text-[11px] text-stone-400 text-center">Tap or hover a day for a summary</p>
           </div>
         )}
       </div>
