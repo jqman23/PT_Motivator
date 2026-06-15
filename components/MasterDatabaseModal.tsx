@@ -92,48 +92,60 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     setGifLoading(true);
     setGifStatus('Starting GIF autofill…');
 
-    let checked = 0;
-    let filled = 0;
-    let skipped = 0;
-
     try {
-      let next = [...draft];
+      const targetExercises = draft
+        .filter(e => target.includes(e.id))
+        .map(e => ({
+          id: e.id,
+          name: e.name,
+          cue: e.cue,
+          imageSearch: e.imageSearch,
+        }));
 
-      for (const id of target) {
-        const idx = next.findIndex(e => e.id === id);
-        if (idx === -1) continue;
-
-        const ex = next[idx];
-
-        // Force overwrite every targeted row so old/random GIFs get replaced too.
-        checked += 1;
-        setGifStatus(`Checking ${checked}: ${ex.name}`);
-
-        let found = '';
-
-        for (const query of makeQueries(ex)) {
-          const res = await fetch(`/api/exercisedb-gif?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
-          const data = await res.json();
-
-          if (data.gifUrl) {
-            found = data.gifUrl;
-            break;
-          }
-        }
-
-        if (found) {
-          next = next.map((row, i) => i === idx ? { ...row, gifUrl: found, origin: row.origin ?? 'exercisedb' } : row);
-          setDraft(next);
-          filled += 1;
-        }
+      if (!targetExercises.length) {
+        alert('No target rows selected or visible.');
+        return;
       }
 
+      const res = await fetch('/api/exercisedb-gif/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ exercises: targetExercises }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setGifStatus('GIF autofill failed.');
+        alert(`GIF autofill failed: ${data?.error ?? res.status}`);
+        return;
+      }
+
+      const updates = data.updates ?? {};
+      const filled = Number(data.filled ?? 0);
+      const checked = Number(data.checked ?? targetExercises.length);
+
+      setDraft(prev => prev.map(row =>
+        updates[row.id]
+          ? { ...row, gifUrl: updates[row.id], origin: row.origin ?? 'exercisedb' }
+          : row
+      ));
+
+      const firstDebug = Array.isArray(data.debug)
+        ? data.debug.slice(0, 5).map((d: any) => `${d.status}: ${d.name ?? d.id}${d.match ? ` → ${d.match}` : ''}`).join('\n')
+        : '';
+
       setGifStatus(`Done: filled ${filled} of ${checked}. Click Save database.`);
-      alert(`GIF autofill done: filled ${filled} of ${checked}. Click Save database.`);
+      alert(`GIF autofill done: filled ${filled} of ${checked}. Click Save database.\n\n${firstDebug}`);
+    } catch (err) {
+      setGifStatus('GIF autofill failed.');
+      alert(`GIF autofill failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setGifLoading(false);
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-5" onPointerDown={onClose}>
