@@ -10,6 +10,7 @@ const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },
   { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
+  { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
 ];
 
 export type WidgetPrefs = Record<WidgetKey, boolean>;

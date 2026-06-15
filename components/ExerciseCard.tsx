@@ -5,6 +5,7 @@ import { Exercise } from '@/lib/exercises';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
 import ImageModal from './ImageModal';
+import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
 
 interface Props {
   exercise: Exercise;
@@ -20,6 +21,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showNotes, setShowNotes] = useState(false);
   const [showImages, setShowImages] = useState(false);
   const [showGif, setShowGif] = useState(false);
+  const [showQuickInfo, setShowQuickInfo] = useState(false);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -106,6 +108,17 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               <polygon points="6.5,5.5 11,8 6.5,10.5" fill="currentColor" stroke="none"/>
             </svg>
           </button>
+
+          <button
+            onClick={() => setShowQuickInfo(true)}
+            className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
+            title="Exercise info"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <circle cx="8" cy="8" r="6"/>
+              <path d="M8 7.5v4M8 4.7h.01"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -125,6 +138,10 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
       {showVideo && (
         <VideoModal exercise={exercise} onClose={() => setShowVideo(false)} />
+      )}
+
+      {showQuickInfo && (
+        <ExerciseQuickInfoModal exercise={exercise} onClose={() => setShowQuickInfo(false)} />
       )}
 
       {showImages && (

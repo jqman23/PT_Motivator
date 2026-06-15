@@ -14,6 +14,7 @@ import PTSessionsModal from '@/components/PTSessionsModal';
 import ReportingModal from '@/components/ReportingModal';
 import TreatmentsModal from '@/components/TreatmentsModal';
 import ExerciseInfoModal from '@/components/ExerciseInfoModal';
+import MasterDatabaseModal from '@/components/MasterDatabaseModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 
 type LogMap = Record<string, Record<string, boolean>>;
@@ -50,6 +51,7 @@ const DEFAULT_WIDGET_PREFS: WidgetPrefs = {
   treatments: true,
   ptSessions: true,
   reporting: true,
+  masterDatabase: true,
 };
 
 function getDailyQuote() {
@@ -85,7 +87,7 @@ function IconButton({ title, onClick, children, active }: { title: string; onCli
   return (
     <button
       onClick={onClick}
-      className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm flex-shrink-0 transition-colors"
+      className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm flex-shrink-0 transition-all hover:bg-stone-50 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
       style={{
         touchAction: 'manipulation',
         background: active ? '#FBF5E8' : 'white',
@@ -134,6 +136,7 @@ export default function Home() {
   const [showTreatments, setShowTreatments] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
+  const [showMasterDatabase, setShowMasterDatabase] = useState(false);
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
@@ -263,7 +266,7 @@ export default function Home() {
   const isToday = selectedDate === today;
 
   const DayControls = ({ bottom = false }: { bottom?: boolean }) => (
-    <div className={`flex items-center gap-3 ${bottom ? 'sm:hidden mt-2' : 'mt-3'}`}>
+    <div className={`flex items-center gap-3 ${bottom ? 'mt-2' : 'mt-3'}`}>
       <button onClick={() => handleDateChange(-1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }}>‹</button>
       <div className="flex-1 text-center"><span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>{!isToday && <span className="text-xs text-stone-400 ml-2">{selectedDate}</span>}</div>
       <button onClick={() => handleDateChange(1)} disabled={isToday} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 disabled:opacity-30 text-lg" style={{ touchAction: 'manipulation' }}>›</button>
@@ -285,6 +288,7 @@ export default function Home() {
               {widgetPrefs.treatments && <IconButton title="Meds / treatments" onClick={() => setShowTreatments(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 3h6v4H7z"/><path d="M6 7h8l1 10H5z"/><path d="M8 12h4M10 10v4"/></svg></IconButton>}
               {widgetPrefs.ptSessions && <IconButton title="PT sessions" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="8.5" cy="5.5" r="2.5"/><path d="M2 18v-1.5a6 6 0 0 1 11.5-1"/><path d="M16 11v5M13.5 13.5h5"/></svg></IconButton>}
               {widgetPrefs.reporting && <IconButton title="Progress report" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
+              {widgetPrefs.masterDatabase && <IconButton title="Master database" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton>}
               <IconButton title="Widget settings" onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
             </div>
           </div>
@@ -297,7 +301,7 @@ export default function Home() {
             <button onPointerDown={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
             {!confirmClearDay && <button onPointerDown={() => setConfirmClearDay(true)} className="text-xs font-medium px-3 py-1 rounded-full" style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>{clearing ? 'Clearing…' : '× Clear'}</button>}
           </div>
-          {confirmClearDay && <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Clear ALL data for {displayForDate(selectedDate)}?</span><button onPointerDown={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onPointerDown={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>}
+          {confirmClearDay && <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Are you sure? Clear ALL data for {displayForDate(selectedDate)}?</span><button onPointerDown={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onPointerDown={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>}
         </div>
 
         {showCalendar && <CalendarModal today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />}
@@ -306,6 +310,7 @@ export default function Home() {
         {showTreatments && <TreatmentsModal today={today} selectedDate={selectedDate} onClose={() => setShowTreatments(false)} />}
         {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} onClose={() => setShowInfo(false)} />}
         {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onClose={() => setShowWidgetSettings(false)} />}
+        {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
 
