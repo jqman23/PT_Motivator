@@ -38,6 +38,14 @@ body {
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
   }
+
+  /* In Reorder & edit, category names display on mobile but are not editable. */
+  input.flex-1.min-w-0.text-sm.font-semibold {
+    pointer-events: none;
+    caret-color: transparent;
+    border-color: transparent !important;
+    background: transparent !important;
+  }
 }
 
 /* Prevent iOS from zooming on input focus — must be >= 16px */
