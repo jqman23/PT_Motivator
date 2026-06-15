@@ -1,24 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-type ExerciseDbItem = {
-  id?: string;
-  name?: string;
-  gifUrl?: string;
-  target?: string;
-  bodyPart?: string;
-  equipment?: string;
-};
+type ExerciseDbItem = { id?: string; name?: string; gifUrl?: string; target?: string; bodyPart?: string; equipment?: string };
+
+function clean(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 function scoreMatch(query: string, item: ExerciseDbItem) {
-  const q = query.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  const n = String(item.name ?? '').toLowerCase();
+  const q = clean(query);
+  const n = clean(String(item.name ?? ''));
   let score = 0;
-  for (const word of q.split(' ')) {
-    if (word.length > 2 && n.includes(word)) score += 1;
-  }
-  if (n === q) score += 10;
-  if (n.includes(q)) score += 5;
+  if (n === q) score += 100;
+  if (n.includes(q)) score += 50;
+  for (const word of q.split(' ')) if (word.length > 2 && n.includes(word)) score += 5;
   return score;
+}
+
+async function rapid(path: string, apiKey: string) {
+  const res = await fetch(`https://exercisedb.p.rapidapi.com${path}`, {
+    headers: {
+      'x-rapidapi-host': 'exercisedb.p.rapidapi.com',
+      'x-rapidapi-key': apiKey,
+    },
+    next: { revalidate: 86400 },
+  });
+  if (!res.ok) return [];
+  return await res.json();
 }
 
 export async function GET(req: NextRequest) {
@@ -29,25 +36,19 @@ export async function GET(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ gifUrl: null, noKey: true });
 
   try {
-    const res = await fetch(
-      `https://exercisedb.p.rapidapi.com/exercises/name/${encodeURIComponent(q)}?limit=10&offset=0`,
-      {
-        headers: {
-          'x-rapidapi-host': 'exercisedb.p.rapidapi.com',
-          'x-rapidapi-key': apiKey,
-        },
-        next: { revalidate: 86400 },
-      }
-    );
+    let items = await rapid(`/exercises/name/${encodeURIComponent(q)}?limit=20&offset=0`, apiKey) as ExerciseDbItem[];
 
-    if (!res.ok) return NextResponse.json({ gifUrl: null, error: `ExerciseDB ${res.status}` });
+    if (!Array.isArray(items) || items.length === 0) {
+      items = await rapid('/exercises?limit=1500&offset=0', apiKey) as ExerciseDbItem[];
+    }
 
-    const items = (await res.json()) as ExerciseDbItem[];
     const best = items
       .filter(item => item.gifUrl)
-      .sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
+      .map(item => ({ item, score: scoreMatch(q, item) }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.item;
 
-    return NextResponse.json({ gifUrl: best?.gifUrl ?? null, match: best ?? null });
+    return NextResponse.json({ gifUrl: best?.gifUrl ?? null, match: best ?? null, searched: items.length });
   } catch {
     return NextResponse.json({ gifUrl: null, error: 'ExerciseDB fetch failed' });
   }
