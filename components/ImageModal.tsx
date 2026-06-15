@@ -18,7 +18,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
-  // Use imageSearch field for a more visual/demonstration-focused query
   const query = `${exercise.imageSearch} exercise demonstration`;
 
   useEffect(() => {
@@ -38,7 +37,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exercise.id]);
 
-  // Keyboard navigation
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onClose(); return; }
@@ -70,15 +68,12 @@ export default function ImageModal({ exercise, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col"
-      style={{ background: 'rgba(0,0,0,0.97)' }}
-      onClick={onClose}
-      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+      style={{ background: 'rgba(0,0,0,0.97)', touchAction: 'manipulation' }}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
-      {/* Top bar */}
       <div
         className="flex items-center justify-between px-5 pt-safe pt-4 pb-3 flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
-        onTouchEnd={(e) => e.stopPropagation()}
       >
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.35)' }}>
@@ -87,21 +82,18 @@ export default function ImageModal({ exercise, onClose }: Props) {
           <p className="text-sm font-semibold text-white leading-tight">{exercise.name}</p>
         </div>
         <button
-          onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
           className="w-9 h-9 rounded-full flex items-center justify-center text-white text-2xl leading-none"
           style={{ background: 'rgba(255,255,255,0.12)', touchAction: 'manipulation' }}
         >×</button>
       </div>
 
-      {/* Main image area */}
       <div
         className="flex-1 flex items-center justify-center relative overflow-hidden mx-4"
         onClick={(e) => e.stopPropagation()}
-        onTouchEnd={(e) => e.stopPropagation()}
         onTouchStart={handleTouchStart}
         style={{ userSelect: 'none', minHeight: 0 }}
       >
-        {/* Loading */}
         {loading && (
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" style={{ opacity: 0.4 }} />
@@ -109,7 +101,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
           </div>
         )}
 
-        {/* No API key */}
         {!loading && noKey && (
           <div className="flex flex-col items-center gap-4 px-8 text-center">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.06)' }}>
@@ -128,7 +119,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
           </div>
         )}
 
-        {/* No results */}
         {!loading && !noKey && total === 0 && (
           <div className="flex flex-col items-center gap-3">
             <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" className="w-12 h-12">
@@ -140,7 +130,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
           </div>
         )}
 
-        {/* Image slideshow */}
         {!loading && current && (
           <>
             <div
@@ -149,7 +138,6 @@ export default function ImageModal({ exercise, onClose }: Props) {
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 key={current.id}
                 src={current.thumbnail}
@@ -164,17 +152,16 @@ export default function ImageModal({ exercise, onClose }: Props) {
               />
             </div>
 
-            {/* Arrows */}
             {total > 1 && (
               <>
                 <button
-                  onPointerDown={(e) => { e.stopPropagation(); prev(); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); prev(); }}
                   disabled={idx === 0}
                   className="absolute left-0 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-20"
                   style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation', fontSize: 22, color: '#fff' }}
                 >‹</button>
                 <button
-                  onPointerDown={(e) => { e.stopPropagation(); next(); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); next(); }}
                   disabled={idx === total - 1}
                   className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-20"
                   style={{ background: 'rgba(0,0,0,0.55)', touchAction: 'manipulation', fontSize: 22, color: '#fff' }}
@@ -185,14 +172,11 @@ export default function ImageModal({ exercise, onClose }: Props) {
         )}
       </div>
 
-      {/* Caption + dots */}
       {!loading && current && (
         <div
           className="flex-shrink-0 px-5 pb-safe pb-5 pt-3"
           onClick={(e) => e.stopPropagation()}
-          onTouchEnd={(e) => e.stopPropagation()}
         >
-          {/* Caption */}
           <p className="text-sm font-semibold text-center leading-snug px-6 mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>
             {current.title}
           </p>
@@ -200,13 +184,12 @@ export default function ImageModal({ exercise, onClose }: Props) {
             {current.channel}
           </p>
 
-          {/* Dot indicators */}
           {total > 1 && (
             <div className="flex items-center justify-center gap-1.5">
               {videos.map((_, i) => (
                 <button
                   key={i}
-                  onPointerDown={(e) => { e.stopPropagation(); setIdx(i); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIdx(i); }}
                   className="rounded-full transition-all duration-200"
                   style={{
                     width: i === idx ? 22 : 8,
