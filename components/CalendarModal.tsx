@@ -5,6 +5,7 @@ import { EXERCISES } from '@/lib/exercises';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type HealthMap = Record<string, { sleep_hours?: number; sleep_quality?: number; energy?: number; mood?: number; pain?: number }>;
+type PTSession = { date: string; note?: string };
 
 interface DaySummary {
   mobilityFrac: number;
@@ -19,7 +20,7 @@ interface Props {
   onClose: () => void;
   today: string;
   selectedDate: string;
-  ptSessions?: { date: string; note?: string }[];
+  ptSessions?: PTSession[];
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -98,6 +99,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
   while (cells.length % 7 !== 0) cells.push(null);
 
   const hovered = hoveredDay ? getDaySummary(hoveredDay) : null;
+  const hoveredPTSession = hoveredDay ? ptSessions?.find(s => s.date === hoveredDay) : undefined;
 
   return (
     <div
@@ -111,8 +113,6 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
         onTouchEnd={e => e.stopPropagation()}
         style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
-
-        {/* Header */}
         <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
           <button onClick={prevMonth} className="w-8 h-8 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-500 font-bold">‹</button>
           <div className="text-center">
@@ -122,7 +122,6 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
           <button onClick={nextMonth} disabled={!canGoNext} className="w-8 h-8 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-500 font-bold disabled:opacity-30">›</button>
         </div>
 
-        {/* Legend */}
         <div className="flex items-center justify-center gap-3 px-4 py-2 bg-stone-50 border-b border-stone-100 flex-wrap">
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#7E9B86]"/><span className="text-[10px] text-stone-500 font-medium">Mobility</span></div>
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#C17B4F]"/><span className="text-[10px] text-stone-500 font-medium">Strength</span></div>
@@ -133,14 +132,12 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
           </div>
         </div>
 
-        {/* Day-of-week headers */}
         <div className="grid grid-cols-7 border-b border-stone-100">
           {DOW.map(d => (
             <div key={d} className="text-center py-2 text-[10px] font-bold text-stone-400 uppercase tracking-wider">{d}</div>
           ))}
         </div>
 
-        {/* Calendar grid */}
         <div className="grid grid-cols-7 p-2 gap-1 relative">
           {cells.map((day, i) => {
             if (!day) return <div key={`empty-${i}`} />;
@@ -152,6 +149,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
             const hasAnyData = summary.mobilityFrac > 0 || summary.strengthFrac > 0 || summary.hasHealth;
             const ptSession = ptSessions?.find(s => s.date === ds);
             const isPTSession = !!ptSession;
+            const showPTDot = isPTSession && !hasAnyData;
 
             return (
               <div
@@ -172,7 +170,6 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   'text-stone-700'
                 }`}>{day}</span>
 
-                {/* Indicator dots */}
                 <div className="flex gap-0.5 justify-center min-h-[10px]">
                   {summary.mobilityFrac > 0 && (
                     <div className="w-2 h-2 rounded-full relative overflow-hidden bg-stone-200 flex-shrink-0">
@@ -187,24 +184,30 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   {summary.hasHealth && (
                     <div className="w-2 h-2 rounded-full bg-[#5B9BD5] flex-shrink-0" />
                   )}
-                  {!hasAnyData && !isFuture && <div className="w-2 h-2" />}
+                  {showPTDot && (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#D9A94B' }} />
+                  )}
+                  {!hasAnyData && !showPTDot && !isFuture && <div className="w-2 h-2" />}
                 </div>
-
               </div>
             );
           })}
         </div>
 
-        {/* Summary — always rendered so the grid never shifts when hovering */}
         <div className="border-t border-stone-100 px-4 py-3 bg-stone-50 h-[84px] overflow-hidden">
           {hoveredDay && hovered ? (
             <>
-              <div className="flex items-center gap-2 mb-1.5">
-                <p className="text-xs font-bold text-stone-700">
+              <div className="flex items-center gap-2 mb-1.5 min-w-0">
+                <p className="text-xs font-bold text-stone-700 flex-shrink-0">
                   {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
                 </p>
-                {ptSessions?.some(s => s.date === hoveredDay) && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: '#FBF5E8', color: '#D9A94B' }}>PT session</span>
+                {hoveredPTSession && (
+                  <>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>PT session</span>
+                    {hoveredPTSession.note?.trim() && (
+                      <span className="text-[10px] text-stone-400 truncate">{hoveredPTSession.note}</span>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -220,7 +223,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   {hovered.health.mood != null && <span className="text-xs text-stone-500">Mood: <span className="font-semibold">{hovered.health.mood}/10</span></span>}
                   {hovered.health.sleep_hours != null && <span className="text-xs text-stone-500">Sleep: <span className="font-semibold">{hovered.health.sleep_hours}h</span></span>}
                 </>}
-                {!hovered.hasHealth && hovered.mobilityFrac === 0 && hovered.strengthFrac === 0 && (
+                {!hoveredPTSession && !hovered.hasHealth && hovered.mobilityFrac === 0 && hovered.strengthFrac === 0 && (
                   <span className="text-xs text-stone-400 italic">No activity logged</span>
                 )}
               </div>

@@ -65,19 +65,27 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
             {days.map((d) => {
               const ds = todayStr(d);
               const frac = categoryFraction(ds, cat);
+              const mobilityFrac = categoryFraction(ds, 'mobility');
+              const strengthFrac = categoryFraction(ds, 'strength');
+              const hasAnyDayData = mobilityFrac > 0 || strengthFrac > 0;
               const isToday = ds === today;
               const isSelected = ds === selectedDate;
               const hasPT = ptSessions?.some(s => s.date === ds);
+              const showPTCircle = cat === 'mobility' && !!hasPT && !hasAnyDayData;
+
               return (
                 <div key={ds} className="flex flex-col items-center gap-0.5">
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden ${
-                      isSelected
+                      showPTCircle
+                        ? 'border-[#D9A94B] bg-[#FBF5E8]'
+                        : isSelected
                         ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
                         : isToday
                         ? 'border-[#D9A94B]'
                         : 'border-stone-200'
                     }`}
+                    title={showPTCircle ? 'PT session' : undefined}
                   >
                     {frac > 0 && (
                       <div
@@ -88,16 +96,15 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
                         }}
                       />
                     )}
+                    {showPTCircle && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} />
+                      </div>
+                    )}
                   </div>
                   <span className="text-[9px] text-stone-400 font-medium">
                     {DAY_LABELS[d.getDay()]}
                   </span>
-                  {/* PT session dot — only shown on first row to avoid duplicating */}
-                  {cat === 'mobility' && hasPT ? (
-                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} title="PT session" />
-                  ) : (
-                    <div className="w-1.5 h-1.5" />
-                  )}
                 </div>
               );
             })}
@@ -105,14 +112,13 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
         </div>
       ))}
 
-      {/* Legend row */}
       <div className="flex items-center justify-between mt-2 flex-wrap gap-y-1">
         <p className="text-[10px] text-stone-400">
           Mobility: {mobComplete}/7 · Strength: {strComplete}/3
         </p>
         {ptSessions && ptSessions.some(s => days.some(day => todayStr(day) === s.date)) && (
           <div className="flex items-center gap-1">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} />
+            <div className="w-2 h-2 rounded-full border" style={{ background: '#FBF5E8', borderColor: '#D9A94B' }} />
             <span className="text-[10px] text-stone-400">PT session</span>
           </div>
         )}
