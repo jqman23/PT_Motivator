@@ -78,7 +78,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden ${
                       showPTCircle
-                        ? 'border-[#D9A94B] bg-[#FBF5E8]'
+                        ? 'border-[#E7D4A3] bg-[#FCF8EE]'
                         : isSelected
                         ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
                         : isToday
@@ -96,11 +96,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
                         }}
                       />
                     )}
-                    {showPTCircle && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} />
-                      </div>
-                    )}
+
                   </div>
                   <span className="text-[9px] text-stone-400 font-medium">
                     {DAY_LABELS[d.getDay()]}
