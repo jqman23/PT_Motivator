@@ -51,22 +51,28 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
           {OPTIONS.map(opt => (
             <button
               key={opt.key}
-              onPointerDown={e => { e.stopPropagation(); if (opt.key !== 'masterDatabase') toggle(opt.key); }}
-              disabled={opt.key === 'masterDatabase'}
-              className={`w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left ${opt.key === 'masterDatabase' ? 'sm:flex hidden opacity-60 cursor-not-allowed' : ''}`}
+              onPointerDown={e => {
+                e.stopPropagation();
+                if (opt.key === 'masterDatabase' && window.innerWidth < 640) return;
+                toggle(opt.key);
+              }}
+              className={`w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left ${opt.key === 'masterDatabase' ? 'opacity-60 sm:opacity-100 cursor-not-allowed sm:cursor-pointer' : ''}`}
               style={{ touchAction: 'manipulation' }}
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-stone-800">{opt.label}</p>
                 <p className="text-xs text-stone-400 mt-0.5">{opt.description}</p>
+                {opt.key === 'masterDatabase' && (
+                  <p className="sm:hidden text-[10px] font-semibold text-stone-400 mt-1">Desktop only — disabled on mobile.</p>
+                )}
               </div>
               <span
                 className="w-11 h-6 rounded-full p-0.5 flex-shrink-0 transition-colors"
-                style={{ background: opt.key === 'masterDatabase' ? '#e7e5e4' : prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
+                style={{ background: prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
               >
                 <span
                   className="block w-5 h-5 rounded-full bg-white shadow-sm transition-transform"
-                  style={{ transform: opt.key === 'masterDatabase' ? 'translateX(0)' : prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
+                  style={{ transform: prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
                 />
               </span>
             </button>
