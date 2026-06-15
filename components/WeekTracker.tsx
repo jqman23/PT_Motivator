@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { EXERCISES } from '@/lib/exercises';
 
 type LogMap = Record<string, Record<string, boolean>>;
+type Category = 'mobility' | 'strength';
 
 interface Props {
   log: LogMap;
@@ -25,15 +27,34 @@ function lastNDays(n: number): Date[] {
   return out;
 }
 
+function displayDay(ds: string) {
+  return new Date(ds + 'T12:00:00').toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export default function WeekTracker({ log, today, selectedDate, ptSessions }: Props) {
   const days = lastNDays(7);
+  const [hoveredDay, setHoveredDay] = useState<string | null>(null);
 
-  function categoryFraction(dateStr: string, cat: 'mobility' | 'strength') {
-    const items = EXERCISES.filter((e) => e.cat === cat && !e.optional);
+  const categoryItems = {
+    mobility: EXERCISES.filter((e) => e.cat === 'mobility' && !e.optional),
+    strength: EXERCISES.filter((e) => e.cat === 'strength' && !e.optional),
+  };
+
+  function categoryCount(dateStr: string, cat: Category) {
+    const items = categoryItems[cat];
     const dayLog = log[dateStr] || {};
-    const done = items.filter((e) => dayLog[e.id]).length;
+    return items.filter((e) => dayLog[e.id]).length;
+  }
+
+  function categoryFraction(dateStr: string, cat: Category) {
+    const items = categoryItems[cat];
+    const done = categoryCount(dateStr, cat);
     return items.length ? done / items.length : 0;
   }
 
@@ -43,6 +64,16 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
     if (categoryFraction(ds, 'mobility') >= 1) mobComplete++;
     if (categoryFraction(ds, 'strength') >= 1) strComplete++;
   });
+
+  const hovered = hoveredDay
+    ? {
+        mobilityDone: categoryCount(hoveredDay, 'mobility'),
+        mobilityTotal: categoryItems.mobility.length,
+        strengthDone: categoryCount(hoveredDay, 'strength'),
+        strengthTotal: categoryItems.strength.length,
+        ptSession: ptSessions?.find((s) => s.date === hoveredDay),
+      }
+    : null;
 
   return (
     <div className="bg-white border border-stone-100 rounded-2xl p-4">
@@ -72,11 +103,23 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
               const isSelected = ds === selectedDate;
               const hasPT = ptSessions?.some(s => s.date === ds);
               const showPTCircle = cat === 'mobility' && !!hasPT && !hasAnyDayData;
+              const isHovered = hoveredDay === ds;
 
               return (
-                <div key={ds} className="flex flex-col items-center gap-0.5">
+                <button
+                  key={ds}
+                  type="button"
+                  onMouseEnter={() => setHoveredDay(ds)}
+                  onMouseLeave={() => setHoveredDay(null)}
+                  onFocus={() => setHoveredDay(ds)}
+                  onBlur={() => setHoveredDay(null)}
+                  className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 transition-colors outline-none ${
+                    isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
+                  }`}
+                  title={`${displayDay(ds)} summary`}
+                >
                   <div
-                    className={`w-5 h-5 rounded-full border-2 relative overflow-hidden ${
+                    className={`w-5 h-5 rounded-full border-2 relative overflow-hidden transition-transform ${
                       showPTCircle
                         ? 'border-[#E7D4A3] bg-[#FCF8EE]'
                         : isSelected
@@ -84,8 +127,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
                         : isToday
                         ? 'border-[#D9A94B]'
                         : 'border-stone-200'
-                    }`}
-                    title={showPTCircle ? 'PT session' : undefined}
+                    } ${isHovered ? 'scale-110' : 'scale-100'}`}
                   >
                     {frac > 0 && (
                       <div
@@ -96,17 +138,57 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions }: Pr
                         }}
                       />
                     )}
-
                   </div>
-                  <span className="text-[9px] text-stone-400 font-medium">
+                  <span className={`text-[9px] font-medium ${isHovered ? 'text-stone-600' : 'text-stone-400'}`}>
                     {DAY_LABELS[d.getDay()]}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
       ))}
+
+      <div className="border-t border-stone-100 mt-3 pt-3 min-h-[58px]">
+        {hoveredDay && hovered ? (
+          <>
+            <div className="flex items-center gap-2 mb-1.5 min-w-0">
+              <p className="text-xs font-bold text-stone-700 flex-shrink-0">
+                {displayDay(hoveredDay)}
+              </p>
+              {hovered.ptSession && (
+                <>
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                    style={{ background: '#FBF5E8', color: '#D9A94B' }}
+                  >
+                    PT session
+                  </span>
+                  {hovered.ptSession.note?.trim() && (
+                    <span className="text-[10px] text-stone-400 truncate">{hovered.ptSession.note}</span>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span className="text-xs text-stone-500">
+                <span className="font-semibold text-[#7E9B86]">{hovered.mobilityDone}/{hovered.mobilityTotal}</span> mobility
+              </span>
+              <span className="text-xs text-stone-500">
+                <span className="font-semibold text-[#C17B4F]">{hovered.strengthDone}/{hovered.strengthTotal}</span> strength
+              </span>
+              {!hovered.ptSession && hovered.mobilityDone === 0 && hovered.strengthDone === 0 && (
+                <span className="text-xs text-stone-400 italic">No activity logged</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-[11px] text-stone-400 text-center">Hover a day for a summary</p>
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center justify-between mt-2 flex-wrap gap-y-1">
         <p className="text-[10px] text-stone-400">
