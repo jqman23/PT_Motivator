@@ -20,6 +20,11 @@ export interface CategoryConfig {
   exerciseIds: string[];
 }
 
+type DragState =
+  | { kind: 'ex'; id: string; fromCat: string }
+  | { kind: 'cat'; id: string }
+  | null;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const EXERCISE_MAP = Object.fromEntries(EXERCISES.map(e => [e.id, e]));
@@ -114,16 +119,19 @@ export default function Home() {
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [editMode, setEditMode] = useState(false);
 
-  // Edit-mode sub-states
+  // Inline editing (no edit mode — always available)
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [movingExercise, setMovingExercise] = useState<string | null>(null); // exerciseId
-  const [addingExToCat, setAddingExToCat] = useState<string | null>(null); // catId
+  const [colorMenuCat, setColorMenuCat] = useState<string | null>(null);
+  const [addingExToCat, setAddingExToCat] = useState<string | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('blue');
+
+  // Drag & drop
+  const [drag, setDrag] = useState<DragState>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null); // exId or catId currently hovered
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -144,7 +152,6 @@ export default function Home() {
         } else {
           const def = makeDefaultLayout();
           setLayout(def);
-          // Persist default layout so future loads are fast
           fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -192,20 +199,14 @@ export default function Home() {
   }, [loadLog, loadNotes, selectedDate]);
 
   // ── Layout save helper
-  const saveLayout = useCallback((next: CategoryConfig[]) => {
+  const updateLayout = useCallback((next: CategoryConfig[]) => {
+    setLayout(next);
     fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'layout', value: next }),
     }).catch(console.error);
   }, []);
-
-  const updateLayout = useCallback((next: CategoryConfig[]) => {
-    setLayout(next);
-    saveLayout(next);
-    setMovingExercise(null);
-    setAddingExToCat(null);
-  }, [saveLayout]);
 
   // ── Date navigation
   const changeDate = (date: string) => {
@@ -220,7 +221,7 @@ export default function Home() {
     changeDate(next);
   };
 
-  // ── Save all (workout_log + notes for this day)
+  // ── Save all
   const handleSaveAll = async () => {
     setSavingAll(true);
     setSaveAllDone(false);
@@ -282,81 +283,88 @@ export default function Home() {
     finally { setClearing(false); }
   };
 
-  // ── Category management helpers
-  const moveCatUp = (catId: string) => {
-    const idx = layout.findIndex(c => c.id === catId);
-    if (idx <= 0) return;
-    const next = [...layout];
-    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-    updateLayout(next);
-  };
-  const moveCatDown = (catId: string) => {
-    const idx = layout.findIndex(c => c.id === catId);
-    if (idx >= layout.length - 1) return;
-    const next = [...layout];
-    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-    updateLayout(next);
-  };
+  // ── Category management
   const renameCat = (catId: string, name: string) => {
     updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c));
     setRenamingCat(null);
   };
   const changeColor = (catId: string, color: string) => {
     updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c));
+    setColorMenuCat(null);
   };
   const deleteCat = (catId: string) => {
     updateLayout(layout.filter(c => c.id !== catId));
   };
   const addNewCategory = () => {
     if (!newCatName.trim()) return;
-    const next: CategoryConfig[] = [...layout, {
+    updateLayout([...layout, {
       id: `cat-${Date.now()}`,
       name: newCatName.trim(),
       color: newCatColor,
       exerciseIds: [],
-    }];
-    updateLayout(next);
+    }]);
     setNewCatName('');
     setAddingCategory(false);
   };
 
-  // Exercise ordering within a category
-  const moveExUp = (catId: string, exId: string) => {
+  // Arrow reorder (mobile-friendly)
+  const moveCat = (catId: string, dir: -1 | 1) => {
+    const idx = layout.findIndex(c => c.id === catId);
+    const target = idx + dir;
+    if (target < 0 || target >= layout.length) return;
+    const next = [...layout];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    updateLayout(next);
+  };
+  const moveEx = (catId: string, exId: string, dir: -1 | 1) => {
     updateLayout(layout.map(c => {
       if (c.id !== catId) return c;
       const ids = [...c.exerciseIds];
       const i = ids.indexOf(exId);
-      if (i <= 0) return c;
-      [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+      const t = i + dir;
+      if (t < 0 || t >= ids.length) return c;
+      [ids[i], ids[t]] = [ids[t], ids[i]];
       return { ...c, exerciseIds: ids };
     }));
   };
-  const moveExDown = (catId: string, exId: string) => {
-    updateLayout(layout.map(c => {
-      if (c.id !== catId) return c;
-      const ids = [...c.exerciseIds];
-      const i = ids.indexOf(exId);
-      if (i >= ids.length - 1) return c;
-      [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
-      return { ...c, exerciseIds: ids };
-    }));
-  };
-  const moveExToCategory = (exId: string, fromCatId: string, toCatId: string) => {
-    updateLayout(layout.map(c => {
-      if (c.id === fromCatId) return { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) };
-      if (c.id === toCatId) return { ...c, exerciseIds: [...c.exerciseIds, exId] };
-      return c;
-    }));
-  };
+
   const addExToCategory = (exId: string, catId: string) => {
-    // Move from wherever it is → catId
-    const currentCat = layout.find(c => c.exerciseIds.includes(exId));
-    if (!currentCat) return;
-    moveExToCategory(exId, currentCat.id, catId);
+    // remove from any category, then append to target
+    const next = layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }))
+      .map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c);
+    updateLayout(next);
     setAddingExToCat(null);
   };
 
-  // Focus rename input when activated
+  // ── Drag & drop
+  const dropExerciseBefore = (targetCatId: string, targetExId: string | null) => {
+    if (!drag || drag.kind !== 'ex') return;
+    const exId = drag.id;
+    let next = layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) }));
+    next = next.map(c => {
+      if (c.id !== targetCatId) return c;
+      const ids = [...c.exerciseIds];
+      const idx = targetExId ? ids.indexOf(targetExId) : ids.length;
+      ids.splice(idx < 0 ? ids.length : idx, 0, exId);
+      return { ...c, exerciseIds: ids };
+    });
+    updateLayout(next);
+    setDrag(null);
+    setDragOver(null);
+  };
+
+  const dropCategoryBefore = (targetCatId: string) => {
+    if (!drag || drag.kind !== 'cat' || drag.id === targetCatId) { setDrag(null); setDragOver(null); return; }
+    const moved = layout.find(c => c.id === drag.id);
+    if (!moved) return;
+    const without = layout.filter(c => c.id !== drag.id);
+    const idx = without.findIndex(c => c.id === targetCatId);
+    without.splice(idx, 0, moved);
+    updateLayout(without);
+    setDrag(null);
+    setDragOver(null);
+  };
+
   useEffect(() => {
     if (renamingCat && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -368,9 +376,15 @@ export default function Home() {
   const dayLog = log[selectedDate] || {};
   const isToday = selectedDate === today;
   const allAssignedExIds = new Set(layout.flatMap(c => c.exerciseIds));
-
-  // Exercises not yet in any category (for "add exercise" flow)
   const unassignedExercises = EXERCISES.filter(e => !allAssignedExIds.has(e.id));
+
+  const GripIcon = () => (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+      <circle cx="5.5" cy="3.5" r="1.3"/><circle cx="10.5" cy="3.5" r="1.3"/>
+      <circle cx="5.5" cy="8" r="1.3"/><circle cx="10.5" cy="8" r="1.3"/>
+      <circle cx="5.5" cy="12.5" r="1.3"/><circle cx="10.5" cy="12.5" r="1.3"/>
+    </svg>
+  );
 
   return (
     <main className="min-h-screen bg-[#F6F1E7] py-8 px-4" style={{ colorScheme: 'light' }}>
@@ -382,40 +396,6 @@ export default function Home() {
             <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
             <div className="flex items-center gap-2">
               <TimerWidget />
-              {/* Edit layout toggle */}
-              <button
-                onPointerDown={() => {
-                  setEditMode(m => !m);
-                  setRenamingCat(null);
-                  setMovingExercise(null);
-                  setAddingExToCat(null);
-                  setAddingCategory(false);
-                }}
-                className="h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-colors"
-                style={{
-                  touchAction: 'manipulation',
-                  background: editMode ? '#1c1917' : '#fff',
-                  borderColor: editMode ? '#1c1917' : '#e7e5e4',
-                  color: editMode ? '#fff' : '#78716c',
-                }}
-                title={editMode ? 'Done editing' : 'Edit layout'}
-              >
-                {editMode ? (
-                  <>
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3 h-3">
-                      <polyline points="2.5 8 6.5 12 13.5 4"/>
-                    </svg>
-                    Done
-                  </>
-                ) : (
-                  <>
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
-                      <path d="M2 12.5V14h1.5l8-8L10 4.5l-8 8z"/><path d="M11.5 3l1.5 1.5"/>
-                    </svg>
-                    Edit
-                  </>
-                )}
-              </button>
               <button
                 onPointerDown={() => setShowCalendar(true)}
                 className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
@@ -508,43 +488,55 @@ export default function Home() {
               const catExercises: Exercise[] = cat.exerciseIds.map(id => EXERCISE_MAP[id]).filter(Boolean);
               const done = catExercises.filter(e => dayLog[e.id]).length;
               const total = catExercises.length;
-
-              // Exercises NOT in this category (for "add exercise" picker)
-              const otherCatIds = layout
-                .filter(c => c.id !== cat.id)
-                .flatMap(c => c.exerciseIds);
-              const exercisesElsewhere = otherCatIds.map(id => EXERCISE_MAP[id]).filter(Boolean);
-              const availableToAdd = [...exercisesElsewhere, ...unassignedExercises];
-
               const isRenaming = renamingCat === cat.id;
 
-              return (
-                <section key={cat.id} className="mb-5">
-                  {/* ── Category header */}
-                  <div className={`flex items-center gap-2 mb-2.5 ${editMode ? 'bg-white rounded-2xl px-3 py-2 border border-stone-100 shadow-sm' : ''}`}>
+              const availableToAdd = EXERCISES.filter(e => !cat.exerciseIds.includes(e.id));
+              const isCatDropTarget = drag?.kind === 'cat' && dragOver === cat.id && drag.id !== cat.id;
 
-                    {/* Edit mode: reorder arrows */}
-                    {editMode && (
-                      <div className="flex flex-col gap-0.5 flex-shrink-0">
-                        <button
-                          onPointerDown={() => moveCatUp(cat.id)}
-                          disabled={catIdx === 0}
-                          className="w-6 h-6 rounded flex items-center justify-center text-stone-400 hover:bg-stone-100 disabled:opacity-20 text-base leading-none"
-                          style={{ touchAction: 'manipulation' }}
-                        >↑</button>
-                        <button
-                          onPointerDown={() => moveCatDown(cat.id)}
-                          disabled={catIdx === layout.length - 1}
-                          className="w-6 h-6 rounded flex items-center justify-center text-stone-400 hover:bg-stone-100 disabled:opacity-20 text-base leading-none"
-                          style={{ touchAction: 'manipulation' }}
-                        >↓</button>
-                      </div>
-                    )}
+              return (
+                <section
+                  key={cat.id}
+                  className="mb-5"
+                  // Category-level drop zone (reordering categories)
+                  onDragOver={(e) => {
+                    if (drag?.kind === 'cat') { e.preventDefault(); setDragOver(cat.id); }
+                  }}
+                  onDrop={(e) => {
+                    if (drag?.kind === 'cat') { e.preventDefault(); dropCategoryBefore(cat.id); }
+                  }}
+                  style={{
+                    borderTop: isCatDropTarget ? `3px solid ${palette.accent}` : '3px solid transparent',
+                    paddingTop: 2,
+                    transition: 'border-color 0.1s',
+                  }}
+                >
+                  {/* ── Category header */}
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    {/* Drag handle (desktop) */}
+                    <span
+                      draggable
+                      onDragStart={() => setDrag({ kind: 'cat', id: cat.id })}
+                      onDragEnd={() => { setDrag(null); setDragOver(null); }}
+                      className="flex-shrink-0 w-5 h-7 flex items-center justify-center text-stone-300 hover:text-stone-500 cursor-grab active:cursor-grabbing"
+                      title="Drag to reorder"
+                    >
+                      <GripIcon />
+                    </span>
+
+                    {/* Up/down (mobile) */}
+                    <div className="flex flex-col flex-shrink-0">
+                      <button onPointerDown={() => moveCat(cat.id, -1)} disabled={catIdx === 0}
+                        className="w-5 h-3.5 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
+                        style={{ touchAction: 'manipulation' }}>▲</button>
+                      <button onPointerDown={() => moveCat(cat.id, 1)} disabled={catIdx === layout.length - 1}
+                        className="w-5 h-3.5 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
+                        style={{ touchAction: 'manipulation' }}>▼</button>
+                    </div>
 
                     {/* Collapse toggle */}
                     <button
                       onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
-                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-stone-400 rounded hover:bg-stone-100 transition-colors"
+                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-stone-400 rounded hover:bg-stone-100"
                       style={{ touchAction: 'manipulation' }}
                     >
                       <svg viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 transition-transform"
@@ -553,215 +545,168 @@ export default function Home() {
                       </svg>
                     </button>
 
-                    {/* Category name — editable in edit mode */}
-                    {editMode && isRenaming ? (
+                    {/* Name (tap to rename) */}
+                    {isRenaming ? (
                       <input
                         ref={renameInputRef}
                         value={renameValue}
                         onChange={e => setRenameValue(e.target.value)}
-                        onBlur={() => renameCat(cat.id, renameValue || cat.name)}
+                        onBlur={() => renameCat(cat.id, renameValue.trim() || cat.name)}
                         onKeyDown={e => {
-                          if (e.key === 'Enter') renameCat(cat.id, renameValue || cat.name);
+                          if (e.key === 'Enter') renameCat(cat.id, renameValue.trim() || cat.name);
                           if (e.key === 'Escape') setRenamingCat(null);
                         }}
-                        className="flex-1 text-base font-semibold text-stone-800 bg-stone-50 border border-stone-300 rounded-lg px-2 py-0.5 focus:outline-none"
+                        className="flex-1 min-w-0 text-lg font-semibold text-stone-800 bg-stone-50 border border-stone-300 rounded-lg px-2 py-0.5 focus:outline-none"
                         style={{ fontSize: 16, fontFamily: 'Georgia, serif' }}
                       />
                     ) : (
                       <h2
-                        className={`flex-1 font-serif text-lg font-semibold text-stone-800 leading-tight ${editMode ? 'cursor-pointer hover:text-stone-600' : ''}`}
-                        onPointerDown={editMode ? () => { setRenamingCat(cat.id); setRenameValue(cat.name); } : undefined}
+                        className="flex-1 min-w-0 font-serif text-lg font-semibold text-stone-800 leading-tight truncate cursor-text"
+                        onPointerDown={() => { setRenamingCat(cat.id); setRenameValue(cat.name); }}
+                        title="Tap to rename"
                       >
                         {cat.name}
-                        {editMode && (
-                          <span className="ml-1.5 text-[10px] font-sans font-normal text-stone-400">tap to rename</span>
-                        )}
                       </h2>
                     )}
 
-                    {/* Right side */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {!editMode && (
-                        <>
-                          <span className="text-xs text-stone-400">{done}/{total}</span>
-                          <span
-                            className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full"
-                            style={{ background: palette.light, color: palette.accent }}
-                          >
-                            {cat.color === 'green' ? 'Most days' : cat.color === 'orange' ? '~3× / week' : ''}
-                          </span>
-                        </>
-                      )}
+                    {/* Count */}
+                    <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
 
-                      {editMode && (
-                        <>
-                          {/* Color picker dots */}
-                          <div className="flex gap-1">
-                            {COLOR_KEYS.map(c => (
-                              <button
-                                key={c}
-                                onPointerDown={() => changeColor(cat.id, c)}
-                                className="w-5 h-5 rounded-full transition-transform"
-                                style={{
-                                  background: COLOR_PALETTE[c].accent,
-                                  transform: cat.color === c ? 'scale(1.3)' : 'scale(1)',
-                                  boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3px ${COLOR_PALETTE[c].accent}` : 'none',
-                                  touchAction: 'manipulation',
-                                }}
-                              />
-                            ))}
-                          </div>
-                          {/* Delete category (only if empty) */}
+                    {/* Color swatch / menu */}
+                    <div className="relative flex-shrink-0">
+                      <button
+                        onPointerDown={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)}
+                        className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
+                        style={{ background: palette.accent, touchAction: 'manipulation' }}
+                        title="Change color"
+                      />
+                      {colorMenuCat === cat.id && (
+                        <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">
+                          {COLOR_KEYS.map(c => (
+                            <button key={c} onPointerDown={() => changeColor(cat.id, c)}
+                              className="w-6 h-6 rounded-full"
+                              style={{
+                                background: COLOR_PALETTE[c].accent,
+                                boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
+                                touchAction: 'manipulation',
+                              }} />
+                          ))}
                           {cat.exerciseIds.length === 0 && (
-                            <button
-                              onPointerDown={() => deleteCat(cat.id)}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-50 text-sm"
-                              style={{ touchAction: 'manipulation' }}
-                              title="Delete category"
-                            >×</button>
+                            <button onPointerDown={() => deleteCat(cat.id)}
+                              className="w-6 h-6 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-sm"
+                              style={{ touchAction: 'manipulation' }} title="Delete empty category">×</button>
                           )}
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>
 
                   {/* ── Exercise list */}
                   {!isCollapsed && (
-                    <div className="space-y-2">
-                      {catExercises.map((ex, exIdx) => (
-                        <div key={ex.id}>
-                          <div className="flex items-stretch gap-2">
-                            {/* Edit mode: exercise controls */}
-                            {editMode && (
-                              <div className="flex flex-col gap-1 justify-center flex-shrink-0">
-                                <button
-                                  onPointerDown={() => moveExUp(cat.id, ex.id)}
-                                  disabled={exIdx === 0}
-                                  className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 bg-white border border-stone-100 disabled:opacity-20 text-sm"
-                                  style={{ touchAction: 'manipulation' }}
-                                >↑</button>
-                                <button
-                                  onPointerDown={() => moveExDown(cat.id, ex.id)}
-                                  disabled={exIdx === catExercises.length - 1}
-                                  className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 bg-white border border-stone-100 disabled:opacity-20 text-sm"
-                                  style={{ touchAction: 'manipulation' }}
-                                >↓</button>
-                                <button
-                                  onPointerDown={() => setMovingExercise(movingExercise === ex.id ? null : ex.id)}
-                                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-white border text-[10px] font-bold"
-                                  style={{
-                                    touchAction: 'manipulation',
-                                    borderColor: movingExercise === ex.id ? palette.accent : '#e7e5e4',
-                                    color: movingExercise === ex.id ? palette.accent : '#a8a29e',
-                                  }}
-                                  title="Move to another category"
+                    <div
+                      className="space-y-2"
+                      // Drop into this category (append) — handles empty cats and cross-category moves
+                      onDragOver={(e) => { if (drag?.kind === 'ex') { e.preventDefault(); } }}
+                      onDrop={(e) => {
+                        if (drag?.kind === 'ex') {
+                          e.preventDefault();
+                          // Only append if not dropped on a specific row (rows stop propagation)
+                          dropExerciseBefore(cat.id, null);
+                        }
+                      }}
+                    >
+                      {catExercises.map((ex, exIdx) => {
+                        const isExDropTarget = drag?.kind === 'ex' && dragOver === ex.id && drag.id !== ex.id;
+                        return (
+                          <div
+                            key={ex.id}
+                            onDragOver={(e) => { if (drag?.kind === 'ex') { e.preventDefault(); setDragOver(ex.id); } }}
+                            onDrop={(e) => {
+                              if (drag?.kind === 'ex') { e.preventDefault(); e.stopPropagation(); dropExerciseBefore(cat.id, ex.id); }
+                            }}
+                            style={{
+                              borderTop: isExDropTarget ? `3px solid ${palette.accent}` : '3px solid transparent',
+                              borderRadius: 4,
+                              opacity: drag?.kind === 'ex' && drag.id === ex.id ? 0.4 : 1,
+                            }}
+                          >
+                            <div className="flex items-stretch gap-1.5">
+                              {/* Drag rail */}
+                              <div className="flex flex-col items-center justify-center flex-shrink-0 gap-0.5">
+                                <button onPointerDown={() => moveEx(cat.id, ex.id, -1)} disabled={exIdx === 0}
+                                  className="w-5 h-4 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
+                                  style={{ touchAction: 'manipulation' }}>▲</button>
+                                <span
+                                  draggable
+                                  onDragStart={() => setDrag({ kind: 'ex', id: ex.id, fromCat: cat.id })}
+                                  onDragEnd={() => { setDrag(null); setDragOver(null); }}
+                                  className="w-5 h-5 flex items-center justify-center text-stone-300 hover:text-stone-500 cursor-grab active:cursor-grabbing"
+                                  title="Drag to move"
                                 >
-                                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3 h-3">
-                                    <path d="M7 2v10M2 7l5 5 5-5"/>
-                                  </svg>
-                                </button>
+                                  <GripIcon />
+                                </span>
+                                <button onPointerDown={() => moveEx(cat.id, ex.id, 1)} disabled={exIdx === catExercises.length - 1}
+                                  className="w-5 h-4 flex items-center justify-center text-stone-300 hover:text-stone-500 disabled:opacity-0 text-[10px] leading-none"
+                                  style={{ touchAction: 'manipulation' }}>▼</button>
                               </div>
-                            )}
 
-                            <div className="flex-1 min-w-0">
-                              <ExerciseCard
-                                exercise={ex}
-                                done={dayLog[ex.id] ?? false}
-                                note={notes[ex.id] ?? ''}
-                                today={selectedDate}
-                                onToggle={() => !editMode && handleToggle(ex.id)}
-                                onNoteSave={note => handleNoteSave(ex.id, note)}
-                              />
+                              <div className="flex-1 min-w-0">
+                                <ExerciseCard
+                                  exercise={ex}
+                                  done={dayLog[ex.id] ?? false}
+                                  note={notes[ex.id] ?? ''}
+                                  today={selectedDate}
+                                  onToggle={() => handleToggle(ex.id)}
+                                  onNoteSave={note => handleNoteSave(ex.id, note)}
+                                />
+                              </div>
                             </div>
                           </div>
+                        );
+                      })}
 
-                          {/* Move-to-category picker */}
-                          {editMode && movingExercise === ex.id && (
-                            <div className="ml-9 mt-1.5 flex flex-wrap gap-2">
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400 w-full mb-0.5">Move to:</span>
-                              {layout.filter(c => c.id !== cat.id).map(otherCat => (
-                                <button
-                                  key={otherCat.id}
-                                  onPointerDown={() => moveExToCategory(ex.id, cat.id, otherCat.id)}
-                                  className="text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors"
-                                  style={{
-                                    background: (COLOR_PALETTE[otherCat.color] ?? COLOR_PALETTE.green).light,
-                                    color: (COLOR_PALETTE[otherCat.color] ?? COLOR_PALETTE.green).accent,
-                                    borderColor: (COLOR_PALETTE[otherCat.color] ?? COLOR_PALETTE.green).accent + '40',
-                                    touchAction: 'manipulation',
-                                  }}
-                                >
-                                  → {otherCat.name}
-                                </button>
-                              ))}
-                              <button
-                                onPointerDown={() => setMovingExercise(null)}
-                                className="text-xs px-3 py-1.5 rounded-full bg-stone-100 text-stone-500"
-                                style={{ touchAction: 'manipulation' }}
-                              >Cancel</button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-
-                      {/* ── Add exercise to category (edit mode) */}
-                      {editMode && (
-                        <div className="mt-1">
-                          {addingExToCat === cat.id ? (
-                            <div className="bg-white rounded-xl border border-stone-100 p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">
-                                Move here from another category:
-                              </p>
-                              {availableToAdd.length > 0 ? (
-                                <div className="space-y-1 max-h-48 overflow-y-auto">
-                                  {availableToAdd.map(e => (
-                                    <button
-                                      key={e.id}
-                                      onPointerDown={() => addExToCategory(e.id, cat.id)}
-                                      className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-stone-50 text-stone-700 flex items-center gap-2"
-                                      style={{ touchAction: 'manipulation' }}
-                                    >
-                                      <span className="text-stone-400 text-xs">
-                                        {layout.find(c => c.exerciseIds.includes(e.id))?.name ?? 'Unassigned'}
-                                      </span>
-                                      <span className="font-medium">{e.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-stone-400 py-2">All exercises are in this category.</p>
-                              )}
-                              <button
-                                onPointerDown={() => setAddingExToCat(null)}
-                                className="mt-2 text-xs text-stone-400 font-medium"
-                                style={{ touchAction: 'manipulation' }}
-                              >Cancel</button>
+                      {/* Add exercise */}
+                      {addingExToCat === cat.id ? (
+                        <div className="bg-white rounded-xl border border-stone-100 p-3 ml-6">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Add an exercise:</p>
+                          {availableToAdd.length > 0 ? (
+                            <div className="space-y-1 max-h-56 overflow-y-auto">
+                              {availableToAdd.map(e => {
+                                const inCat = layout.find(c => c.exerciseIds.includes(e.id));
+                                return (
+                                  <button key={e.id} onPointerDown={() => addExToCategory(e.id, cat.id)}
+                                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-stone-50 text-stone-700 flex items-center gap-2"
+                                    style={{ touchAction: 'manipulation' }}>
+                                    <span className="font-medium">{e.name}</span>
+                                    <span className="text-stone-400 text-[10px] ml-auto">{inCat ? `in ${inCat.name}` : 'unassigned'}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           ) : (
-                            <button
-                              onPointerDown={() => setAddingExToCat(addingExToCat === cat.id ? null : cat.id)}
-                              className="text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100 transition-colors"
-                              style={{ touchAction: 'manipulation' }}
-                            >
-                              <span className="text-base leading-none">＋</span> Add exercise
-                            </button>
+                            <p className="text-xs text-stone-400 py-2">All exercises are already here.</p>
                           )}
+                          <button onPointerDown={() => setAddingExToCat(null)}
+                            className="mt-2 text-xs text-stone-400 font-medium" style={{ touchAction: 'manipulation' }}>Cancel</button>
                         </div>
+                      ) : (
+                        <button
+                          onPointerDown={() => setAddingExToCat(cat.id)}
+                          className="ml-6 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100"
+                          style={{ touchAction: 'manipulation' }}
+                        >
+                          <span className="text-base leading-none">＋</span> Add exercise
+                        </button>
                       )}
                     </div>
                   )}
 
                   {/* Collapsed summary */}
-                  {isCollapsed && catExercises.length > 0 && (
+                  {isCollapsed && (
                     <button
                       onPointerDown={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))}
-                      className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed transition-colors"
-                      style={{
-                        borderColor: palette.accent + '40',
-                        color: palette.accent,
-                        background: palette.light + '60',
-                        touchAction: 'manipulation',
-                      }}
+                      className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed"
+                      style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}
                     >
                       {done}/{total} done · tap to expand
                     </button>
@@ -770,72 +715,59 @@ export default function Home() {
               );
             })}
 
-            {/* ── Add new category (edit mode) */}
-            {editMode && (
-              <div className="mb-5">
-                {addingCategory ? (
-                  <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">New category</p>
-                    <input
-                      value={newCatName}
-                      onChange={e => setNewCatName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addNewCategory()}
-                      placeholder="Category name…"
-                      autoFocus
-                      className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 mb-3 focus:outline-none focus:ring-2"
-                      style={{ fontSize: 16, colorScheme: 'light' }}
-                    />
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Color</p>
-                    <div className="flex gap-3 mb-4">
-                      {COLOR_KEYS.map(c => (
-                        <button
-                          key={c}
-                          onPointerDown={() => setNewCatColor(c)}
-                          className="w-8 h-8 rounded-full transition-transform"
-                          style={{
-                            background: COLOR_PALETTE[c].accent,
-                            transform: newCatColor === c ? 'scale(1.25)' : 'scale(1)',
-                            boxShadow: newCatColor === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
-                            touchAction: 'manipulation',
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onPointerDown={addNewCategory}
-                        className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl"
-                        style={{ background: COLOR_PALETTE[newCatColor].accent, touchAction: 'manipulation' }}
-                      >
-                        Add category
-                      </button>
-                      <button
-                        onPointerDown={() => { setAddingCategory(false); setNewCatName(''); }}
-                        className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100"
-                        style={{ touchAction: 'manipulation' }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
+            {/* ── Add new category */}
+            <div className="mb-5">
+              {addingCategory ? (
+                <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">New category</p>
+                  <input
+                    value={newCatName}
+                    onChange={e => setNewCatName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addNewCategory()}
+                    placeholder="Category name…"
+                    autoFocus
+                    className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 mb-3 focus:outline-none"
+                    style={{ fontSize: 16, colorScheme: 'light' }}
+                  />
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Color</p>
+                  <div className="flex gap-3 mb-4">
+                    {COLOR_KEYS.map(c => (
+                      <button key={c} onPointerDown={() => setNewCatColor(c)}
+                        className="w-8 h-8 rounded-full"
+                        style={{
+                          background: COLOR_PALETTE[c].accent,
+                          transform: newCatColor === c ? 'scale(1.25)' : 'scale(1)',
+                          boxShadow: newCatColor === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
+                          touchAction: 'manipulation',
+                        }} />
+                    ))}
                   </div>
-                ) : (
-                  <button
-                    onPointerDown={() => setAddingCategory(true)}
-                    className="w-full py-3.5 rounded-2xl border-2 border-dashed border-stone-200 text-sm font-semibold text-stone-400 hover:border-stone-300 hover:text-stone-500 transition-colors"
-                    style={{ touchAction: 'manipulation' }}
-                  >
-                    ＋ Add category
-                  </button>
-                )}
-              </div>
-            )}
+                  <div className="flex gap-2">
+                    <button onPointerDown={addNewCategory}
+                      className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl"
+                      style={{ background: COLOR_PALETTE[newCatColor].accent, touchAction: 'manipulation' }}>Add category</button>
+                    <button onPointerDown={() => { setAddingCategory(false); setNewCatName(''); }}
+                      className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100"
+                      style={{ touchAction: 'manipulation' }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onPointerDown={() => setAddingCategory(true)}
+                  className="w-full py-3.5 rounded-2xl border-2 border-dashed border-stone-200 text-sm font-semibold text-stone-400 hover:border-stone-300 hover:text-stone-500"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  ＋ Add category
+                </button>
+              )}
+            </div>
 
-            {/* ── Health tracker */}
+            {/* Health tracker */}
             <section className="mb-5">
               <HealthTracker today={selectedDate} />
             </section>
 
-            {/* ── Week tracker */}
+            {/* Week tracker */}
             <section className="mb-5">
               <WeekTracker log={log} today={today} selectedDate={selectedDate} />
             </section>
