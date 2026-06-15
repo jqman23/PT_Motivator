@@ -48,36 +48,6 @@ async function callExerciseDb(q: string, apiKey?: string) {
   return best?.gifUrl ? { gifUrl: best.gifUrl, source: 'exercisedb', match: best } : null;
 }
 
-async function callGiphy(q: string, apiKey?: string) {
-  if (!apiKey) return null;
-
-  const params = new URLSearchParams({
-    api_key: apiKey,
-    q: `how to ${q} fitness form exercise`,
-    limit: '8',
-    rating: 'g',
-    lang: 'en',
-  });
-
-  const res = await fetch(`https://api.giphy.com/v1/gifs/search?${params}`, { cache: 'no-store' });
-  if (!res.ok) return null;
-
-  const data = await res.json();
-  const hits = data?.data ?? [];
-  const good = hits.find((hit: any) => {
-    const title = String(hit?.title ?? '').toLowerCase();
-    const slug = String(hit?.slug ?? '').toLowerCase();
-    const text = `${title} ${slug}`;
-    return text.includes(clean(q).split(' ')[0]) || text.includes('fitness') || text.includes('workout') || text.includes('exercise');
-  }) ?? hits[0];
-
-  const gif =
-    good?.images?.downsized_medium?.url ??
-    good?.images?.original?.url ??
-    good?.images?.fixed_height?.url;
-
-  return gif ? { gifUrl: gif, source: 'giphy', match: good?.title ?? null } : null;
-}
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q') ?? '';
@@ -86,11 +56,8 @@ export async function GET(req: NextRequest) {
   const exerciseDb = await callExerciseDb(q, process.env.EXERCISEDB_RAPIDAPI_KEY);
   if (exerciseDb) return NextResponse.json(exerciseDb);
 
-  const giphy = await callGiphy(q, process.env.GIPHY_API_KEY);
-  if (giphy) return NextResponse.json(giphy);
-
   return NextResponse.json({
     gifUrl: null,
-    error: 'No GIF found. ExerciseDB returned no gifUrl and GIPHY_API_KEY may be missing or no Giphy match found.',
+    error: 'No real ExerciseDB gifUrl available from current API response.',
   });
 }
