@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
     if (best?.gifUrl || best?.id) {
       return NextResponse.json({
-        gifUrl: best.gifUrl ?? `https://v2.exercisedb.io/image/${best.id}`,
+        gifUrl: best.gifUrl ?? `/api/exercisedb-image/${best.id}`,
         match: best,
         debug,
       });
