@@ -17,6 +17,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const [catId, setCatId] = useState(layout[0]?.id ?? '');
   const [json, setJson] = useState('');
   const [saved, setSaved] = useState(false);
+  const [gifLoading, setGifLoading] = useState(false);
 
   const filtered = useMemo(() => draft.filter(e => !q || JSON.stringify(e).toLowerCase().includes(q.toLowerCase())), [draft, q]);
   const ids = Object.keys(selected).filter(id => selected[id]);
@@ -35,6 +36,23 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const moveBulk = () => onLayoutChange(layout.map(c => ({ ...c, exerciseIds: c.id === catId ? Array.from(new Set([...c.exerciseIds, ...target])) : c.exerciseIds.filter(id => !target.includes(id)) })));
   const moveOne = (id: string, to: string) => onLayoutChange(layout.map(c => ({ ...c, exerciseIds: c.id === to ? Array.from(new Set([...c.exerciseIds, id])) : c.exerciseIds.filter(x => x !== id) })));
   const save = () => { onLibraryChange(draft); setSaved(true); setTimeout(() => setSaved(false), 1500); };
+
+  const fillGifs = async () => {
+    setGifLoading(true);
+    try {
+      const next = [...draft];
+      for (const id of target) {
+        const idx = next.findIndex(e => e.id === id);
+        if (idx === -1 || next[idx].gifUrl) continue;
+        const res = await fetch(`/api/exercisedb-gif?q=${encodeURIComponent(next[idx].name)}`);
+        const data = await res.json();
+        if (data.gifUrl) next[idx] = { ...next[idx], gifUrl: data.gifUrl, origin: next[idx].origin ?? 'exercisedb' };
+      }
+      setDraft(next);
+    } finally {
+      setGifLoading(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-5" onPointerDown={onClose}>
@@ -61,11 +79,12 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             <button onClick={() => setJson(JSON.stringify(draft,null,2))} className="w-full rounded-xl bg-white border py-2 text-xs font-semibold">Export JSON</button>
             {json && <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} className="w-full font-mono text-[10px] rounded-xl border p-2" />}
             {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
+            <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">{gifLoading ? 'Finding GIFs…' : 'Fill missing GIFs from ExerciseDB'}</button>
             <button onClick={save} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#D9A94B]">{saved ? '✓ Saved' : 'Save database'}</button>
           </aside>
           <div className="flex-1 overflow-auto p-4">
             <table className="w-full min-w-[1050px] border-separate border-spacing-y-2 text-xs">
-              <thead><tr className="text-left text-stone-400 uppercase tracking-widest"><th>✓</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Image</th><th>Videos</th><th>Tips</th></tr></thead>
+              <thead><tr className="text-left text-stone-400 uppercase tracking-widest"><th>✓</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Image</th><th>GIF</th><th>Videos</th><th>Tips</th></tr></thead>
               <tbody>{filtered.map(e => <tr key={e.id} className="bg-white align-top shadow-sm">
                 <td className="p-2 rounded-l-xl"><input type="checkbox" checked={!!selected[e.id]} onChange={x => setSelected(s => ({...s,[e.id]:x.target.checked}))} /></td>
                 <td className="p-2"><textarea value={e.name} onChange={x=>patch(e.id,{name:x.target.value})} rows={2} className="w-40 border rounded-lg p-1 resize-none" /></td>
@@ -75,6 +94,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                 <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                 <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
                 <td className="p-2"><textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
+                <td className="p-2"><textarea value={e.gifUrl ?? ''} onChange={x=>patch(e.id,{gifUrl:x.target.value})} rows={2} className="w-44 border rounded-lg p-1 resize-none" placeholder="gifUrl" /></td>
                 <td className="p-2"><textarea value={list(e.videoIds)} onChange={x=>patch(e.id,{videoIds:split(x.target.value)})} rows={3} className="w-32 border rounded-lg p-1 resize-none" /></td>
                 <td className="p-2 rounded-r-xl"><textarea value={list(e.tips)} onChange={x=>patch(e.id,{tips:x.target.value.split('\n').filter(Boolean)})} rows={3} className="w-60 border rounded-lg p-1 resize-none" /></td>
               </tr>)}</tbody>
