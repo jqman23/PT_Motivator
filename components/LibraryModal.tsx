@@ -61,6 +61,12 @@ export default function LibraryModal({
   const q = query.trim().toLowerCase();
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
 
+  const originLabel = (e: Exercise & { isCustom?: boolean }) => {
+    if (e.origin === 'exercisedb') return { text: 'ExerciseDB', color: '#7C3AED', bg: '#ede9fe' };
+    if (e.origin === 'patient_added') return { text: 'Added', color: '#5B9BD5', bg: '#dbeafe' };
+    return { text: 'HEP', color: '#7E9B86', bg: '#E4ECE6' };
+  };
+
   const resetCreateForm = () => {
     setName('');
     setCue('');
@@ -133,9 +139,15 @@ export default function LibraryModal({
     if (!name.trim()) return;
 
     const ex: Exercise = {
-      ...makeCustomExercise({ name, cue, sets, cat }),
-      imageSearch: imageSearch.trim() || name.trim(),
-      tips,
+      ...makeCustomExercise({
+        name,
+        cue,
+        sets,
+        cat,
+        imageSearch: imageSearch.trim() || name.trim(),
+        tips,
+        origin: imageSearch ? 'exercisedb' : 'patient_added',
+      }),
     };
 
     onCreateCustom(ex);
@@ -161,7 +173,7 @@ export default function LibraryModal({
               {targetCat ? `Add to ${targetCat.name}` : 'Exercise library'}
             </h2>
             <p className="text-[11px] text-stone-400">
-              {targetCat ? 'Tap an exercise to add it' : 'Your master list of exercises'}
+              {targetCat ? 'Tap an exercise to add or remove it' : 'Your editable exercise library'}
             </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button>
@@ -194,7 +206,17 @@ export default function LibraryModal({
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-semibold text-stone-800 truncate">{e.name}</span>
-                      {e.isCustom && <span className="text-[9px] font-bold uppercase tracking-wide text-[#5B9BD5] bg-[#dbeafe] px-1.5 py-0.5 rounded">custom</span>}
+                      {(() => {
+                        const label = originLabel(e);
+                        return (
+                          <span
+                            className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                            style={{ color: label.color, background: label.bg }}
+                          >
+                            {label.text}
+                          </span>
+                        );
+                      })()}
                     </div>
                     {e.cue && <p className="text-[11px] text-stone-400 leading-snug truncate">{e.cue}</p>}
                     {inCatName && <p className="text-[10px] text-stone-400 mt-0.5">in {inCatName}</p>}
@@ -207,7 +229,7 @@ export default function LibraryModal({
                       <button onClick={() => onPick(e.id, addToCatId)}
                         className="flex-shrink-0 w-7 h-7 rounded-lg bg-[#E4ECE6] text-[#7E9B86] flex items-center justify-center text-lg font-bold">＋</button>
                     )
-                  ) : e.isCustom ? (
+                  ) : (
                     confirmDelete === e.id ? (
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button onClick={() => { onDeleteCustom(e.id); setConfirmDelete(null); }} className="text-[11px] font-bold px-2 py-1 rounded-lg text-white bg-red-500">Delete</button>
@@ -221,7 +243,7 @@ export default function LibraryModal({
                         </svg>
                       </button>
                     )
-                  ) : null}
+                  )}
                 </div>
               );
             })}

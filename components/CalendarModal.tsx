@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { EXERCISES } from '@/lib/exercises';
+import { Exercise } from '@/lib/exercises';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type HealthMap = Record<string, { sleep_hours?: number; sleep_quality?: number; energy?: number; mood?: number; pain?: number }>;
@@ -21,12 +21,13 @@ interface Props {
   today: string;
   selectedDate: string;
   ptSessions?: PTSession[];
+  exercises: Exercise[];
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function ymd(y: number, m: number, d: number) { return `${y}-${pad(m)}-${pad(d)}`; }
 
-export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions }: Props) {
+export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions, exercises }: Props) {
   const [viewYear, setViewYear] = useState(() => parseInt(selectedDate.split('-')[0]));
   const [viewMonth, setViewMonth] = useState(() => parseInt(selectedDate.split('-')[1]));
   const [log, setLog] = useState<LogMap>({});
@@ -59,8 +60,8 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
     }).finally(() => setLoading(false));
   }, [viewYear, viewMonth]);
 
-  const mobilityItems = EXERCISES.filter(e => e.cat === 'mobility' && !e.optional);
-  const strengthItems = EXERCISES.filter(e => e.cat === 'strength' && !e.optional);
+  const mobilityItems = exercises.filter(e => e.cat === 'mobility' && !e.optional);
+  const strengthItems = exercises.filter(e => e.cat === 'strength' && !e.optional);
 
   function getDaySummary(ds: string): DaySummary {
     const dayLog = log[ds] || {};

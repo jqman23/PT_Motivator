@@ -23,6 +23,11 @@ export function makeCustomExercise(opts: {
   cue: string;
   sets?: string;
   cat: Exercise['cat'];
+  origin?: Exercise['origin'];
+  sourceId?: string;
+  imageSearch?: string;
+  tips?: string[];
+  gifUrl?: string;
 }): Exercise {
   const name = opts.name.trim();
   return {
@@ -33,7 +38,10 @@ export function makeCustomExercise(opts: {
     sets: opts.sets?.trim() || undefined,
     videoIds: [],
     videoTitles: [],
-    imageSearch: name,
-    tips: [],
+    imageSearch: opts.imageSearch?.trim() || name,
+    tips: opts.tips ?? [],
+    origin: opts.origin ?? 'patient_added',
+    sourceId: opts.sourceId,
+    gifUrl: opts.gifUrl,
   };
 }

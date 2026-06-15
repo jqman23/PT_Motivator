@@ -49,6 +49,20 @@ function getDailyQuote() {
   return QUOTES[Math.floor((Date.now() - start.getTime()) / 86400000) % QUOTES.length];
 }
 
+function seedExerciseLibrary(legacyCustom: Exercise[] = []): Exercise[] {
+  const byId = new Map<string, Exercise>();
+
+  for (const ex of EXERCISES) {
+    byId.set(ex.id, { ...ex, origin: ex.origin ?? 'hep' });
+  }
+
+  for (const ex of legacyCustom) {
+    byId.set(ex.id, { ...ex, origin: ex.origin ?? 'patient_added' });
+  }
+
+  return Array.from(byId.values());
+}
+
 function makeDefaultLayout(): CategoryConfig[] {
   return [
     {
@@ -103,7 +117,7 @@ export default function Home() {
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
+  const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
 
   // Inline editing
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
@@ -126,8 +140,9 @@ export default function Home() {
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Merged master exercise list (built-ins + custom)
-  const allExercises = useMemo(() => [...EXERCISES, ...customExercises], [customExercises]);
+  // ── Active exercise library.
+  // EXERCISES is now only first-run seed data; the editable library lives in config.
+  const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
 
   // ── Restore date from localStorage
@@ -136,7 +151,7 @@ export default function Home() {
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
 
-  // ── Load layout + custom exercises from DB
+  // ── Load layout + exercise library from DB
   useEffect(() => {
     fetch('/api/config?key=layout')
       .then(r => r.json())
@@ -156,10 +171,27 @@ export default function Home() {
       .catch(() => setLayout(makeDefaultLayout()))
       .finally(() => setLayoutLoading(false));
 
-    fetch('/api/config?key=customExercises')
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data.value)) setCustomExercises(data.value as Exercise[]); })
-      .catch(console.error);
+    Promise.all([
+      fetch('/api/config?key=exerciseLibrary').then(r => r.json()).catch(() => ({ value: null })),
+      fetch('/api/config?key=customExercises').then(r => r.json()).catch(() => ({ value: null })),
+    ])
+      .then(([libraryData, legacyCustomData]) => {
+        if (Array.isArray(libraryData.value) && libraryData.value.length > 0) {
+          setExerciseLibrary(libraryData.value as Exercise[]);
+          return;
+        }
+
+        const legacyCustom = Array.isArray(legacyCustomData.value) ? legacyCustomData.value as Exercise[] : [];
+        const seeded = seedExerciseLibrary(legacyCustom);
+
+        setExerciseLibrary(seeded);
+        fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'exerciseLibrary', value: seeded }),
+        }).catch(console.error);
+      })
+      .catch(() => setExerciseLibrary(seedExerciseLibrary()));
 
     fetch('/api/config?key=ptSessions')
       .then(r => r.json())
@@ -220,13 +252,13 @@ export default function Home() {
     }).catch(console.error);
   }, []);
 
-  // ── Custom exercise save helper
-  const updateCustom = useCallback((next: Exercise[]) => {
-    setCustomExercises(next);
+  // ── Exercise library save helper
+  const updateExerciseLibrary = useCallback((next: Exercise[]) => {
+    setExerciseLibrary(next);
     fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'customExercises', value: next }),
+      body: JSON.stringify({ key: 'exerciseLibrary', value: next }),
     }).catch(console.error);
   }, []);
 
@@ -355,9 +387,12 @@ export default function Home() {
 
     updateLayout(next);
   };
-  const createCustom = (ex: Exercise) => updateCustom([...customExercises, ex]);
+  const createCustom = (ex: Exercise) => {
+    updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
+  };
+
   const deleteCustom = (exId: string) => {
-    updateCustom(customExercises.filter(e => e.id !== exId));
+    updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId));
     updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })));
   };
   const openLibraryFor = (catId: string) => { setLibraryCatId(catId); setShowLibrary(true); };
@@ -520,6 +555,7 @@ export default function Home() {
         {showCalendar && (
           <CalendarModal today={today} selectedDate={selectedDate}
             ptSessions={ptSessions}
+            exercises={allExercises}
             onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />
         )}
 
@@ -552,8 +588,8 @@ export default function Home() {
 
         {showLibrary && (
           <LibraryModal
-            builtIns={EXERCISES}
-            customExercises={customExercises}
+            builtIns={[]}
+            customExercises={exerciseLibrary}
             layout={layout}
             addToCatId={libraryCatId}
             onPick={addExToCategory}
@@ -739,7 +775,7 @@ export default function Home() {
 
             {/* Week tracker */}
             <section className="mb-5">
-              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} />
+              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} />
             </section>
 
             <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>

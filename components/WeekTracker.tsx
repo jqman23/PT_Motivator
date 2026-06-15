@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { EXERCISES } from '@/lib/exercises';
+import { Exercise } from '@/lib/exercises';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type Category = 'mobility' | 'strength';
@@ -11,6 +11,7 @@ interface Props {
   today: string;
   selectedDate: string;
   ptSessions?: { date: string; note?: string }[];
+  exercises: Exercise[];
 }
 
 function todayStr(d: Date): string {
@@ -37,13 +38,13 @@ function displayDay(ds: string) {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-export default function WeekTracker({ log, today, selectedDate, ptSessions }: Props) {
+export default function WeekTracker({ log, today, selectedDate, ptSessions, exercises }: Props) {
   const days = lastNDays(7);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
 
   const categoryItems = {
-    mobility: EXERCISES.filter((e) => e.cat === 'mobility' && !e.optional),
-    strength: EXERCISES.filter((e) => e.cat === 'strength' && !e.optional),
+    mobility: exercises.filter((e) => e.cat === 'mobility' && !e.optional),
+    strength: exercises.filter((e) => e.cat === 'strength' && !e.optional),
   };
 
   function categoryCount(dateStr: string, cat: Category) {

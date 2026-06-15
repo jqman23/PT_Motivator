@@ -11,6 +11,9 @@ export interface Exercise {
   imageSearch: string;
   tips: string[];
   optional?: boolean;
+  origin?: 'hep' | 'patient_added' | 'exercisedb';
+  sourceId?: string;
+  gifUrl?: string;
 }
 
 // Video IDs sourced from AskDoctorJo (Doctor Jo Donatelli, DPT) — she explicitly
