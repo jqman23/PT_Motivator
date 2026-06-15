@@ -14,22 +14,33 @@ export default function TimerWidget() {
 
   const playAlarm = useCallback(() => {
     try {
-      const ctx = new AudioContext();
-      const beepAt = (t: number) => {
+      const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const start = ctx.currentTime;
+      const pattern = [0, 0.45, 0.9, 1.35, 1.8, 2.25];
+
+      pattern.forEach(offset => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
+
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.frequency.value = 880;
+
+        osc.frequency.value = 520;
         osc.type = 'sine';
-        gain.gain.setValueAtTime(0.4, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+
+        const t = start + offset;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+
         osc.start(t);
         osc.stop(t + 0.3);
-      };
-      beepAt(ctx.currentTime);
-      beepAt(ctx.currentTime + 0.4);
-      beepAt(ctx.currentTime + 0.8);
+      });
+
+      setTimeout(() => ctx.close().catch(() => undefined), 3000);
     } catch { /* AudioContext not available */ }
   }, []);
 
