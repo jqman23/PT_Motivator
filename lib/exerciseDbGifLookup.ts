@@ -111,8 +111,28 @@ export function makeGifQueries(input: { name?: string; cue?: string; imageSearch
     fallback.push('single leg glute bridge', 'glute bridge');
   }
 
-  const simplified = words(raw.join(' ')).slice(0, 6).join(' ');
+  const meaningfulWords = words(raw.join(' '));
+  const simplified = meaningfulWords.slice(0, 6).join(' ');
   if (simplified) fallback.push(simplified);
+
+  // Aggressive closest-match fallback: try smaller chunks and single strong terms
+  for (let size = Math.min(4, meaningfulWords.length); size >= 2; size--) {
+    for (let i = 0; i <= meaningfulWords.length - size; i++) {
+      fallback.push(meaningfulWords.slice(i, i + size).join(' '));
+    }
+  }
+
+  for (const w of meaningfulWords) fallback.push(w);
+
+  // Last-resort generic category fallback
+  if (text.includes('stretch')) fallback.push('stretch');
+  if (text.includes('balance')) fallback.push('balance');
+  if (text.includes('ankle')) fallback.push('ankle');
+  if (text.includes('hip')) fallback.push('hip');
+  if (text.includes('calf')) fallback.push('calf');
+  if (text.includes('toe')) fallback.push('toe');
+  if (text.includes('glute')) fallback.push('glute');
+  if (text.includes('hamstring')) fallback.push('hamstring');
 
   return Array.from(new Set([...fallback, ...raw].map(v => v.trim()).filter(Boolean)));
 }
@@ -123,7 +143,7 @@ export async function findExerciseDbGif(input: { name?: string; cue?: string; im
   for (const query of queries) {
     const searchUrl = new URL('https://oss.exercisedb.dev/api/v1/exercises/search');
     searchUrl.searchParams.set('search', query);
-    searchUrl.searchParams.set('threshold', '0.15');
+    searchUrl.searchParams.set('threshold', '0.0');
 
     const searchData = await fetchJson(searchUrl.toString());
     const results: ExerciseDbItem[] = Array.isArray(searchData) ? searchData : [];
