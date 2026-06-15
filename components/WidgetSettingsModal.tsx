@@ -51,8 +51,9 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
           {OPTIONS.map(opt => (
             <button
               key={opt.key}
-              onPointerDown={e => { e.stopPropagation(); toggle(opt.key); }}
-              className="w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left"
+              onPointerDown={e => { e.stopPropagation(); if (opt.key !== 'masterDatabase') toggle(opt.key); }}
+              disabled={opt.key === 'masterDatabase'}
+              className={`w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left ${opt.key === 'masterDatabase' ? 'sm:flex hidden opacity-60 cursor-not-allowed' : ''}`}
               style={{ touchAction: 'manipulation' }}
             >
               <div className="min-w-0">
@@ -61,11 +62,11 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
               </div>
               <span
                 className="w-11 h-6 rounded-full p-0.5 flex-shrink-0 transition-colors"
-                style={{ background: prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
+                style={{ background: opt.key === 'masterDatabase' ? '#e7e5e4' : prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
               >
                 <span
                   className="block w-5 h-5 rounded-full bg-white shadow-sm transition-transform"
-                  style={{ transform: prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
+                  style={{ transform: opt.key === 'masterDatabase' ? 'translateX(0)' : prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
                 />
               </span>
             </button>
