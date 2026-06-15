@@ -67,6 +67,30 @@ export default function LibraryModal({
     return { text: 'HEP', color: '#7E9B86', bg: '#E4ECE6' };
   };
 
+  const toTitleCase = (value: string) =>
+    value.replace(/\w\S*/g, word =>
+      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    );
+
+  const clearExerciseDbResults = () => {
+    setExerciseDbResults([]);
+    setExerciseDbError('');
+    setExerciseDbImporting(null);
+  };
+
+  const inferCategoryFromExerciseDb = (exercise: ExerciseDbResult): Exercise['cat'] => {
+    const text = [
+      exercise.name,
+      ...(exercise.bodyParts ?? []),
+      ...(exercise.targetMuscles ?? []),
+      ...(exercise.equipments ?? []),
+      ...(exercise.instructions ?? []),
+    ].join(' ').toLowerCase();
+
+    const mobilityWords = ['stretch', 'mobility', 'flexibility', 'range of motion', 'rotation', 'circle', 'yoga', 'pose', 'release', 'warm up', 'warm-up'];
+    return mobilityWords.some(word => text.includes(word)) ? 'mobility' : 'strength';
+  };
+
   const resetCreateForm = () => {
     setName('');
     setCue('');
@@ -82,7 +106,10 @@ export default function LibraryModal({
 
   const searchExerciseDb = async () => {
     const q = exerciseDbQuery.trim();
-    if (q.length < 2) return;
+    if (q.length < 2) {
+      clearExerciseDbResults();
+      return;
+    }
 
     setExerciseDbLoading(true);
     setExerciseDbError('');
@@ -124,10 +151,15 @@ export default function LibraryModal({
       const equipmentText = exercise.equipments?.length ? exercise.equipments.join(', ') : '';
       const bodyText = exercise.bodyParts?.length ? exercise.bodyParts.join(', ') : '';
 
-      setName(exercise.name);
+      const titleName = toTitleCase(exercise.name);
+
+      setName(titleName);
       setCue([targetText, equipmentText].filter(Boolean).join(' · '));
-      setImageSearch([exercise.name, bodyText, equipmentText].filter(Boolean).join(' '));
+      setImageSearch([titleName, bodyText, equipmentText].filter(Boolean).join(' '));
       setTips(exercise.instructions?.length ? exercise.instructions : []);
+      setCat(inferCategoryFromExerciseDb(exercise));
+      setExerciseDbResults([]);
+      setExerciseDbQuery('');
     } catch {
       setExerciseDbError('Could not import ExerciseDB exercise.');
     } finally {
@@ -147,6 +179,7 @@ export default function LibraryModal({
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
         origin: imageSearch ? 'exercisedb' : 'patient_added',
+        sourceId: imageSearch ? 'exercisedb' : undefined,
       }),
     };
 
@@ -262,8 +295,15 @@ export default function LibraryModal({
                 <div className="flex gap-1.5">
                   <input
                     value={exerciseDbQuery}
-                    onChange={e => setExerciseDbQuery(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && searchExerciseDb()}
+                    onChange={e => {
+                      const next = e.target.value;
+                      setExerciseDbQuery(next);
+                      if (!next.trim()) clearExerciseDbResults();
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') searchExerciseDb();
+                      if (e.key === 'Escape') clearExerciseDbResults();
+                    }}
                     placeholder="Search e.g. calf raise"
                     className="flex-1 min-w-0 text-sm border border-stone-200 rounded-lg px-2.5 py-2 focus:outline-none bg-white"
                     style={{ fontSize: 16, colorScheme: 'light' }}
@@ -290,7 +330,7 @@ export default function LibraryModal({
                         className="w-full text-left bg-white border border-stone-100 rounded-lg px-2.5 py-2 hover:bg-stone-50 disabled:opacity-60"
                       >
                         <p className="text-xs font-semibold text-stone-800 truncate">
-                          {exerciseDbImporting === result.exerciseId ? 'Importing…' : result.name}
+                          {exerciseDbImporting === result.exerciseId ? 'Importing…' : toTitleCase(result.name)}
                         </p>
                         <p className="text-[10px] text-stone-400 truncate">
                           {[result.targetMuscles?.join(', '), result.equipments?.join(', ')].filter(Boolean).join(' · ') || 'Tap to import'}
