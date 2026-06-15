@@ -4,6 +4,17 @@ import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, makeCustomExercise } from '@/lib/layout';
 
+type ExerciseDbResult = {
+  exerciseId: string;
+  name: string;
+  gifUrl?: string;
+  targetMuscles?: string[];
+  secondaryMuscles?: string[];
+  bodyParts?: string[];
+  equipments?: string[];
+  instructions?: string[];
+};
+
 interface Props {
   builtIns: Exercise[];
   customExercises: Exercise[];
@@ -24,6 +35,13 @@ export default function LibraryModal({
   const [cue, setCue] = useState('');
   const [sets, setSets] = useState('');
   const [cat, setCat] = useState<Exercise['cat']>('mobility');
+  const [tips, setTips] = useState<string[]>([]);
+  const [imageSearch, setImageSearch] = useState('');
+  const [exerciseDbQuery, setExerciseDbQuery] = useState('');
+  const [exerciseDbResults, setExerciseDbResults] = useState<ExerciseDbResult[]>([]);
+  const [exerciseDbLoading, setExerciseDbLoading] = useState(false);
+  const [exerciseDbImporting, setExerciseDbImporting] = useState<string | null>(null);
+  const [exerciseDbError, setExerciseDbError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
@@ -43,12 +61,87 @@ export default function LibraryModal({
   const q = query.trim().toLowerCase();
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
 
+  const resetCreateForm = () => {
+    setName('');
+    setCue('');
+    setSets('');
+    setCat('mobility');
+    setTips([]);
+    setImageSearch('');
+    setExerciseDbQuery('');
+    setExerciseDbResults([]);
+    setExerciseDbError('');
+    setExerciseDbImporting(null);
+  };
+
+  const searchExerciseDb = async () => {
+    const q = exerciseDbQuery.trim();
+    if (q.length < 2) return;
+
+    setExerciseDbLoading(true);
+    setExerciseDbError('');
+
+    try {
+      const res = await fetch(`/api/exercisedb/search?search=${encodeURIComponent(q)}`);
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setExerciseDbError(json.error || 'ExerciseDB search failed.');
+        setExerciseDbResults([]);
+        return;
+      }
+
+      setExerciseDbResults(Array.isArray(json.data) ? json.data : []);
+    } catch {
+      setExerciseDbError('Could not search ExerciseDB.');
+      setExerciseDbResults([]);
+    } finally {
+      setExerciseDbLoading(false);
+    }
+  };
+
+  const importExerciseDbResult = async (result: ExerciseDbResult) => {
+    setExerciseDbImporting(result.exerciseId);
+    setExerciseDbError('');
+
+    try {
+      const res = await fetch(`/api/exercisedb/exercise?id=${encodeURIComponent(result.exerciseId)}`);
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setExerciseDbError(json.error || 'Could not import ExerciseDB exercise.');
+        return;
+      }
+
+      const exercise: ExerciseDbResult = { ...result, ...json.data };
+      const targetText = exercise.targetMuscles?.length ? exercise.targetMuscles.join(', ') : '';
+      const equipmentText = exercise.equipments?.length ? exercise.equipments.join(', ') : '';
+      const bodyText = exercise.bodyParts?.length ? exercise.bodyParts.join(', ') : '';
+
+      setName(exercise.name);
+      setCue([targetText, equipmentText].filter(Boolean).join(' · '));
+      setImageSearch([exercise.name, bodyText, equipmentText].filter(Boolean).join(' '));
+      setTips(exercise.instructions?.length ? exercise.instructions : []);
+    } catch {
+      setExerciseDbError('Could not import ExerciseDB exercise.');
+    } finally {
+      setExerciseDbImporting(null);
+    }
+  };
+
   const submitCreate = () => {
     if (!name.trim()) return;
-    const ex = makeCustomExercise({ name, cue, sets, cat });
+
+    const ex: Exercise = {
+      ...makeCustomExercise({ name, cue, sets, cat }),
+      imageSearch: imageSearch.trim() || name.trim(),
+      tips,
+    };
+
     onCreateCustom(ex);
     if (addToCatId) onPick(ex.id, addToCatId);
-    setName(''); setCue(''); setSets(''); setCat('mobility'); setCreating(false);
+    resetCreateForm();
+    setCreating(false);
   };
 
   return (
@@ -141,12 +234,69 @@ export default function LibraryModal({
           {creating ? (
             <div className="bg-white rounded-xl border border-stone-100 p-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">New exercise</p>
+
+              <div className="mb-3 rounded-xl border border-[#E4ECE6] bg-[#F8FBF8] p-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86] mb-1.5">Import from ExerciseDB</p>
+                <div className="flex gap-1.5">
+                  <input
+                    value={exerciseDbQuery}
+                    onChange={e => setExerciseDbQuery(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && searchExerciseDb()}
+                    placeholder="Search e.g. calf raise"
+                    className="flex-1 min-w-0 text-sm border border-stone-200 rounded-lg px-2.5 py-2 focus:outline-none bg-white"
+                    style={{ fontSize: 16, colorScheme: 'light' }}
+                  />
+                  <button
+                    onClick={searchExerciseDb}
+                    disabled={exerciseDbLoading || exerciseDbQuery.trim().length < 2}
+                    className="px-3 py-2 text-xs font-bold rounded-lg text-white disabled:opacity-40"
+                    style={{ background: '#7E9B86' }}
+                  >
+                    {exerciseDbLoading ? '…' : 'Search'}
+                  </button>
+                </div>
+
+                {exerciseDbError && <p className="text-[11px] text-red-500 mt-1.5">{exerciseDbError}</p>}
+
+                {exerciseDbResults.length > 0 && (
+                  <div className="mt-2 max-h-36 overflow-y-auto space-y-1">
+                    {exerciseDbResults.map(result => (
+                      <button
+                        key={result.exerciseId}
+                        onClick={() => importExerciseDbResult(result)}
+                        disabled={!!exerciseDbImporting}
+                        className="w-full text-left bg-white border border-stone-100 rounded-lg px-2.5 py-2 hover:bg-stone-50 disabled:opacity-60"
+                      >
+                        <p className="text-xs font-semibold text-stone-800 truncate">
+                          {exerciseDbImporting === result.exerciseId ? 'Importing…' : result.name}
+                        </p>
+                        <p className="text-[10px] text-stone-400 truncate">
+                          {[result.targetMuscles?.join(', '), result.equipments?.join(', ')].filter(Boolean).join(' · ') || 'Tap to import'}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-[10px] text-stone-400 mt-1.5">
+                  Imports name, muscles/equipment cue, instructions as tips, and search terms. Review before saving.
+                </p>
+              </div>
+
               <input value={name} onChange={e => setName(e.target.value)} placeholder="Name (required)"
                 className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} autoFocus />
               <input value={cue} onChange={e => setCue(e.target.value)} placeholder="Short cue (e.g. 3 × 30 sec)"
                 className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
               <input value={sets} onChange={e => setSets(e.target.value)} placeholder="Sets / reps (optional)"
                 className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+              {tips.length > 0 && (
+                <div className="mb-2 rounded-lg bg-stone-50 border border-stone-100 px-3 py-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Imported tips</p>
+                  <p className="text-[11px] text-stone-500 leading-snug line-clamp-3">
+                    {tips.slice(0, 3).join(' ')}
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2 mb-3">
                 {(['mobility', 'strength'] as const).map(c => (
                   <button key={c} onClick={() => setCat(c)}
@@ -161,7 +311,7 @@ export default function LibraryModal({
                 <button onClick={submitCreate} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>
                   {addToCatId ? 'Create & add' : 'Create'}
                 </button>
-                <button onClick={() => { setCreating(false); setName(''); setCue(''); setSets(''); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
+                <button onClick={() => { setCreating(false); resetCreateForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
               </div>
             </div>
           ) : (
