@@ -10,6 +10,8 @@ import CalendarModal from '@/components/CalendarModal';
 import ManageModal from '@/components/ManageModal';
 import LibraryModal from '@/components/LibraryModal';
 import TimerWidget from '@/components/TimerWidget';
+import PTSessionsModal from '@/components/PTSessionsModal';
+import ReportingModal from '@/components/ReportingModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -114,6 +116,11 @@ export default function Home() {
   const [showManage, setShowManage] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [libraryCatId, setLibraryCatId] = useState<string | null>(null);
+  const [showPTSessions, setShowPTSessions] = useState(false);
+  const [showReporting, setShowReporting] = useState(false);
+
+  // PT Sessions
+  const [ptSessions, setPtSessions] = useState<string[]>([]);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -151,6 +158,11 @@ export default function Home() {
     fetch('/api/config?key=customExercises')
       .then(r => r.json())
       .then(data => { if (Array.isArray(data.value)) setCustomExercises(data.value as Exercise[]); })
+      .catch(console.error);
+
+    fetch('/api/config?key=ptSessions')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data.value)) setPtSessions(data.value as string[]); })
       .catch(console.error);
   }, []);
 
@@ -206,6 +218,16 @@ export default function Home() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'customExercises', value: next }),
+    }).catch(console.error);
+  }, []);
+
+  // ── PT sessions save helper
+  const updatePtSessions = useCallback((next: string[]) => {
+    setPtSessions(next);
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'ptSessions', value: next }),
     }).catch(console.error);
   }, []);
 
@@ -337,7 +359,7 @@ export default function Home() {
         <div className="mb-6">
           <div className="flex items-center justify-between">
             <h1 className="font-serif text-3xl font-semibold text-stone-800">Ankle PT</h1>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <TimerWidget />
               {/* Library */}
               <button
@@ -380,6 +402,37 @@ export default function Home() {
                   <rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/>
                 </svg>
               </button>
+              {/* PT Sessions */}
+              <button
+                onClick={() => setShowPTSessions(true)}
+                className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm transition-colors"
+                style={{
+                  touchAction: 'manipulation',
+                  background: ptSessions.includes(today) ? '#FBF5E8' : 'white',
+                  borderColor: ptSessions.includes(today) ? '#D9A94B' : '#e7e5e4',
+                  color: ptSessions.includes(today) ? '#D9A94B' : '#78716c',
+                }}
+                title="PT sessions"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <circle cx="8.5" cy="5.5" r="2.5" />
+                  <path d="M2 18v-1.5a6 6 0 0 1 11.5-1" />
+                  <path d="M16 11v5M13.5 13.5h5" />
+                </svg>
+              </button>
+              {/* Reporting */}
+              <button
+                onClick={() => setShowReporting(true)}
+                className="w-9 h-9 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-500 shadow-sm"
+                style={{ touchAction: 'manipulation' }}
+                title="Progress report"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <path d="M3 15l3.5-5.5 3.5 3 4-6" />
+                  <path d="M2 17.5h16" />
+                  <path d="M2 3v14.5" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -399,7 +452,7 @@ export default function Home() {
 
           {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
 
-          {/* Today + Save day */}
+          {/* Action row: Today / Save day / Clear day — all horizontal */}
           <div className="mt-2 flex items-center justify-center gap-2">
             {!isToday && (
               <button onPointerDown={() => changeDate(today)}
@@ -417,17 +470,18 @@ export default function Home() {
               }}>
               {savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}
             </button>
+            {!confirmClearDay && (
+              <button onPointerDown={() => setConfirmClearDay(true)}
+                className="text-xs font-medium px-3 py-1 rounded-full"
+                style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>
+                {clearing ? 'Clearing…' : '× Clear'}
+              </button>
+            )}
           </div>
 
-          {/* Clear day */}
-          <div className="mt-2 flex justify-center">
-            {!confirmClearDay ? (
-              <button onPointerDown={() => setConfirmClearDay(true)}
-                className="text-xs font-medium px-3 py-1 rounded-lg"
-                style={{ color: '#a8a29e', touchAction: 'manipulation' }}>
-                {clearing ? 'Clearing…' : 'Clear day'}
-              </button>
-            ) : (
+          {/* Confirm clear — drops below when triggered */}
+          {confirmClearDay && (
+            <div className="mt-2 flex justify-center">
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
                 <span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Clear ALL data for {displayForDate(selectedDate)}?</span>
                 <button onPointerDown={handleClearDay}
@@ -437,13 +491,31 @@ export default function Home() {
                   className="text-xs font-semibold px-2.5 py-1 rounded-lg"
                   style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {showCalendar && (
           <CalendarModal today={today} selectedDate={selectedDate}
+            ptSessions={ptSessions}
             onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />
+        )}
+
+        {showPTSessions && (
+          <PTSessionsModal
+            sessions={ptSessions}
+            today={today}
+            onChange={updatePtSessions}
+            onClose={() => setShowPTSessions(false)}
+          />
+        )}
+
+        {showReporting && (
+          <ReportingModal
+            today={today}
+            ptSessions={ptSessions}
+            onClose={() => setShowReporting(false)}
+          />
         )}
 
         {showManage && (
@@ -645,7 +717,7 @@ export default function Home() {
 
             {/* Week tracker */}
             <section className="mb-5">
-              <WeekTracker log={log} today={today} selectedDate={selectedDate} />
+              <WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} />
             </section>
 
             <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>

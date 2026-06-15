@@ -19,12 +19,13 @@ interface Props {
   onClose: () => void;
   today: string;
   selectedDate: string;
+  ptSessions?: string[];
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function ymd(y: number, m: number, d: number) { return `${y}-${pad(m)}-${pad(d)}`; }
 
-export default function CalendarModal({ onSelectDate, onClose, today, selectedDate }: Props) {
+export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions }: Props) {
   const [viewYear, setViewYear] = useState(() => parseInt(selectedDate.split('-')[0]));
   const [viewMonth, setViewMonth] = useState(() => parseInt(selectedDate.split('-')[1]));
   const [log, setLog] = useState<LogMap>({});
@@ -122,10 +123,14 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
         </div>
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-4 px-4 py-2 bg-stone-50 border-b border-stone-100">
+        <div className="flex items-center justify-center gap-3 px-4 py-2 bg-stone-50 border-b border-stone-100 flex-wrap">
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#7E9B86]"/><span className="text-[10px] text-stone-500 font-medium">Mobility</span></div>
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#C17B4F]"/><span className="text-[10px] text-stone-500 font-medium">Strength</span></div>
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#5B9BD5]"/><span className="text-[10px] text-stone-500 font-medium">Health log</span></div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#D9A94B' }}/>
+            <span className="text-[10px] text-stone-500 font-medium">PT session</span>
+          </div>
         </div>
 
         {/* Day-of-week headers */}
@@ -145,6 +150,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
             const isSelected = ds === selectedDate;
             const summary = getDaySummary(ds);
             const hasAnyData = summary.mobilityFrac > 0 || summary.strengthFrac > 0 || summary.hasHealth;
+            const isPTSession = ptSessions?.includes(ds);
 
             return (
               <div
@@ -155,6 +161,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 className={`relative flex flex-col items-center py-1 rounded-xl transition-colors ${
                   isFuture ? 'opacity-30 cursor-default' :
                   isSelected ? 'bg-[#D9A94B]/20 cursor-pointer' :
+                  isPTSession ? 'bg-amber-50 cursor-pointer hover:bg-amber-100' :
                   'cursor-pointer hover:bg-stone-100'
                 }`}
               >
@@ -179,8 +186,20 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   {summary.hasHealth && (
                     <div className="w-2 h-2 rounded-full bg-[#5B9BD5] flex-shrink-0" />
                   )}
-                  {!hasAnyData && !isFuture && <div className="w-2 h-2" />}
+                  {isPTSession && (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#D9A94B' }} />
+                  )}
+                  {!hasAnyData && !isPTSession && !isFuture && <div className="w-2 h-2" />}
                 </div>
+
+                {/* PT session corner badge */}
+                {isPTSession && !isFuture && (
+                  <div
+                    className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full"
+                    style={{ background: '#D9A94B' }}
+                    title="PT session"
+                  />
+                )}
               </div>
             );
           })}
@@ -190,9 +209,14 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
         <div className="border-t border-stone-100 px-4 py-3 bg-stone-50 h-[84px] overflow-hidden">
           {hoveredDay && hovered ? (
             <>
-              <p className="text-xs font-bold text-stone-700 mb-1.5">
-                {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-              </p>
+              <div className="flex items-center gap-2 mb-1.5">
+                <p className="text-xs font-bold text-stone-700">
+                  {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+                </p>
+                {ptSessions?.includes(hoveredDay) && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: '#FBF5E8', color: '#D9A94B' }}>PT session</span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
                 <span className="text-xs text-stone-500">
                   <span className="font-semibold text-[#7E9B86]">{Math.round(hovered.mobilityFrac * mobilityItems.length)}/{mobilityItems.length}</span> mobility

@@ -8,6 +8,7 @@ interface Props {
   log: LogMap;
   today: string;
   selectedDate: string;
+  ptSessions?: string[];
 }
 
 function todayStr(d: Date): string {
@@ -26,7 +27,7 @@ function lastNDays(n: number): Date[] {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-export default function WeekTracker({ log, today, selectedDate }: Props) {
+export default function WeekTracker({ log, today, selectedDate, ptSessions }: Props) {
   const days = lastNDays(7);
 
   function categoryFraction(dateStr: string, cat: 'mobility' | 'strength') {
@@ -66,8 +67,9 @@ export default function WeekTracker({ log, today, selectedDate }: Props) {
               const frac = categoryFraction(ds, cat);
               const isToday = ds === today;
               const isSelected = ds === selectedDate;
+              const hasPT = ptSessions?.includes(ds);
               return (
-                <div key={ds} className="flex flex-col items-center gap-1">
+                <div key={ds} className="flex flex-col items-center gap-0.5">
                   <div
                     className={`w-5 h-5 rounded-full border-2 relative overflow-hidden ${
                       isSelected
@@ -90,6 +92,12 @@ export default function WeekTracker({ log, today, selectedDate }: Props) {
                   <span className="text-[9px] text-stone-400 font-medium">
                     {DAY_LABELS[d.getDay()]}
                   </span>
+                  {/* PT session dot — only shown on first row to avoid duplicating */}
+                  {cat === 'mobility' && hasPT ? (
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} title="PT session" />
+                  ) : (
+                    <div className="w-1.5 h-1.5" />
+                  )}
                 </div>
               );
             })}
@@ -97,9 +105,18 @@ export default function WeekTracker({ log, today, selectedDate }: Props) {
         </div>
       ))}
 
-      <p className="text-xs text-stone-400 text-center mt-2">
-        Mobility: {mobComplete}/7 days · Strength: {strComplete}/3 this week
-      </p>
+      {/* Legend row */}
+      <div className="flex items-center justify-between mt-2 flex-wrap gap-y-1">
+        <p className="text-[10px] text-stone-400">
+          Mobility: {mobComplete}/7 · Strength: {strComplete}/3
+        </p>
+        {ptSessions && ptSessions.some(d => days.some(day => todayStr(day) === d)) && (
+          <div className="flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D9A94B' }} />
+            <span className="text-[10px] text-stone-400">PT session</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
