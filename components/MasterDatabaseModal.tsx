@@ -47,6 +47,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         const idx = next.findIndex(e => e.id === id);
         if (idx === -1) continue;
 
+        // ALWAYS overwrite gifUrl (do not skip existing bad ones)
+        next[idx].gifUrl = '';
+
         const current = next[idx].gifUrl ?? '';
         const badOldGif =
           current.includes('/api/exercisedb-image/') ||
