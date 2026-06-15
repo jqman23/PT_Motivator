@@ -13,6 +13,7 @@ interface HealthData {
   mood_notes: string;
   pain_notes: string;
   general_notes: string;
+  treatment_notes: string;
 }
 
 const EMPTY: HealthData = {
@@ -26,6 +27,7 @@ const EMPTY: HealthData = {
   mood_notes: '',
   pain_notes: '',
   general_notes: '',
+  treatment_notes: '',
 };
 
 const COLOR_MAP = {
@@ -57,7 +59,6 @@ function Slider({ label, description, value, min, max, step = 1, lowLabel, highL
   const hasValue = value !== null;
   const [showNote, setShowNote] = useState(!!note);
 
-  // Auto-reveal the note field when a saved note loads from the DB
   useEffect(() => {
     if (note) setShowNote(true);
   }, [note]);
@@ -141,7 +142,6 @@ export default function HealthTracker({ today }: Props) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // Cancel any in-flight debounced save from the previous date
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setLoading(true);
     setSaved(false);
@@ -152,15 +152,16 @@ export default function HealthTracker({ today }: Props) {
         if (row) {
           setData({
             sleep_hours: row.sleep_hours !== null ? Number(row.sleep_hours) : null,
-            sleep_quality: row.sleep_quality ?? null,
-            energy: row.energy ?? null,
-            mood: row.mood ?? null,
-            pain: row.pain ?? null,
+            sleep_quality: row.sleep_quality !== null ? Number(row.sleep_quality) : null,
+            energy: row.energy !== null ? Number(row.energy) : null,
+            mood: row.mood !== null ? Number(row.mood) : null,
+            pain: row.pain !== null ? Number(row.pain) : null,
             sleep_notes: row.sleep_notes ?? '',
             energy_notes: row.energy_notes ?? '',
             mood_notes: row.mood_notes ?? '',
             pain_notes: row.pain_notes ?? '',
             general_notes: row.general_notes ?? '',
+            treatment_notes: row.treatment_notes ?? '',
           });
         }
       })
@@ -280,7 +281,7 @@ export default function HealthTracker({ today }: Props) {
         label="Sleep quality"
         description="0 = couldn't sleep at all · 10 = restful, uninterrupted"
         value={data.sleep_quality}
-        min={0} max={10}
+        min={0} max={10} step={0.5}
         lowLabel="Poor" highLabel="Great"
         color="sky"
         note={data.sleep_notes}
@@ -291,7 +292,7 @@ export default function HealthTracker({ today }: Props) {
         label="Energy"
         description="0 = completely drained · 10 = fully charged and ready to go"
         value={data.energy}
-        min={0} max={10}
+        min={0} max={10} step={0.5}
         lowLabel="Exhausted" highLabel="Energized"
         color="gold"
         note={data.energy_notes}
@@ -302,7 +303,7 @@ export default function HealthTracker({ today }: Props) {
         label="Mood"
         description="0 = really struggling · 10 = feeling great today"
         value={data.mood}
-        min={0} max={10}
+        min={0} max={10} step={0.5}
         lowLabel="Low" highLabel="Great"
         color="sage"
         note={data.mood_notes}
@@ -313,7 +314,7 @@ export default function HealthTracker({ today }: Props) {
         label="Pain level"
         description="0 = no pain at all · 10 = worst pain you've ever had"
         value={data.pain}
-        min={0} max={10}
+        min={0} max={10} step={0.5}
         lowLabel="No pain" highLabel="Worst pain"
         color="rose"
         note={data.pain_notes}
@@ -321,7 +322,29 @@ export default function HealthTracker({ today }: Props) {
         onChange={(v) => updateNum('pain', v)}
       />
 
-      {/* General notes */}
+      <div className="mt-5 pt-4" style={{ borderTop: '1px solid #e7e5e4' }}>
+        <label className="block text-sm font-semibold mb-1" style={{ color: '#1c1917' }}>
+          Meds / treatments
+        </label>
+        <p className="text-xs mb-2" style={{ color: '#78716c' }}>
+          Log anything relevant you took or used today.
+        </p>
+        <textarea
+          value={data.treatment_notes}
+          onChange={(e) => updateNote('treatment_notes', e.target.value)}
+          placeholder="Meloxicam AM, Advil PM, none today…"
+          rows={2}
+          className="w-full text-sm resize-none rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2 transition-shadow"
+          style={{
+            color: '#44403c',
+            borderColor: '#e7e5e4',
+            background: '#fafaf9',
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+          }}
+        />
+      </div>
+
       <div className="mt-5 pt-4" style={{ borderTop: '1px solid #e7e5e4' }}>
         <label className="block text-sm font-semibold mb-1" style={{ color: '#1c1917' }}>
           General notes
