@@ -42,11 +42,25 @@ body {
     box-shadow: 0 1px 0 rgb(231 229 228 / 0.8);
   }
 
-  input.flex-1.min-w-0.text-sm.font-semibold {
-    pointer-events: none;
+  /* Category names are display-only on mobile to prevent accidental editing while scrolling. */
+  section h2.cursor-text,
+  input.flex-1.min-w-0.text-sm.font-semibold,
+  input.flex-1.min-w-0.text-lg.font-semibold {
+    pointer-events: none !important;
     caret-color: transparent;
+    cursor: default !important;
     border-color: transparent !important;
     background: transparent !important;
+  }
+
+  section h2.cursor-text {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Avoid accidental scroll/tap pass-through on modal sheets. */
+  .fixed.inset-0 {
+    overscroll-behavior: contain;
   }
 }
 
