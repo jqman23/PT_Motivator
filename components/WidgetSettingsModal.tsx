@@ -1,6 +1,6 @@
 'use client';
 
-type WidgetKey = 'timer' | 'info' | 'calendar' | 'treatments' | 'ptSessions' | 'reporting' | 'masterDatabase';
+type WidgetKey = 'timer' | 'info' | 'calendar' | 'treatments' | 'ptSessions' | 'reporting' | 'masterDatabase' | 'ptReport';
 
 const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'timer', label: 'Timer', description: 'Quick countdown timer.' },
@@ -9,6 +9,7 @@ const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'treatments', label: 'Meds / treatments', description: 'Assign treatment notes to days.' },
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },
+  { key: 'ptReport', label: 'PT PDF report', description: 'Generate a customizable PDF for your physical therapist.' },
   { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
 ];
 
