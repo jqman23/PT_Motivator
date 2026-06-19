@@ -5,11 +5,15 @@ import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
 
+type Mode = 'timer' | 'stopwatch';
+
 export default function QuickTimerWidget() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>('timer');
   const [duration, setDuration] = useState(30);
   const [remaining, setRemaining] = useState(30);
+  const [elapsed, setElapsed] = useState(0);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('2');
@@ -31,7 +35,13 @@ export default function QuickTimerWidget() {
     setRemaining(nextDuration);
   };
 
-  const startTimer = () => {
+  const resetStopwatch = () => {
+    stopTimer();
+    setDone(false);
+    setElapsed(0);
+  };
+
+  const startCountdown = () => {
     if (done) {
       resetTimer();
       return;
@@ -49,6 +59,18 @@ export default function QuickTimerWidget() {
       });
     }, 1000);
   };
+
+  const startStopwatch = () => {
+    stopTimer();
+    setDone(false);
+    setRunning(true);
+    intervalRef.current = window.setInterval(() => {
+      setElapsed(prev => prev + 1);
+    }, 1000);
+  };
+
+  const start = () => mode === 'timer' ? startCountdown() : startStopwatch();
+  const reset = () => mode === 'timer' ? resetTimer() : resetStopwatch();
 
   useEffect(() => () => stopTimer(), []);
 
@@ -72,6 +94,7 @@ export default function QuickTimerWidget() {
   }, [open]);
 
   const pickPreset = (seconds: number) => {
+    setMode('timer');
     setDuration(seconds);
     resetTimer(seconds);
   };
@@ -80,13 +103,21 @@ export default function QuickTimerWidget() {
     const minutes = Number(customMinutes);
     if (!Number.isFinite(minutes) || minutes <= 0) return;
     const seconds = Math.max(1, Math.round(minutes * 60));
+    setMode('timer');
     setDuration(seconds);
     resetTimer(seconds);
   };
 
-  const mins = Math.floor(remaining / 60);
-  const secs = remaining % 60;
-  const pct = duration ? remaining / duration : 0;
+  const switchMode = (next: Mode) => {
+    stopTimer();
+    setDone(false);
+    setMode(next);
+  };
+
+  const shownSeconds = mode === 'timer' ? remaining : elapsed;
+  const mins = Math.floor(shownSeconds / 60);
+  const secs = shownSeconds % 60;
+  const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
   const circumference = 2 * Math.PI * 22;
   const dashOffset = circumference * (1 - pct);
 
@@ -102,38 +133,26 @@ export default function QuickTimerWidget() {
         <button onClick={event => { event.stopPropagation(); setOpen(false); }} className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none">×</button>
       </div>
 
-      <div className="flex gap-1.5 mb-3">
-        {PRESETS.map(seconds => (
-          <button
-            key={seconds}
-            onClick={event => { event.stopPropagation(); pickPreset(seconds); }}
-            className="flex-1 rounded-lg text-xs font-bold transition-colors"
-            style={{ padding: '8px 0', background: duration === seconds && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !running && !done ? '#fff' : '#57534e' }}
-          >
-            {seconds}s
-          </button>
-        ))}
+      <div className="flex gap-1.5 mb-3 rounded-xl bg-stone-100 p-1">
+        <button onClick={event => { event.stopPropagation(); switchMode('timer'); }} className="flex-1 rounded-lg py-1.5 text-xs font-bold" style={{ background: mode === 'timer' ? 'white' : 'transparent', color: mode === 'timer' ? '#57534e' : '#a8a29e' }}>Timer</button>
+        <button onClick={event => { event.stopPropagation(); switchMode('stopwatch'); }} className="flex-1 rounded-lg py-1.5 text-xs font-bold" style={{ background: mode === 'stopwatch' ? 'white' : 'transparent', color: mode === 'stopwatch' ? '#57534e' : '#a8a29e' }}>Stopwatch</button>
       </div>
 
-      <div className="flex gap-1.5 mb-3">
-        <input
-          value={customMinutes}
-          onChange={event => setCustomMinutes(event.target.value)}
-          onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }}
-          type="number"
-          min="0.1"
-          step="0.5"
-          className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none"
-          style={{ fontSize: 16, colorScheme: 'light' }}
-          aria-label="Custom minutes"
-        />
-        <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>
-          min
-        </button>
-        <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Bell on/off">
-          {bellOn ? '🔔' : '🔕'}
-        </button>
-      </div>
+      {mode === 'timer' && (
+        <>
+          <div className="flex gap-1.5 mb-3">
+            {PRESETS.map(seconds => (
+              <button key={seconds} onClick={event => { event.stopPropagation(); pickPreset(seconds); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '8px 0', background: duration === seconds && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !running && !done ? '#fff' : '#57534e' }}>{seconds}s</button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5 mb-3">
+            <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
+            <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
+            <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Bell on/off">{bellOn ? '🔔' : '🔕'}</button>
+          </div>
+        </>
+      )}
 
       <div className="flex items-center justify-center mb-4">
         <div className="relative" style={{ width: 72, height: 72 }}>
@@ -142,28 +161,23 @@ export default function QuickTimerWidget() {
             <circle cx="24" cy="24" r="22" fill="none" stroke={done ? '#7E9B86' : running ? '#D9A94B' : '#C17B4F'} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={dashOffset} style={{ transition: 'stroke-dashoffset 0.9s linear' }} />
           </svg>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>{mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${secs}s`}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>{mins}:{String(secs).padStart(2, '0')}</span>
           </div>
         </div>
       </div>
 
-      {done && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
+      {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
 
       <div className="flex gap-2">
-        <button onClick={event => { event.stopPropagation(); running ? stopTimer() : startTimer(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done ? 'Restart' : 'Start'}</button>
-        <button onClick={event => { event.stopPropagation(); resetTimer(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c' }}>Reset</button>
+        <button onClick={event => { event.stopPropagation(); running ? stopTimer() : start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
+        <button onClick={event => { event.stopPropagation(); reset(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c' }}>Reset</button>
       </div>
     </div>
   ) : null;
 
   return (
     <>
-      <button
-        onClick={event => { event.stopPropagation(); setOpen(current => !current); }}
-        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-white border-stone-200 text-stone-500'}`}
-        title="Quick timer"
-        style={{ touchAction: 'manipulation' }}
-      >
+      <button onClick={event => { event.stopPropagation(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-white border-stone-200 text-stone-500'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
