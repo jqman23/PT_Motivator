@@ -12,6 +12,8 @@ export default function QuickTimerWidget() {
   const [remaining, setRemaining] = useState(30);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  const [customMinutes, setCustomMinutes] = useState('2');
+  const [bellOn, setBellOn] = useState(true);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -74,6 +76,14 @@ export default function QuickTimerWidget() {
     resetTimer(seconds);
   };
 
+  const applyCustomMinutes = () => {
+    const minutes = Number(customMinutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    const seconds = Math.max(1, Math.round(minutes * 60));
+    setDuration(seconds);
+    resetTimer(seconds);
+  };
+
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
   const pct = duration ? remaining / duration : 0;
@@ -84,7 +94,7 @@ export default function QuickTimerWidget() {
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 220, touchAction: 'manipulation' }}
+      style={{ width: 235, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -92,7 +102,7 @@ export default function QuickTimerWidget() {
         <button onClick={event => { event.stopPropagation(); setOpen(false); }} className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none">×</button>
       </div>
 
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex gap-1.5 mb-3">
         {PRESETS.map(seconds => (
           <button
             key={seconds}
@@ -103,6 +113,26 @@ export default function QuickTimerWidget() {
             {seconds}s
           </button>
         ))}
+      </div>
+
+      <div className="flex gap-1.5 mb-3">
+        <input
+          value={customMinutes}
+          onChange={event => setCustomMinutes(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }}
+          type="number"
+          min="0.1"
+          step="0.5"
+          className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none"
+          style={{ fontSize: 16, colorScheme: 'light' }}
+          aria-label="Custom minutes"
+        />
+        <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>
+          min
+        </button>
+        <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Bell on/off">
+          {bellOn ? '🔔' : '🔕'}
+        </button>
       </div>
 
       <div className="flex items-center justify-center mb-4">
@@ -117,7 +147,7 @@ export default function QuickTimerWidget() {
         </div>
       </div>
 
-      {done && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓</p>}
+      {done && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
 
       <div className="flex gap-2">
         <button onClick={event => { event.stopPropagation(); running ? stopTimer() : startTimer(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done ? 'Restart' : 'Start'}</button>
