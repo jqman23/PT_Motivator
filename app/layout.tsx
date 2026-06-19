@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import SmartAddPortal from "@/components/SmartAddPortal";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,10 @@ export default function RootLayout({
         <meta name="color-scheme" content="light" />
         <meta name="theme-color" content="#F6F1E7" />
       </head>
-      <body className="min-h-full flex flex-col" style={{ colorScheme: 'light', background: '#F6F1E7', color: '#353B33' }}>{children}</body>
+      <body className="min-h-full flex flex-col" style={{ colorScheme: 'light', background: '#F6F1E7', color: '#353B33' }}>
+        {children}
+        <SmartAddPortal />
+      </body>
     </html>
   );
 }
