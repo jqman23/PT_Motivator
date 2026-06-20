@@ -9,6 +9,14 @@ interface Props {
   onClose: () => void;
 }
 
+function sourceLabel(ex: Exercise) {
+  if (ex.sourceId === 'ai-added') return 'AI added';
+  if (ex.origin === 'api_ninjas') return 'API Ninjas';
+  if (ex.origin === 'exercisedb') return 'ExerciseDB';
+  if (ex.origin === 'hep') return 'HEP';
+  return 'Added';
+}
+
 export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Props) {
   const sections = layout.map(cat => ({
     cat,
@@ -73,7 +81,7 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                             <h4 className="text-sm font-bold text-stone-800 leading-snug flex-1">{ex.name}</h4>
                             {ex.origin && (
                               <span className="text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-400 flex-shrink-0">
-                                {ex.origin === 'api_ninjas' ? 'API Ninjas' : ex.origin === 'exercisedb' ? 'ExerciseDB' : ex.origin === 'hep' ? 'HEP' : 'Added'}
+                                {sourceLabel(ex)}
                               </span>
                             )}
                           </div>
