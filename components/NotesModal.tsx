@@ -20,7 +20,31 @@ export default function NotesModal({
   onClose,
 }: Props) {
   const [note, setNote] = useState(initialNote);
+  const [loadingStoredNote, setLoadingStoredNote] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  // Always re-check the stored note when the modal opens. The parent notes map can
+  // be stale after adding exercises or switching dates, so the modal should trust DB.
+  useEffect(() => {
+    let cancelled = false;
+    setNote(initialNote ?? '');
+    setLoadingStoredNote(true);
+
+    fetch(`/api/notes?date=${encodeURIComponent(date)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        const stored = rows.find((row: { exercise_id?: string }) => row.exercise_id === exerciseId);
+        if (stored && typeof stored.note === 'string') setNote(stored.note);
+      })
+      .catch(() => {/* silent */})
+      .finally(() => {
+        if (!cancelled) setLoadingStoredNote(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [exerciseId, date, initialNote]);
 
   // Fetch recent notes from the past 3 days
   useEffect(() => {
@@ -65,7 +89,9 @@ export default function NotesModal({
         <div className="p-4 border-b border-stone-100 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-stone-800 text-sm">{exerciseName}</h3>
-            <p className="text-xs text-stone-400 mt-0.5">Note for {displayDate}</p>
+            <p className="text-xs text-stone-400 mt-0.5">
+              Note for {displayDate}{loadingStoredNote ? ' · loading stored note…' : ''}
+            </p>
           </div>
           <button
             onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
