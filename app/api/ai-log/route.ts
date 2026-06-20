@@ -36,20 +36,23 @@ export async function POST(req: NextRequest) {
       done: !!ex.done,
       note: cleanText(ex.note, 120),
     })) : [];
+    const categories = Array.from(new Set(safeExercises.map(ex => ex.category).filter(Boolean))).slice(0, 12);
 
     const system = [
-      'You convert a PT diary into proposed app changes. Return JSON only.',
-      'Allowed exercise ids are provided; never invent ids. If unclear, ask in questions and do not change that item.',
-      'Default: if user says they did an exercise, set completed true. If skipped/not done, set false.',
-      'Notes should be concise and standardized: "sets x reps/time, leg/body part, details" like "2 x 60 seconds, both legs, straight and bent."',
-      'Health numeric ranges: sleep_hours 0-12, sleep_quality/energy/mood/pain 0-10, decimals allowed.',
-      'Output shape: {"summary":string[],"exerciseChanges":[{"id":string,"completed":boolean|null,"note":string|null,"reason":string}],"healthChanges":{},"questions":string[]}.',
-      'healthChanges allowed keys: sleep_hours,sleep_quality,energy,mood,pain,sleep_notes,sleep_quality_notes,energy_notes,mood_notes,pain_notes,general_notes,treatment_notes.',
-      'Only include changed fields. Keep JSON compact.'
+      'PT diary to proposed app changes. Return compact JSON only.',
+      'Use existing exercise ids when possible; never invent ids in exerciseChanges.',
+      'If clearly a new exercise, use newExercises; choose a categoryName from categories. If unsure, ask a question instead.',
+      'Default: did exercise => completed true; skipped/not done => false.',
+      'Notes format: "sets x reps/time, leg/body part, details" e.g. "2 x 60 seconds, both legs, straight and bent."',
+      'Health ranges: sleep_hours 0-12; sleep_quality/energy/mood/pain 0-10.',
+      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","note":"","completed":true,"reason":""}],"healthChanges":{},"questions":[]}.',
+      'healthChanges keys: sleep_hours,sleep_quality,energy,mood,pain,sleep_notes,sleep_quality_notes,energy_notes,mood_notes,pain_notes,general_notes,treatment_notes.',
+      'Only include fields you are adding/updating. Do not echo unchanged data.'
     ].join(' ');
 
     const userPayload = JSON.stringify({
       diary: cleanText(text, 1200),
+      categories,
       exercises: safeExercises,
       health,
     });
@@ -67,7 +70,7 @@ export async function POST(req: NextRequest) {
           { role: 'user', content: userPayload },
         ],
         temperature: 0.1,
-        max_completion_tokens: 900,
+        max_completion_tokens: 1000,
         response_format: { type: 'json_object' },
       }),
     });
@@ -87,10 +90,26 @@ export async function POST(req: NextRequest) {
           .filter((change: { id?: string }) => change?.id && allowed.has(change.id))
           .slice(0, 40)
       : [];
+    const categorySet = new Set(categories);
+    const newExercises = Array.isArray(parsed.newExercises)
+      ? parsed.newExercises
+          .map((item: Record<string, unknown>) => ({
+            name: cleanText(item.name, 80),
+            categoryName: categorySet.has(cleanText(item.categoryName, 50)) ? cleanText(item.categoryName, 50) : categories[0],
+            sets: cleanText(item.sets, 90),
+            cue: cleanText(item.cue, 140),
+            note: cleanText(item.note, 140),
+            completed: typeof item.completed === 'boolean' ? item.completed : null,
+            reason: cleanText(item.reason, 120),
+          }))
+          .filter((item: { name: string }) => item.name)
+          .slice(0, 8)
+      : [];
 
     return NextResponse.json({
       summary: Array.isArray(parsed.summary) ? parsed.summary.slice(0, 8) : [],
       exerciseChanges,
+      newExercises,
       healthChanges: parsed.healthChanges && typeof parsed.healthChanges === 'object' ? parsed.healthChanges : {},
       questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, 8) : [],
       model: MODEL,
