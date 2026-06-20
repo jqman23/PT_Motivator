@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
+import ExerciseHistoryModal from './ExerciseHistoryModal';
 
 interface Props {
   exercise: Exercise;
@@ -19,6 +20,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOpened = useRef(false);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -29,11 +33,40 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     ? isStrength ? 'bg-[#C17B4F] border-[#C17B4F]' : 'bg-[#7E9B86] border-[#7E9B86]'
     : 'bg-white border-stone-200';
 
+  const openHistory = () => {
+    longPressOpened.current = true;
+    setShowHistory(true);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
   return (
     <>
       <div
         className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor}`}
-        onClick={onToggle}
+        onClick={() => {
+          if (longPressOpened.current) {
+            longPressOpened.current = false;
+            return;
+          }
+          onToggle();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openHistory();
+        }}
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse') return;
+          clearLongPress();
+          longPressTimer.current = setTimeout(openHistory, 900);
+        }}
+        onPointerUp={clearLongPress}
+        onPointerCancel={clearLongPress}
+        onPointerLeave={clearLongPress}
+        title="Tap to check off. Right-click or long-press for exercise history."
       >
         <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 ${checkColor}`}>
           {done && (
@@ -101,6 +134,10 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
       {showQuickInfo && (
         <ExerciseQuickInfoModal exercise={exercise} onClose={() => setShowQuickInfo(false)} />
+      )}
+
+      {showHistory && (
+        <ExerciseHistoryModal exercise={exercise} onClose={() => setShowHistory(false)} />
       )}
 
       {showNotes && (
