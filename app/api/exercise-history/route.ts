@@ -23,6 +23,10 @@ export async function GET(req: NextRequest) {
       FULL OUTER JOIN exercise_notes n
         ON l.date = n.date AND l.exercise_id = n.exercise_id
       WHERE COALESCE(l.exercise_id, n.exercise_id) = ${exerciseId}
+        AND (
+          COALESCE(l.completed, false) = true
+          OR COALESCE(NULLIF(TRIM(n.note), ''), '') <> ''
+        )
       ORDER BY COALESCE(l.date, n.date) DESC
       LIMIT ${limit}
     `;
