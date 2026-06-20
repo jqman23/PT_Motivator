@@ -36,7 +36,7 @@ export default function NotesModal({
         if (cancelled) return;
         const rows = Array.isArray(data.rows) ? data.rows : [];
         const stored = rows.find((row: { exercise_id?: string }) => row.exercise_id === exerciseId);
-        if (stored && typeof stored.note === 'string') setNote(stored.note);
+        setNote(typeof stored?.note === 'string' ? stored.note : '');
       })
       .catch(() => {/* silent */})
       .finally(() => {
