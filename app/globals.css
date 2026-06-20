@@ -24,6 +24,21 @@ body {
   overscroll-behavior: none;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child button[title]:hover {
+    background: #fafaf9 !important;
+    border-color: #d6d3d1 !important;
+    color: #44403c !important;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgb(0 0 0 / 0.08);
+  }
+
+  main > div > div.mb-6 > div.flex.items-center.justify-between:first-child button[title]:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.06);
+  }
+}
+
 /* Desktop: keep widgets on their own horizontally scrollable row, title centered below. */
 @media (min-width: 640px) {
   main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
