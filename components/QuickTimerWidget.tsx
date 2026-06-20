@@ -19,7 +19,7 @@ export default function QuickTimerWidget() {
   const [customMinutes, setCustomMinutes] = useState('2');
   const [bellOn, setBellOn] = useState(true);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef = useRef<number | null>(null);
 
   useEffect(() => setMounted(true), []);
 
