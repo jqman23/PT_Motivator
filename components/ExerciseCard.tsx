@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
-import ImageModal from './ImageModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
 
 interface Props {
@@ -19,11 +18,8 @@ interface Props {
 export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
-  const [showImages, setShowImages] = useState(false);
-  const [showGif, setShowGif] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
   const isStrength = exercise.cat === 'strength';
-  const gifSrc = exercise.gifUrl;
 
   const cardColor = done
     ? isStrength ? 'bg-[#F4E3D6] border-[#C17B4F]/25' : 'bg-[#E4ECE6] border-[#7E9B86]/25'
@@ -75,30 +71,6 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             </svg>
           </button>
 
-          {exercise.gifUrl && (
-            <button
-              onClick={() => setShowGif(v => !v)}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                showGif ? 'bg-[#7C3AED]/15 text-[#7C3AED]' : 'bg-stone-100 text-stone-400 hover:bg-stone-200'
-              }`}
-              title={showGif ? 'Hide GIF demo' : 'Show GIF demo'}
-            >
-              <span className="text-[10px] font-bold">GIF</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowImages(true)}
-            className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
-            title="View images"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-              <rect x="1" y="2" width="14" height="12" rx="1.5"/>
-              <circle cx="5.5" cy="6" r="1.5"/>
-              <path d="M1 11l4-3.5 3 2.5 2-1.5 5 4"/>
-            </svg>
-          </button>
-
           <button
             onClick={() => setShowVideo(true)}
             className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
@@ -123,30 +95,12 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
         </div>
       </div>
 
-      {showGif && exercise.gifUrl && (
-        <div className="mt-2 rounded-2xl overflow-hidden border border-stone-100 bg-white p-2">
-          <img
-            src={gifSrc}
-            alt={`${exercise.name} GIF demo`}
-            className="w-full rounded-xl bg-stone-50"
-            loading="lazy"
-          />
-          <p className="text-[10px] text-stone-400 mt-1.5 text-center">
-            GIF demo
-          </p>
-        </div>
-      )}
-
       {showVideo && (
         <VideoModal exercise={exercise} onClose={() => setShowVideo(false)} />
       )}
 
       {showQuickInfo && (
         <ExerciseQuickInfoModal exercise={exercise} onClose={() => setShowQuickInfo(false)} />
-      )}
-
-      {showImages && (
-        <ImageModal exercise={exercise} onClose={() => setShowImages(false)} />
       )}
 
       {showNotes && (
