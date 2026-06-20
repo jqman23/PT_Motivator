@@ -15,6 +15,10 @@ function dateStr(d: Date) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+function getSelectedDate() {
+  return localStorage.getItem('pt-selected-date') || dateStr(new Date());
+}
+
 function defaultLayout(): CategoryConfig[] {
   return [
     { id: 'daily-mobility', name: 'Daily mobility & balance', color: 'green', exerciseIds: EXERCISES.filter(e => e.cat === 'mobility').map(e => e.id) },
@@ -44,7 +48,7 @@ export default function SmartAddPortal() {
 
   useEffect(() => {
     const tick = () => {
-      setDate(localStorage.getItem('pt-selected-date') || dateStr(new Date()));
+      setDate(getSelectedDate());
       setCanUndo(!!localStorage.getItem('pt-smart-add-undo'));
     };
     tick();
@@ -74,8 +78,9 @@ export default function SmartAddPortal() {
     return () => window.clearInterval(id);
   }, []);
 
-  const loadDay = async (targetDate = date) => {
+  const loadDay = async (targetDate = date || getSelectedDate()) => {
     if (!targetDate) return;
+    setDate(targetDate);
     const [layoutRes, libraryRes, customRes, logRes, notesRes] = await Promise.all([
       fetch('/api/config?key=layout').then(r => r.json()).catch(() => ({ value: null })),
       fetch('/api/config?key=exerciseLibrary').then(r => r.json()).catch(() => ({ value: null })),
@@ -95,8 +100,11 @@ export default function SmartAddPortal() {
 
   const openSmartAdd = async () => {
     setBusy(true);
-    try { await loadDay(); setShowModal(true); }
-    finally { setBusy(false); }
+    try {
+      const targetDate = getSelectedDate();
+      await loadDay(targetDate);
+      setShowModal(true);
+    } finally { setBusy(false); }
   };
 
   const applyProposal = async (proposal: SmartProposal, previousHealth: SmartHealthChanges | null, nextHealth: SmartHealthChanges | null) => {
@@ -125,7 +133,10 @@ export default function SmartAddPortal() {
       const undo = JSON.parse(raw) as UndoPayload;
       for (const [id, completed] of Object.entries(undo.log || {})) await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, completed }) });
       for (const [id, note] of Object.entries(undo.notes || {})) await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, note }) });
-      if (undo.hadHealthChange && undo.health) await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, ...undo.health }) });
+      if (undo.hadHealthChange) {
+        if (undo.health) await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, ...undo.health }) });
+        else await fetch(`/api/health?date=${undo.date}`, { method: 'DELETE' });
+      }
       localStorage.removeItem('pt-smart-add-undo');
       setCanUndo(false);
       window.setTimeout(() => window.location.reload(), 150);
