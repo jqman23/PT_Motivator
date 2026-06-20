@@ -11,7 +11,6 @@ type HistoryRow = {
 
 interface Props {
   exercise: Exercise;
-  onSelectDate: (date: string) => void;
   onClose: () => void;
 }
 
@@ -24,7 +23,7 @@ function displayDate(date: string) {
   });
 }
 
-export default function ExerciseHistoryModal({ exercise, onSelectDate, onClose }: Props) {
+export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -74,8 +73,8 @@ export default function ExerciseHistoryModal({ exercise, onSelectDate, onClose }
   }, [rows]);
 
   const jumpToDate = (date: string) => {
-    onSelectDate(date);
-    onClose();
+    localStorage.setItem('pt-selected-date', date);
+    window.location.reload();
   };
 
   return (
