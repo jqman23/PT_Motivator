@@ -9,7 +9,7 @@ import { SmartHealthChanges, SmartProposal } from '@/components/SmartAddTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
-type UndoPayload = { date: string; log: Record<string, boolean>; notes: Record<string, string>; health: SmartHealthChanges | null; hadHealthChange: boolean };
+type UndoPayload = { date: string; log: Record<string, boolean>; notes: Record<string, string>; health: SmartHealthChanges | null; hadHealthChange: boolean; newExerciseIds?: string[] };
 
 function dateStr(d: Date) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -31,6 +31,14 @@ function seedLibrary(custom: Exercise[] = []) {
   EXERCISES.forEach(ex => byId.set(ex.id, { ...ex, origin: ex.origin ?? 'hep' }));
   custom.forEach(ex => byId.set(ex.id, ex));
   return Array.from(byId.values());
+}
+
+function slug(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'exercise';
+}
+
+function catFor(categoryName?: string): Exercise['cat'] {
+  return /strength|raise|squat|rdl|resistance/i.test(categoryName ?? '') ? 'strength' : 'mobility';
 }
 
 export default function SmartAddPortal() {
@@ -107,19 +115,59 @@ export default function SmartAddPortal() {
     } finally { setBusy(false); }
   };
 
+  const saveConfig = async (key: string, value: unknown) => {
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+  };
+
   const applyProposal = async (proposal: SmartProposal, previousHealth: SmartHealthChanges | null, nextHealth: SmartHealthChanges | null) => {
     const previousLog: Record<string, boolean> = {};
     const previousNotes: Record<string, string> = {};
+    const newExerciseIds: string[] = [];
+
     for (const change of proposal.exerciseChanges || []) {
       if (typeof change.completed === 'boolean') previousLog[change.id] = log[date]?.[change.id] ?? false;
       if (change.note !== undefined && change.note !== null) previousNotes[change.id] = notes[change.id] ?? '';
     }
+
+    if (proposal.newExercises?.length) {
+      const additions: Exercise[] = proposal.newExercises.map((item, idx) => {
+        const id = `ai-${Date.now()}-${idx}-${slug(item.name)}`;
+        newExerciseIds.push(id);
+        return {
+          id,
+          cat: catFor(item.categoryName),
+          name: item.name.trim(),
+          cue: item.cue?.trim() || item.sets?.trim() || 'AI added exercise — review with your PT.',
+          sets: item.sets?.trim() || undefined,
+          videoIds: [],
+          videoTitles: [],
+          imageSearch: item.name.trim(),
+          tips: ['AI added — review form and dosage with your PT.'],
+          origin: 'patient_added',
+          sourceId: 'ai-added',
+        };
+      });
+      const nextLibrary = [...library, ...additions];
+      const nextLayout = layout.map(cat => {
+        const ids = additions.filter((_, idx) => (proposal.newExercises[idx].categoryName || layout[0]?.name) === cat.name).map(ex => ex.id);
+        return ids.length ? { ...cat, exerciseIds: Array.from(new Set([...cat.exerciseIds, ...ids])) } : cat;
+      });
+      setLibrary(nextLibrary);
+      setLayout(nextLayout);
+      await Promise.all([saveConfig('exerciseLibrary', nextLibrary), saveConfig('layout', nextLayout)]);
+      for (let i = 0; i < additions.length; i++) {
+        const draft = proposal.newExercises[i];
+        if (typeof draft.completed === 'boolean') await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: additions[i].id, completed: draft.completed }) });
+        if (draft.note?.trim()) await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: additions[i].id, note: draft.note }) });
+      }
+    }
+
     for (const change of proposal.exerciseChanges || []) {
       if (typeof change.completed === 'boolean') await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: change.id, completed: change.completed }) });
       if (change.note !== undefined && change.note !== null) await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: change.id, note: change.note }) });
     }
     if (nextHealth) await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, ...nextHealth }) });
-    const undo: UndoPayload = { date, log: previousLog, notes: previousNotes, health: previousHealth, hadHealthChange: !!nextHealth };
+    const undo: UndoPayload = { date, log: previousLog, notes: previousNotes, health: previousHealth, hadHealthChange: !!nextHealth, newExerciseIds };
     localStorage.setItem('pt-smart-add-undo', JSON.stringify(undo));
     setCanUndo(true);
     window.setTimeout(() => window.location.reload(), 150);
@@ -131,6 +179,22 @@ export default function SmartAddPortal() {
     setBusy(true);
     try {
       const undo = JSON.parse(raw) as UndoPayload;
+      const idsToRemove = undo.newExerciseIds ?? [];
+      if (idsToRemove.length) {
+        const [layoutRes, libraryRes] = await Promise.all([
+          fetch('/api/config?key=layout').then(r => r.json()).catch(() => ({ value: layout })),
+          fetch('/api/config?key=exerciseLibrary').then(r => r.json()).catch(() => ({ value: library })),
+        ]);
+        const activeLayout: CategoryConfig[] = Array.isArray(layoutRes.value) ? layoutRes.value : layout;
+        const activeLibrary: Exercise[] = Array.isArray(libraryRes.value) ? libraryRes.value : library;
+        const nextLayout = activeLayout.map(cat => ({ ...cat, exerciseIds: cat.exerciseIds.filter(id => !idsToRemove.includes(id)) }));
+        const nextLibrary = activeLibrary.filter(ex => !idsToRemove.includes(ex.id));
+        await Promise.all([saveConfig('layout', nextLayout), saveConfig('exerciseLibrary', nextLibrary)]);
+        for (const id of idsToRemove) {
+          await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, completed: false }) });
+          await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, note: '' }) });
+        }
+      }
       for (const [id, completed] of Object.entries(undo.log || {})) await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, completed }) });
       for (const [id, note] of Object.entries(undo.notes || {})) await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: undo.date, exerciseId: id, note }) });
       if (undo.hadHealthChange) {
