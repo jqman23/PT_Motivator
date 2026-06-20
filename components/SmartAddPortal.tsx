@@ -41,6 +41,11 @@ function catFor(categoryName?: string): Exercise['cat'] {
   return /strength|raise|squat|rdl|resistance/i.test(categoryName ?? '') ? 'strength' : 'mobility';
 }
 
+function pickKeys(source: SmartHealthChanges | null, keys: string[]) {
+  if (!source) return null;
+  return Object.fromEntries(keys.map(key => [key, source[key] ?? null]));
+}
+
 export default function SmartAddPortal() {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [date, setDate] = useState('');
@@ -119,10 +124,12 @@ export default function SmartAddPortal() {
     await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
   };
 
-  const applyProposal = async (proposal: SmartProposal, previousHealth: SmartHealthChanges | null, nextHealth: SmartHealthChanges | null) => {
+  const applyProposal = async (proposal: SmartProposal, previousHealth: SmartHealthChanges | null) => {
     const previousLog: Record<string, boolean> = {};
     const previousNotes: Record<string, string> = {};
     const newExerciseIds: string[] = [];
+    const healthPatch = Object.keys(proposal.healthChanges || {}).length ? proposal.healthChanges : null;
+    const previousHealthPatch = healthPatch ? pickKeys(previousHealth, Object.keys(healthPatch)) : null;
 
     for (const change of proposal.exerciseChanges || []) {
       if (typeof change.completed === 'boolean') previousLog[change.id] = log[date]?.[change.id] ?? false;
@@ -166,8 +173,8 @@ export default function SmartAddPortal() {
       if (typeof change.completed === 'boolean') await fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: change.id, completed: change.completed }) });
       if (change.note !== undefined && change.note !== null) await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, exerciseId: change.id, note: change.note }) });
     }
-    if (nextHealth) await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, ...nextHealth }) });
-    const undo: UndoPayload = { date, log: previousLog, notes: previousNotes, health: previousHealth, hadHealthChange: !!nextHealth, newExerciseIds };
+    if (healthPatch) await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, ...healthPatch }) });
+    const undo: UndoPayload = { date, log: previousLog, notes: previousNotes, health: previousHealthPatch, hadHealthChange: !!healthPatch, newExerciseIds };
     localStorage.setItem('pt-smart-add-undo', JSON.stringify(undo));
     setCanUndo(true);
     window.setTimeout(() => window.location.reload(), 150);
