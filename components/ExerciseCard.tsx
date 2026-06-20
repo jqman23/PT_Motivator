@@ -33,14 +33,19 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     ? isStrength ? 'bg-[#C17B4F] border-[#C17B4F]' : 'bg-[#7E9B86] border-[#7E9B86]'
     : 'bg-white border-stone-200';
 
-  const openHistory = () => {
-    longPressOpened.current = true;
+  const openHistory = (suppressNextClick = false) => {
+    if (suppressNextClick) longPressOpened.current = true;
     setShowHistory(true);
   };
 
   const clearLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = null;
+  };
+
+  const stopActionPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    clearLongPress();
+    e.stopPropagation();
   };
 
   return (
@@ -56,12 +61,12 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          openHistory();
+          openHistory(false);
         }}
         onPointerDown={(e) => {
           if (e.pointerType === 'mouse') return;
           clearLongPress();
-          longPressTimer.current = setTimeout(openHistory, 900);
+          longPressTimer.current = setTimeout(() => openHistory(true), 900);
         }}
         onPointerUp={clearLongPress}
         onPointerCancel={clearLongPress}
@@ -89,7 +94,14 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           )}
         </div>
 
-        <div className="flex gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="flex gap-1.5 flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+          onPointerDown={stopActionPointer}
+          onPointerUp={stopActionPointer}
+          onPointerCancel={stopActionPointer}
+        >
           <button
             onClick={() => setShowNotes(true)}
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
