@@ -101,6 +101,7 @@ export default function LibraryModal({
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
+    if (e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
     if (e.origin === 'exercisedb') return { text: 'ExerciseDB', color: '#7C3AED', bg: '#ede9fe' };
     if (e.origin === 'api_ninjas') return { text: 'API Ninjas', color: '#5B9BD5', bg: '#dbeafe' };
     if (e.origin === 'patient_added') return { text: 'Added', color: '#5B9BD5', bg: '#dbeafe' };
@@ -317,7 +318,7 @@ export default function LibraryModal({
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
         origin: importedExerciseDbMeta?.source ?? origin,
-        sourceId: importedExerciseDbMeta?.sourceId ?? sourceId,
+        sourceId: importedExerciseDbMeta?.sourceId ?? sourceId ?? 'ai_added',
         gifUrl: importedExerciseDbMeta?.gifUrl ?? gifUrl,
       }),
     };
