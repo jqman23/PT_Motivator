@@ -3,25 +3,10 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
+import { SmartExerciseChange, SmartHealthChanges, SmartNewExercise, SmartProposal } from '@/components/SmartAddTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
-
-type ExerciseChange = {
-  id: string;
-  completed?: boolean | null;
-  note?: string | null;
-  reason?: string;
-};
-
-type HealthChanges = Record<string, string | number | null | undefined>;
-
-type Proposal = {
-  summary: string[];
-  exerciseChanges: ExerciseChange[];
-  healthChanges: HealthChanges;
-  questions: string[];
-};
 
 interface Props {
   date: string;
@@ -30,7 +15,7 @@ interface Props {
   log: LogMap;
   notes: NotesMap;
   onClose: () => void;
-  onApply: (proposal: Proposal, previousHealth: HealthChanges | null, nextHealth: HealthChanges | null) => Promise<void>;
+  onApply: (proposal: SmartProposal, previousHealth: SmartHealthChanges | null, nextHealth: SmartHealthChanges | null) => Promise<void>;
 }
 
 const NUMERIC_HEALTH = ['sleep_hours', 'sleep_quality', 'energy', 'mood', 'pain'];
@@ -49,13 +34,27 @@ const HEALTH_LABELS: Record<string, string> = {
   general_notes: 'General notes',
 };
 
-function normalizeHealth(row: HealthChanges | null): HealthChanges | null {
+function normalizeHealth(row: SmartHealthChanges | null): SmartHealthChanges | null {
   if (!row) return null;
-  const out: HealthChanges = {};
+  const out: SmartHealthChanges = {};
   for (const key of [...NUMERIC_HEALTH, 'sleep_notes', 'sleep_quality_notes', 'energy_notes', 'mood_notes', 'pain_notes', 'treatment_notes', 'general_notes']) {
     out[key] = row[key] ?? (NUMERIC_HEALTH.includes(key) ? null : '');
   }
   return out;
+}
+
+function sameNote(a: unknown, b: unknown) {
+  return String(a ?? '').trim() === String(b ?? '').trim();
+}
+
+function sameHealthValue(key: string, oldValue: unknown, newValue: unknown) {
+  if (NUMERIC_HEALTH.includes(key)) {
+    const oldBlank = oldValue === null || oldValue === undefined || oldValue === '';
+    const newBlank = newValue === null || newValue === undefined || newValue === '';
+    if (oldBlank && newBlank) return true;
+    return Number(oldValue) === Number(newValue);
+  }
+  return sameNote(oldValue, newValue);
 }
 
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
@@ -63,8 +62,10 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [currentHealth, setCurrentHealth] = useState<HealthChanges | null>(null);
+  const [proposal, setProposal] = useState<SmartProposal | null>(null);
+  const [currentHealth, setCurrentHealth] = useState<SmartHealthChanges | null>(null);
+
+  const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
 
   const visibleExercises = useMemo(() => layout.flatMap(cat =>
     cat.exerciseIds
@@ -88,6 +89,44 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     return row;
   };
 
+  const compactProposal = (raw: any, health: SmartHealthChanges | null): SmartProposal => {
+    const exerciseChanges: SmartExerciseChange[] = (raw.exerciseChanges ?? [])
+      .map((change: SmartExerciseChange) => {
+        const currentDone = !!log[date]?.[change.id];
+        const currentNote = notes[change.id] ?? '';
+        const next: SmartExerciseChange = { id: change.id, reason: change.reason };
+        if (typeof change.completed === 'boolean' && change.completed !== currentDone) next.completed = change.completed;
+        if (change.note !== undefined && change.note !== null && !sameNote(change.note, currentNote)) next.note = String(change.note).trim();
+        return next;
+      })
+      .filter((change: SmartExerciseChange) => typeof change.completed === 'boolean' || change.note !== undefined);
+
+    const healthChanges: SmartHealthChanges = {};
+    Object.entries(raw.healthChanges ?? {}).forEach(([key, value]) => {
+      if (!sameHealthValue(key, health?.[key], value)) healthChanges[key] = value as string | number | null;
+    });
+
+    const newExercises: SmartNewExercise[] = (raw.newExercises ?? [])
+      .map((item: SmartNewExercise) => ({
+        name: String(item.name ?? '').trim(),
+        categoryName: categoryNames.includes(item.categoryName ?? '') ? item.categoryName : categoryNames[0],
+        sets: String(item.sets ?? '').trim(),
+        cue: String(item.cue ?? '').trim(),
+        note: String(item.note ?? '').trim(),
+        completed: typeof item.completed === 'boolean' ? item.completed : true,
+        reason: String(item.reason ?? '').trim(),
+      }))
+      .filter((item: SmartNewExercise) => item.name);
+
+    return {
+      summary: raw.summary ?? [],
+      exerciseChanges,
+      newExercises,
+      healthChanges,
+      questions: raw.questions ?? [],
+    };
+  };
+
   const analyze = async () => {
     if (!input.trim()) return;
     setError('');
@@ -101,12 +140,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI failed');
-      setProposal({
-        summary: data.summary ?? [],
-        exerciseChanges: data.exerciseChanges ?? [],
-        healthChanges: data.healthChanges ?? {},
-        questions: data.questions ?? [],
-      });
+      setProposal(compactProposal(data, health));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI failed');
     } finally {
@@ -114,7 +148,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     }
   };
 
-  const updateExercise = (idx: number, patch: Partial<ExerciseChange>) => {
+  const updateExercise = (idx: number, patch: Partial<SmartExerciseChange>) => {
     if (!proposal) return;
     const next = [...proposal.exerciseChanges];
     next[idx] = { ...next[idx], ...patch };
@@ -124,6 +158,18 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const removeExercise = (idx: number) => {
     if (!proposal) return;
     setProposal({ ...proposal, exerciseChanges: proposal.exerciseChanges.filter((_, i) => i !== idx) });
+  };
+
+  const updateNewExercise = (idx: number, patch: Partial<SmartNewExercise>) => {
+    if (!proposal) return;
+    const next = [...proposal.newExercises];
+    next[idx] = { ...next[idx], ...patch };
+    setProposal({ ...proposal, newExercises: next });
+  };
+
+  const removeNewExercise = (idx: number) => {
+    if (!proposal) return;
+    setProposal({ ...proposal, newExercises: proposal.newExercises.filter((_, i) => i !== idx) });
   };
 
   const updateHealth = (key: string, value: string) => {
@@ -146,6 +192,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
       setSaving(false);
     }
   };
+
+  const hasChanges = !!proposal && (proposal.exerciseChanges.length > 0 || proposal.newExercises.length > 0 || Object.keys(proposal.healthChanges || {}).length > 0);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8" onClick={(e) => { e.stopPropagation(); onClose(); }}>
@@ -190,9 +238,39 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                 </div>
               )}
 
+              {!hasChanges && (
+                <div className="bg-white rounded-2xl border border-stone-100 p-3 text-center">
+                  <p className="text-sm font-bold text-stone-700">No new changes found</p>
+                  <p className="text-xs text-stone-400 mt-1">Already-completed fields and unchanged notes are hidden.</p>
+                </div>
+              )}
+
+              {!!proposal.newExercises.length && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">New exercises</p>
+                  {proposal.newExercises.map((item, idx) => (
+                    <div key={`${item.name}-${idx}`} className="bg-white rounded-2xl border-2 p-3" style={{ borderColor: '#cfded3' }}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: '#E4ECE6', color: '#476653' }}>AI added</span>
+                          <input value={item.name} onChange={e => updateNewExercise(idx, { name: e.target.value })} className="block w-full text-sm font-bold text-stone-800 bg-transparent border-b border-stone-200 focus:outline-none" style={{ fontSize: 16 }} />
+                        </div>
+                        <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeNewExercise(idx); }} className="text-xs text-stone-400">Remove</button>
+                      </div>
+                      <select value={item.categoryName ?? categoryNames[0] ?? ''} onChange={e => updateNewExercise(idx, { categoryName: e.target.value })} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm bg-white" style={{ fontSize: 16 }}>
+                        {categoryNames.map(name => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                      <input value={item.sets ?? ''} onChange={e => updateNewExercise(idx, { sets: e.target.value })} placeholder="Sets/reps/time" className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm" style={{ fontSize: 16 }} />
+                      <textarea value={item.cue ?? ''} onChange={e => updateNewExercise(idx, { cue: e.target.value })} placeholder="Cue / instructions" rows={2} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
+                      <textarea value={item.note ?? ''} onChange={e => updateNewExercise(idx, { note: e.target.value })} placeholder="Optional note for today" rows={2} className="w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {!!proposal.exerciseChanges.length && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Exercise changes</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Exercise updates</p>
                   {proposal.exerciseChanges.map((change, idx) => {
                     const ex = exerciseMap[change.id];
                     const oldNote = notes[change.id] ?? '';
@@ -201,6 +279,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                       <div key={`${change.id}-${idx}`} className="bg-white rounded-2xl border border-stone-100 p-3">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div>
+                            <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: '#FBF5E8', color: '#B8883A' }}>Update</span>
                             <p className="text-sm font-bold text-stone-800">{ex?.name ?? change.id}</p>
                             {change.reason && <p className="text-[11px] text-stone-400">{change.reason}</p>}
                           </div>
@@ -220,13 +299,16 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
 
               {!!Object.keys(proposal.healthChanges || {}).length && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Health / general notes</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Health / general updates</p>
                   {Object.entries(proposal.healthChanges).map(([key, value]) => {
                     const oldValue = currentHealth?.[key] ?? '';
                     const changed = String(oldValue ?? '') !== String(value ?? '');
                     return (
                       <div key={key} className="bg-white rounded-xl border border-stone-100 p-3">
-                        <label className="block text-xs font-bold text-stone-700 mb-1">{HEALTH_LABELS[key] ?? key}</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-bold text-stone-700">{HEALTH_LABELS[key] ?? key}</label>
+                          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: oldValue !== '' && oldValue != null ? '#FBF5E8' : '#E4ECE6', color: oldValue !== '' && oldValue != null ? '#B8883A' : '#476653' }}>{oldValue !== '' && oldValue != null ? 'Update' : 'Add'}</span>
+                        </div>
                         {changed && oldValue !== '' && oldValue != null && <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1 mb-2">Replacing: {String(oldValue)}</p>}
                         {NUMERIC_HEALTH.includes(key) ? (
                           <input type="number" value={value == null ? '' : String(value)} onChange={e => updateHealth(key, e.target.value)} className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm" style={{ fontSize: 16, colorScheme: 'light' }} />
@@ -239,7 +321,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                 </div>
               )}
 
-              <button onClick={e => { e.preventDefault(); e.stopPropagation(); apply(); }} disabled={saving} className="w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#5B9BD5' }}>
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); apply(); }} disabled={saving || !hasChanges} className="w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#5B9BD5' }}>
                 {saving ? 'Saving…' : 'Save these changes'}
               </button>
             </>
