@@ -7,6 +7,17 @@ export type SmartExerciseChange = {
   reason?: string;
 };
 
+export type SmartDbMatch = {
+  source: 'exercisedb' | 'api_ninjas';
+  sourceId?: string;
+  name: string;
+  sets?: string;
+  cue?: string;
+  tips?: string[];
+  gifUrl?: string;
+  label?: string;
+};
+
 export type SmartNewExercise = {
   name: string;
   categoryName?: string;
@@ -15,6 +26,11 @@ export type SmartNewExercise = {
   note?: string;
   completed?: boolean | null;
   reason?: string;
+  origin?: 'patient_added' | 'exercisedb' | 'api_ninjas';
+  sourceId?: string;
+  gifUrl?: string;
+  tips?: string[];
+  dbMatches?: SmartDbMatch[];
 };
 
 export type SmartProposal = {
