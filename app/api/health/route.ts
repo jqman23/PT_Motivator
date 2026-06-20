@@ -3,6 +3,8 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
 
+const hasOwn = (body: Record<string, unknown>, key: string) => Object.prototype.hasOwnProperty.call(body, key);
+
 async function ensureTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS health_log (
@@ -52,31 +54,49 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json() as Record<string, unknown>;
     const {
       date, sleep_hours, sleep_quality, energy, mood, pain,
       sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
-    } = await req.json();
+    } = body;
     if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
+
+    const hasSleepHours = hasOwn(body, 'sleep_hours');
+    const hasSleepQuality = hasOwn(body, 'sleep_quality');
+    const hasEnergy = hasOwn(body, 'energy');
+    const hasMood = hasOwn(body, 'mood');
+    const hasPain = hasOwn(body, 'pain');
+    const hasSleepNotes = hasOwn(body, 'sleep_notes');
+    const hasSleepQualityNotes = hasOwn(body, 'sleep_quality_notes');
+    const hasEnergyNotes = hasOwn(body, 'energy_notes');
+    const hasMoodNotes = hasOwn(body, 'mood_notes');
+    const hasPainNotes = hasOwn(body, 'pain_notes');
+    const hasGeneralNotes = hasOwn(body, 'general_notes');
+    const hasTreatmentNotes = hasOwn(body, 'treatment_notes');
+
     await ensureTable();
     await sql`
       INSERT INTO health_log (date, sleep_hours, sleep_quality, energy, mood, pain,
         sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes, updated_at)
-      VALUES (${date}::date, ${sleep_hours}, ${sleep_quality}, ${energy}, ${mood}, ${pain},
-        ${sleep_notes ?? null}, ${sleep_quality_notes ?? null}, ${energy_notes ?? null}, ${mood_notes ?? null},
-        ${pain_notes ?? null}, ${general_notes ?? null}, ${treatment_notes ?? null}, NOW())
+      VALUES (${date}::date, ${hasSleepHours ? sleep_hours : null}, ${hasSleepQuality ? sleep_quality : null},
+        ${hasEnergy ? energy : null}, ${hasMood ? mood : null}, ${hasPain ? pain : null},
+        ${hasSleepNotes ? sleep_notes ?? null : null}, ${hasSleepQualityNotes ? sleep_quality_notes ?? null : null},
+        ${hasEnergyNotes ? energy_notes ?? null : null}, ${hasMoodNotes ? mood_notes ?? null : null},
+        ${hasPainNotes ? pain_notes ?? null : null}, ${hasGeneralNotes ? general_notes ?? null : null},
+        ${hasTreatmentNotes ? treatment_notes ?? null : null}, NOW())
       ON CONFLICT (date) DO UPDATE SET
-        sleep_hours = ${sleep_hours},
-        sleep_quality = ${sleep_quality},
-        energy = ${energy},
-        mood = ${mood},
-        pain = ${pain},
-        sleep_notes = ${sleep_notes ?? null},
-        sleep_quality_notes = ${sleep_quality_notes ?? null},
-        energy_notes = ${energy_notes ?? null},
-        mood_notes = ${mood_notes ?? null},
-        pain_notes = ${pain_notes ?? null},
-        general_notes = ${general_notes ?? null},
-        treatment_notes = ${treatment_notes ?? null},
+        sleep_hours = CASE WHEN ${hasSleepHours} THEN EXCLUDED.sleep_hours ELSE health_log.sleep_hours END,
+        sleep_quality = CASE WHEN ${hasSleepQuality} THEN EXCLUDED.sleep_quality ELSE health_log.sleep_quality END,
+        energy = CASE WHEN ${hasEnergy} THEN EXCLUDED.energy ELSE health_log.energy END,
+        mood = CASE WHEN ${hasMood} THEN EXCLUDED.mood ELSE health_log.mood END,
+        pain = CASE WHEN ${hasPain} THEN EXCLUDED.pain ELSE health_log.pain END,
+        sleep_notes = CASE WHEN ${hasSleepNotes} THEN EXCLUDED.sleep_notes ELSE health_log.sleep_notes END,
+        sleep_quality_notes = CASE WHEN ${hasSleepQualityNotes} THEN EXCLUDED.sleep_quality_notes ELSE health_log.sleep_quality_notes END,
+        energy_notes = CASE WHEN ${hasEnergyNotes} THEN EXCLUDED.energy_notes ELSE health_log.energy_notes END,
+        mood_notes = CASE WHEN ${hasMoodNotes} THEN EXCLUDED.mood_notes ELSE health_log.mood_notes END,
+        pain_notes = CASE WHEN ${hasPainNotes} THEN EXCLUDED.pain_notes ELSE health_log.pain_notes END,
+        general_notes = CASE WHEN ${hasGeneralNotes} THEN EXCLUDED.general_notes ELSE health_log.general_notes END,
+        treatment_notes = CASE WHEN ${hasTreatmentNotes} THEN EXCLUDED.treatment_notes ELSE health_log.treatment_notes END,
         updated_at = NOW()
     `;
     return NextResponse.json({ ok: true });
