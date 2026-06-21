@@ -1,5 +1,8 @@
 import type { MetadataRoute } from 'next';
 
+const DRIVE_FILE_ID = '1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD';
+const DRIVE_ICON_URL = `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w512`;
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'PT Motivator — Ankle Recovery',
@@ -12,14 +15,8 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#7E9B86',
     icons: [
       {
-        src: '/icon',
+        src: DRIVE_ICON_URL,
         sizes: '512x512',
-        type: 'image/png',
-        purpose: 'any',
-      },
-      {
-        src: '/apple-icon',
-        sizes: '180x180',
         type: 'image/png',
         purpose: 'any',
       },
