@@ -20,7 +20,6 @@ interface Props {
 
 const SWIPE_REVEAL = 92;
 const SWIPE_THRESHOLD = 44;
-const DRAG_ARM_MS = 1000;
 const HISTORY_HOLD_MS = 2000;
 
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
@@ -64,9 +63,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [isDragging, setIsDragging] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragArmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClick = useRef(false);
-  const touchStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiping = useRef(false);
   const dragging = useRef(false);
   const dropTarget = useRef<{ id: string; after: boolean } | null>(null);
@@ -85,11 +83,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     setSwipeOpen(false);
   };
 
-  const clearTimers = () => {
+  const clearLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    if (dragArmTimer.current) clearTimeout(dragArmTimer.current);
     longPressTimer.current = null;
-    dragArmTimer.current = null;
   };
 
   const openHistory = (suppressClick = false) => {
@@ -100,7 +96,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   };
 
   const stopActionPointer = (e: PointerEvent<HTMLDivElement>) => {
-    clearTimers();
+    clearLongPress();
     e.stopPropagation();
   };
 
@@ -190,8 +186,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     swiping.current = false;
     suppressNextClick.current = true;
     closeSwipe();
-    clearTimers();
-    setDragArmed(false);
+    clearLongPress();
     setIsDragging(true);
     setDragY(Math.max(-100, Math.min(100, dy)));
   };
@@ -203,11 +198,11 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     e.preventDefault();
     e.stopPropagation();
     closeSwipe();
-    clearTimers();
+    clearLongPress();
     resetDragState();
     suppressNextClick.current = true;
-    touchStart.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-    dragArmTimer.current = setTimeout(() => setDragArmed(true), DRAG_ARM_MS);
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
+    setDragArmed(true);
     longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
   };
 
@@ -218,9 +213,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     e.stopPropagation();
 
     const dy = touch.clientY - touchStart.current.y;
-    const age = Date.now() - touchStart.current.t;
 
-    if (!dragging.current && Math.abs(dy) > 8 && age >= DRAG_ARM_MS) beginDrag(dy);
+    if (!dragging.current && Math.abs(dy) > 5) beginDrag(dy);
 
     if (dragging.current) {
       setDragY(Math.max(-130, Math.min(130, dy)));
@@ -238,7 +232,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const finishGripTouch = (e: TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    clearTimers();
+    clearLongPress();
     const target = dropTarget.current;
     const wasDragging = dragging.current;
     resetDragState();
@@ -246,9 +240,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   };
 
   const transformStyle = isDragging
-    ? `translateY(${dragY}px) scale(1.03)`
+    ? `translateY(${dragY}px) scale(1.02)`
     : dragArmed
-      ? `translateX(${swipeX}px) scale(1.015)`
+      ? `translateX(${swipeX}px) scale(1.01)`
       : `translateX(${swipeX}px)`;
 
   return (
@@ -266,7 +260,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
         <div
           data-exercise-card-id={exercise.id}
-          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${dragArmed || isDragging ? 'shadow-xl ring-2 ring-[#7E9B86]/30 opacity-95 z-30 relative' : ''}`}
+          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${dragArmed || isDragging ? 'shadow-lg ring-2 ring-[#7E9B86]/25 opacity-95 z-30 relative' : ''}`}
           style={{ transform: transformStyle, touchAction: isDragging ? 'none' : 'pan-y' }}
           onClick={() => {
             if (suppressNextClick.current) {
@@ -285,9 +279,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           }}
           onPointerDown={(e) => {
             if (e.pointerType === 'mouse' || orderBusy) return;
-            touchStart.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+            touchStart.current = { x: e.clientX, y: e.clientY };
             swiping.current = false;
-            clearTimers();
+            clearLongPress();
             longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
           }}
           onPointerMove={(e) => {
@@ -300,14 +294,14 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             if (absX > 12 && absX > absY) {
               swiping.current = true;
               suppressNextClick.current = true;
-              clearTimers();
+              clearLongPress();
               const base = swipeOpen ? -SWIPE_REVEAL : 0;
               const next = Math.min(0, Math.max(-SWIPE_REVEAL, base + dx));
               setSwipeX(next);
             }
           }}
           onPointerUp={() => {
-            clearTimers();
+            clearLongPress();
             touchStart.current = null;
             if (swiping.current) {
               const shouldOpen = swipeX < -SWIPE_THRESHOLD;
@@ -317,21 +311,21 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             }
           }}
           onPointerCancel={() => {
-            clearTimers();
+            clearLongPress();
             touchStart.current = null;
             swiping.current = false;
             resetDragState();
             setSwipeX(swipeOpen ? -SWIPE_REVEAL : 0);
           }}
           onPointerLeave={() => {
-            if (!isDragging) clearTimers();
+            if (!isDragging) clearLongPress();
           }}
-          title="Tap to check off. Hold the grip then drag on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
+          title="Tap to check off. Drag the grip on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
         >
           <div
             className={`sm:hidden flex-shrink-0 w-6 h-10 rounded-xl flex items-center justify-center transition-all ${dragArmed || isDragging ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
             style={{ touchAction: 'none' }}
-            title="Hold, then drag to reorder"
+            title="Drag to reorder"
             onPointerDown={(e) => e.stopPropagation()}
             onPointerMove={(e) => e.stopPropagation()}
             onPointerUp={(e) => e.stopPropagation()}
@@ -362,7 +356,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className={`text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
-                {orderBusy ? 'Moving…' : exercise.name}
+                {exercise.name}
               </span>
               {exercise.optional && <span className="text-xs text-stone-400">(optional)</span>}
             </div>
