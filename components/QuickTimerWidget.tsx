@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
+const LEAD_IN_SECONDS = 10;
 const PT_SEQUENCE = [
   { seconds: 60, cueAfter: 'Switch' },
   { seconds: 60, cueAfter: '30 second break' },
@@ -53,7 +54,9 @@ export default function QuickTimerWidget() {
       ? [880, 988, 1175]
       : normalized.includes('break')
         ? [660, 520]
-        : [880, 880];
+        : normalized.includes('start')
+          ? [740, 880]
+          : [880, 880];
 
     pattern.forEach((freq, index) => {
       const start = ctx.currentTime + index * 0.18;
@@ -122,6 +125,15 @@ export default function QuickTimerWidget() {
 
   const advanceSequence = () => {
     const currentIndex = sequenceIndexRef.current;
+
+    if (currentIndex < 0) {
+      playCue('Start');
+      sequenceIndexRef.current = 0;
+      setSequenceIndex(0);
+      setDuration(PT_SEQUENCE[0].seconds);
+      return PT_SEQUENCE[0].seconds;
+    }
+
     const currentStep = PT_SEQUENCE[currentIndex];
     playCue(currentStep.cueAfter);
 
@@ -145,6 +157,7 @@ export default function QuickTimerWidget() {
       resetTimer();
       return;
     }
+    if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
     stopTimer();
     setRunning(true);
     intervalRef.current = window.setInterval(() => {
@@ -177,11 +190,15 @@ export default function QuickTimerWidget() {
     setMode('timer');
     setDone(false);
     setSequenceActive(true);
-    setSequenceIndex(0);
-    sequenceIndexRef.current = 0;
-    setDuration(PT_SEQUENCE[0].seconds);
-    setRemaining(PT_SEQUENCE[0].seconds);
-    setCue('PT sequence ready');
+    setSequenceIndex(-1);
+    sequenceIndexRef.current = -1;
+    setDuration(LEAD_IN_SECONDS);
+    setRemaining(LEAD_IN_SECONDS);
+    setCue('Ready · press Start');
+  };
+
+  const testSound = () => {
+    void unlockAudio().then(() => playCue('Sound test'));
   };
 
   const start = () => mode === 'timer' ? startCountdown() : startStopwatch();
@@ -241,7 +258,7 @@ export default function QuickTimerWidget() {
   const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
   const circumference = 2 * Math.PI * 22;
   const dashOffset = circumference * (1 - pct);
-  const sequenceLabel = sequenceActive ? `Step ${sequenceIndex + 1}/${PT_SEQUENCE.length}` : '';
+  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `Step ${sequenceIndex + 1}/${PT_SEQUENCE.length}`) : '';
 
   const panel = open ? (
     <div
@@ -273,13 +290,14 @@ export default function QuickTimerWidget() {
             className="mb-3 w-full rounded-lg text-xs font-bold transition-colors"
             style={{ padding: '8px 0', background: sequenceActive ? '#E4ECE6' : '#f5f5f4', color: sequenceActive ? '#476653' : '#57534e', border: sequenceActive ? '1px solid #cfded3' : '1px solid transparent' }}
           >
-            1m / switch / break preset
+            10s start + switch preset
           </button>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
             <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
             <button onClick={event => { event.stopPropagation(); void unlockAudio(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
+            <button onClick={event => { event.stopPropagation(); testSound(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }} title="Test sound">Test</button>
           </div>
         </>
       )}
