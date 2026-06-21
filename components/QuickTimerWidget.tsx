@@ -31,16 +31,60 @@ export default function QuickTimerWidget() {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<number | null>(null);
   const sequenceIndexRef = useRef(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => setMounted(true), []);
 
-  const say = (message: string) => {
-    setCue(message);
+  const unlockAudio = async () => {
+    if (typeof window === 'undefined') return null;
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
+    if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
+    return audioContextRef.current;
+  };
+
+  const playBeep = async (message: string) => {
+    if (!bellOn) return;
+    const ctx = await unlockAudio();
+    if (!ctx) return;
+    const normalized = message.toLowerCase();
+    const pattern = normalized.includes('end') || normalized.includes('done')
+      ? [880, 988, 1175]
+      : normalized.includes('break')
+        ? [660, 520]
+        : [880, 880];
+
+    pattern.forEach((freq, index) => {
+      const start = ctx.currentTime + index * 0.18;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.16, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.14);
+    });
+  };
+
+  const speakCue = (message: string) => {
     if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.rate = 1;
     window.speechSynthesis.speak(utterance);
+  };
+
+  const playCue = (message: string) => {
+    setCue(message);
+    if (!bellOn) return;
+    void playBeep(message);
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(message.toLowerCase().includes('end') ? [120, 60, 120] : 120);
+    speakCue(message);
   };
 
   const stopTimer = () => {
@@ -73,13 +117,13 @@ export default function QuickTimerWidget() {
     stopTimer();
     setDone(true);
     setSequenceActive(false);
-    say('Done');
+    playCue('Done');
   };
 
   const advanceSequence = () => {
     const currentIndex = sequenceIndexRef.current;
     const currentStep = PT_SEQUENCE[currentIndex];
-    say(currentStep.cueAfter);
+    playCue(currentStep.cueAfter);
 
     const nextIndex = currentIndex + 1;
     if (nextIndex >= PT_SEQUENCE.length) {
@@ -96,6 +140,7 @@ export default function QuickTimerWidget() {
   };
 
   const startCountdown = () => {
+    void unlockAudio();
     if (done) {
       resetTimer();
       return;
@@ -115,6 +160,7 @@ export default function QuickTimerWidget() {
   };
 
   const startStopwatch = () => {
+    void unlockAudio();
     stopTimer();
     setDone(false);
     setSequenceActive(false);
@@ -126,6 +172,7 @@ export default function QuickTimerWidget() {
   };
 
   const startSequencePreset = () => {
+    void unlockAudio();
     stopTimer();
     setMode('timer');
     setDone(false);
@@ -162,12 +209,14 @@ export default function QuickTimerWidget() {
   }, [open]);
 
   const pickPreset = (seconds: number) => {
+    void unlockAudio();
     setMode('timer');
     setDuration(seconds);
     resetTimer(seconds);
   };
 
   const applyCustomMinutes = () => {
+    void unlockAudio();
     const minutes = Number(customMinutes);
     if (!Number.isFinite(minutes) || minutes <= 0) return;
     const seconds = Math.max(1, Math.round(minutes * 60));
@@ -230,7 +279,7 @@ export default function QuickTimerWidget() {
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
             <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
-            <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Voice cues on/off">{bellOn ? '🔔' : '🔕'}</button>
+            <button onClick={event => { event.stopPropagation(); void unlockAudio(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
           </div>
         </>
       )}
@@ -264,7 +313,7 @@ export default function QuickTimerWidget() {
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
