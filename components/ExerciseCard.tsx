@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type PointerEvent } from 'react';
+import { useRef, useState, type PointerEvent, type TouchEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import VideoModal from './VideoModal';
@@ -20,7 +20,7 @@ interface Props {
 
 const SWIPE_REVEAL = 92;
 const SWIPE_THRESHOLD = 44;
-const DRAG_HOLD_MS = 350;
+const DRAG_ARM_MS = 1000;
 const HISTORY_HOLD_MS = 2000;
 
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
@@ -60,11 +60,11 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [swipeX, setSwipeX] = useState(0);
   const [swipeOpen, setSwipeOpen] = useState(false);
   const [dragY, setDragY] = useState(0);
+  const [dragArmed, setDragArmed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragReadyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragReady = useRef(false);
+  const dragArmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number; t: number } | null>(null);
   const swiping = useRef(false);
@@ -87,9 +87,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
   const clearTimers = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    if (dragReadyTimer.current) clearTimeout(dragReadyTimer.current);
+    if (dragArmTimer.current) clearTimeout(dragArmTimer.current);
     longPressTimer.current = null;
-    dragReadyTimer.current = null;
+    dragArmTimer.current = null;
   };
 
   const openHistory = (suppressClick = false) => {
@@ -106,8 +106,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
   const resetDragState = () => {
     dragging.current = false;
-    dragReady.current = false;
     dropTarget.current = null;
+    touchStart.current = null;
+    setDragArmed(false);
     setIsDragging(false);
     setDragY(0);
   };
@@ -183,21 +184,72 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     }
   };
 
-  const beginDrag = (e: PointerEvent<HTMLDivElement>, dy: number) => {
-    if (dragging.current) return;
+  const beginDrag = (dy: number) => {
+    if (dragging.current || orderBusy) return;
     dragging.current = true;
     swiping.current = false;
     suppressNextClick.current = true;
     closeSwipe();
     clearTimers();
+    setDragArmed(false);
     setIsDragging(true);
-    setDragY(Math.max(-90, Math.min(90, dy)));
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    setDragY(Math.max(-100, Math.min(100, dy)));
+  };
+
+  const handleGripTouchStart = (e: TouchEvent<HTMLDivElement>) => {
+    if (orderBusy) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeSwipe();
+    clearTimers();
+    resetDragState();
+    suppressNextClick.current = true;
+    touchStart.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+    dragArmTimer.current = setTimeout(() => setDragArmed(true), DRAG_ARM_MS);
+    longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
+  };
+
+  const handleGripTouchMove = (e: TouchEvent<HTMLDivElement>) => {
+    const touch = e.touches[0];
+    if (!touch || !touchStart.current || orderBusy) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dy = touch.clientY - touchStart.current.y;
+    const age = Date.now() - touchStart.current.t;
+
+    if (!dragging.current && Math.abs(dy) > 8 && age >= DRAG_ARM_MS) beginDrag(dy);
+
+    if (dragging.current) {
+      setDragY(Math.max(-130, Math.min(130, dy)));
+      const targetCard = closestOtherExerciseFromPoint(touch.clientX, touch.clientY, exercise.id);
+      if (targetCard?.dataset.exerciseCardId) {
+        const rect = targetCard.getBoundingClientRect();
+        dropTarget.current = {
+          id: targetCard.dataset.exerciseCardId,
+          after: touch.clientY > rect.top + rect.height / 2,
+        };
+      }
+    }
+  };
+
+  const finishGripTouch = (e: TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearTimers();
+    const target = dropTarget.current;
+    const wasDragging = dragging.current;
+    resetDragState();
+    if (wasDragging && target) void moveWithinCurrentSection(target.id, target.after);
   };
 
   const transformStyle = isDragging
-    ? `translateY(${dragY}px) scale(1.02)`
-    : `translateX(${swipeX}px)`;
+    ? `translateY(${dragY}px) scale(1.03)`
+    : dragArmed
+      ? `translateX(${swipeX}px) scale(1.015)`
+      : `translateX(${swipeX}px)`;
 
   return (
     <>
@@ -214,7 +266,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
         <div
           data-exercise-card-id={exercise.id}
-          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${isDragging ? 'shadow-xl ring-2 ring-[#7E9B86]/30 opacity-95 z-30 relative' : ''}`}
+          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${dragArmed || isDragging ? 'shadow-xl ring-2 ring-[#7E9B86]/30 opacity-95 z-30 relative' : ''}`}
           style={{ transform: transformStyle, touchAction: isDragging ? 'none' : 'pan-y' }}
           onClick={() => {
             if (suppressNextClick.current) {
@@ -235,58 +287,28 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             if (e.pointerType === 'mouse' || orderBusy) return;
             touchStart.current = { x: e.clientX, y: e.clientY, t: Date.now() };
             swiping.current = false;
-            dragging.current = false;
-            dragReady.current = false;
-            dropTarget.current = null;
             clearTimers();
-            dragReadyTimer.current = setTimeout(() => { dragReady.current = true; }, DRAG_HOLD_MS);
             longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
           }}
           onPointerMove={(e) => {
-            if (e.pointerType === 'mouse' || !touchStart.current || orderBusy) return;
+            if (e.pointerType === 'mouse' || !touchStart.current || orderBusy || dragArmed || isDragging) return;
             const dx = e.clientX - touchStart.current.x;
             const dy = e.clientY - touchStart.current.y;
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
-            const age = Date.now() - touchStart.current.t;
 
-            if (!dragging.current && absX > 12 && absX > absY) {
+            if (absX > 12 && absX > absY) {
               swiping.current = true;
               suppressNextClick.current = true;
               clearTimers();
               const base = swipeOpen ? -SWIPE_REVEAL : 0;
               const next = Math.min(0, Math.max(-SWIPE_REVEAL, base + dx));
               setSwipeX(next);
-              return;
-            }
-
-            if (!dragging.current && absY > 12 && absY > absX && (dragReady.current || age > DRAG_HOLD_MS)) {
-              beginDrag(e, dy);
-            }
-
-            if (dragging.current) {
-              e.preventDefault();
-              suppressNextClick.current = true;
-              setDragY(Math.max(-110, Math.min(110, dy)));
-              const targetCard = closestOtherExerciseFromPoint(e.clientX, e.clientY, exercise.id);
-              if (targetCard?.dataset.exerciseCardId) {
-                const rect = targetCard.getBoundingClientRect();
-                dropTarget.current = {
-                  id: targetCard.dataset.exerciseCardId,
-                  after: e.clientY > rect.top + rect.height / 2,
-                };
-              }
             }
           }}
           onPointerUp={() => {
             clearTimers();
             touchStart.current = null;
-            if (dragging.current) {
-              const target = dropTarget.current;
-              resetDragState();
-              if (target) void moveWithinCurrentSection(target.id, target.after);
-              return;
-            }
             if (swiping.current) {
               const shouldOpen = swipeX < -SWIPE_THRESHOLD;
               setSwipeOpen(shouldOpen);
@@ -302,10 +324,33 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             setSwipeX(swipeOpen ? -SWIPE_REVEAL : 0);
           }}
           onPointerLeave={() => {
-            if (!dragging.current) clearTimers();
+            if (!isDragging) clearTimers();
           }}
-          title="Tap to check off. Hold then drag on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
+          title="Tap to check off. Hold the grip then drag on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
         >
+          <div
+            className={`sm:hidden flex-shrink-0 w-6 h-10 rounded-xl flex items-center justify-center transition-all ${dragArmed || isDragging ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
+            style={{ touchAction: 'none' }}
+            title="Hold, then drag to reorder"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onPointerCancel={(e) => e.stopPropagation()}
+            onTouchStart={handleGripTouchStart}
+            onTouchMove={handleGripTouchMove}
+            onTouchEnd={finishGripTouch}
+            onTouchCancel={finishGripTouch}
+          >
+            <svg viewBox="0 0 12 18" fill="currentColor" className="w-3 h-4">
+              <circle cx="3" cy="4" r="1.4" />
+              <circle cx="9" cy="4" r="1.4" />
+              <circle cx="3" cy="9" r="1.4" />
+              <circle cx="9" cy="9" r="1.4" />
+              <circle cx="3" cy="14" r="1.4" />
+              <circle cx="9" cy="14" r="1.4" />
+            </svg>
+          </div>
+
           <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 ${checkColor}`}>
             {done && (
               <svg viewBox="0 0 16 16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
