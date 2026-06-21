@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type PointerEvent, type TouchEvent } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import VideoModal from './VideoModal';
@@ -37,14 +37,22 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
-function closestOtherExerciseFromPoint(x: number, y: number, sourceId: string) {
-  const elements = document.elementsFromPoint(x, y);
-  for (const el of elements) {
-    const card = el instanceof HTMLElement ? el.closest<HTMLElement>('[data-exercise-card-id]') : null;
-    const id = card?.dataset.exerciseCardId;
-    if (card && id && id !== sourceId) return card;
+function moveCardElement(exerciseId: string, direction: -1 | 1) {
+  const card = document.querySelector(`[data-exercise-card-id="${CSS.escape(exerciseId)}"]`);
+  const wrapper = card?.closest('[data-exercise-card-wrap]');
+  if (!(wrapper instanceof HTMLElement)) return;
+
+  const sibling = direction === -1
+    ? wrapper.previousElementSibling
+    : wrapper.nextElementSibling;
+
+  if (!(sibling instanceof HTMLElement) || !sibling.matches('[data-exercise-card-wrap]')) return;
+
+  if (direction === -1) {
+    sibling.before(wrapper);
+  } else {
+    sibling.after(wrapper);
   }
-  return null;
 }
 
 export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave }: Props) {
@@ -54,20 +62,17 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showHistory, setShowHistory] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showRemoveOptions, setShowRemoveOptions] = useState(false);
+  const [showMoveControls, setShowMoveControls] = useState(false);
   const [removeBusy, setRemoveBusy] = useState<'hide' | 'library' | null>(null);
   const [removeError, setRemoveError] = useState('');
+  const [moveBusy, setMoveBusy] = useState<'up' | 'down' | null>(null);
+  const [moveFeedback, setMoveFeedback] = useState('');
   const [swipeX, setSwipeX] = useState(0);
   const [swipeOpen, setSwipeOpen] = useState(false);
-  const [dragY, setDragY] = useState(0);
-  const [dragArmed, setDragArmed] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [orderBusy, setOrderBusy] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiping = useRef(false);
-  const dragging = useRef(false);
-  const dropTarget = useRef<{ id: string; after: boolean } | null>(null);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -89,7 +94,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   };
 
   const openHistory = (suppressClick = false) => {
-    if (dragging.current || swiping.current) return;
+    if (swiping.current) return;
     if (suppressClick) suppressNextClick.current = true;
     closeSwipe();
     setShowHistory(true);
@@ -100,41 +105,43 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     e.stopPropagation();
   };
 
-  const resetDragState = () => {
-    dragging.current = false;
-    dropTarget.current = null;
-    touchStart.current = null;
-    setDragArmed(false);
-    setIsDragging(false);
-    setDragY(0);
-  };
-
-  const moveWithinCurrentSection = async (targetId: string, after: boolean) => {
-    setOrderBusy(true);
-    let saved = false;
+  const moveWithinSection = async (direction: -1 | 1) => {
+    setMoveBusy(direction === -1 ? 'up' : 'down');
+    setMoveFeedback('');
     try {
       const layout = await getConfigValue<CategoryConfig[]>('layout', []);
       if (!Array.isArray(layout)) return;
 
-      const catIndex = layout.findIndex(cat => cat.exerciseIds.includes(exercise.id));
-      if (catIndex < 0) return;
+      let moved = false;
+      const nextLayout = layout.map(cat => {
+        const index = cat.exerciseIds.indexOf(exercise.id);
+        if (index < 0) return cat;
 
-      const cat = layout[catIndex];
-      if (!cat.exerciseIds.includes(targetId)) return;
+        const targetIndex = index + direction;
+        if (targetIndex < 0 || targetIndex >= cat.exerciseIds.length) return cat;
 
-      const idsWithoutSource = cat.exerciseIds.filter(id => id !== exercise.id);
-      const targetIndex = idsWithoutSource.indexOf(targetId);
-      if (targetIndex < 0) return;
+        const nextIds = [...cat.exerciseIds];
+        [nextIds[index], nextIds[targetIndex]] = [nextIds[targetIndex], nextIds[index]];
+        moved = true;
+        return { ...cat, exerciseIds: nextIds };
+      });
 
-      idsWithoutSource.splice(targetIndex + (after ? 1 : 0), 0, exercise.id);
-      const nextLayout = layout.map((item, idx) => idx === catIndex ? { ...item, exerciseIds: idsWithoutSource } : item);
+      if (!moved) {
+        setMoveFeedback(direction === -1 ? 'Already top' : 'Already bottom');
+        window.setTimeout(() => setMoveFeedback(''), 1000);
+        return;
+      }
+
+      moveCardElement(exercise.id, direction);
       await saveConfigValue('layout', nextLayout);
-      saved = true;
-      window.location.reload();
+      setMoveFeedback('Moved ✓');
+      window.setTimeout(() => setMoveFeedback(''), 1000);
     } catch (err) {
       console.error(err);
+      setMoveFeedback('Could not move');
+      window.setTimeout(() => setMoveFeedback(''), 1200);
     } finally {
-      if (!saved) setOrderBusy(false);
+      setMoveBusy(null);
     }
   };
 
@@ -180,74 +187,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     }
   };
 
-  const beginDrag = (dy: number) => {
-    if (dragging.current || orderBusy) return;
-    dragging.current = true;
-    swiping.current = false;
-    suppressNextClick.current = true;
-    closeSwipe();
-    clearLongPress();
-    setIsDragging(true);
-    setDragY(Math.max(-100, Math.min(100, dy)));
-  };
-
-  const handleGripTouchStart = (e: TouchEvent<HTMLDivElement>) => {
-    if (orderBusy) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeSwipe();
-    clearLongPress();
-    resetDragState();
-    suppressNextClick.current = true;
-    touchStart.current = { x: touch.clientX, y: touch.clientY };
-    setDragArmed(true);
-    longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
-  };
-
-  const handleGripTouchMove = (e: TouchEvent<HTMLDivElement>) => {
-    const touch = e.touches[0];
-    if (!touch || !touchStart.current || orderBusy) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const dy = touch.clientY - touchStart.current.y;
-
-    if (!dragging.current && Math.abs(dy) > 5) beginDrag(dy);
-
-    if (dragging.current) {
-      setDragY(Math.max(-130, Math.min(130, dy)));
-      const targetCard = closestOtherExerciseFromPoint(touch.clientX, touch.clientY, exercise.id);
-      if (targetCard?.dataset.exerciseCardId) {
-        const rect = targetCard.getBoundingClientRect();
-        dropTarget.current = {
-          id: targetCard.dataset.exerciseCardId,
-          after: touch.clientY > rect.top + rect.height / 2,
-        };
-      }
-    }
-  };
-
-  const finishGripTouch = (e: TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    clearLongPress();
-    const target = dropTarget.current;
-    const wasDragging = dragging.current;
-    resetDragState();
-    if (wasDragging && target) void moveWithinCurrentSection(target.id, target.after);
-  };
-
-  const transformStyle = isDragging
-    ? `translateY(${dragY}px) scale(1.02)`
-    : dragArmed
-      ? `translateX(${swipeX}px) scale(1.01)`
-      : `translateX(${swipeX}px)`;
-
   return (
     <>
-      <div className="relative overflow-hidden rounded-2xl sm:overflow-visible">
+      <div className="relative overflow-hidden rounded-2xl sm:overflow-visible" data-exercise-card-wrap>
         <div className="absolute inset-y-0 right-0 w-[92px] flex sm:hidden items-center justify-end bg-red-500 rounded-2xl pr-3">
           <button
             onClick={() => { closeSwipe(); setShowRemoveOptions(true); }}
@@ -260,8 +202,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
         <div
           data-exercise-card-id={exercise.id}
-          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${dragArmed || isDragging ? 'shadow-lg ring-2 ring-[#7E9B86]/25 opacity-95 z-30 relative' : ''}`}
-          style={{ transform: transformStyle, touchAction: isDragging ? 'none' : 'pan-y' }}
+          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${showMoveControls ? 'ring-2 ring-[#7E9B86]/25 shadow-md' : ''}`}
+          style={{ transform: `translateX(${swipeX}px)`, touchAction: 'pan-y' }}
           onClick={() => {
             if (suppressNextClick.current) {
               suppressNextClick.current = false;
@@ -271,6 +213,10 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               closeSwipe();
               return;
             }
+            if (showMoveControls) {
+              setShowMoveControls(false);
+              return;
+            }
             onToggle();
           }}
           onContextMenu={(e) => {
@@ -278,14 +224,14 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             openHistory(false);
           }}
           onPointerDown={(e) => {
-            if (e.pointerType === 'mouse' || orderBusy) return;
+            if (e.pointerType === 'mouse') return;
             touchStart.current = { x: e.clientX, y: e.clientY };
             swiping.current = false;
             clearLongPress();
             longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
           }}
           onPointerMove={(e) => {
-            if (e.pointerType === 'mouse' || !touchStart.current || orderBusy || dragArmed || isDragging) return;
+            if (e.pointerType === 'mouse' || !touchStart.current) return;
             const dx = e.clientX - touchStart.current.x;
             const dy = e.clientY - touchStart.current.y;
             const absX = Math.abs(dx);
@@ -295,6 +241,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               swiping.current = true;
               suppressNextClick.current = true;
               clearLongPress();
+              setShowMoveControls(false);
               const base = swipeOpen ? -SWIPE_REVEAL : 0;
               const next = Math.min(0, Math.max(-SWIPE_REVEAL, base + dx));
               setSwipeX(next);
@@ -314,26 +261,25 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             clearLongPress();
             touchStart.current = null;
             swiping.current = false;
-            resetDragState();
             setSwipeX(swipeOpen ? -SWIPE_REVEAL : 0);
           }}
-          onPointerLeave={() => {
-            if (!isDragging) clearLongPress();
-          }}
-          title="Tap to check off. Drag the grip on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
+          onPointerLeave={clearLongPress}
+          title="Tap to check off. Tap the grip on mobile to move up/down. Hold for history. Swipe left on mobile to remove."
         >
           <div
-            className={`sm:hidden flex-shrink-0 w-6 h-10 rounded-xl flex items-center justify-center transition-all ${dragArmed || isDragging ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
-            style={{ touchAction: 'none' }}
-            title="Drag to reorder"
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerMove={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
-            onPointerCancel={(e) => e.stopPropagation()}
-            onTouchStart={handleGripTouchStart}
-            onTouchMove={handleGripTouchMove}
-            onTouchEnd={finishGripTouch}
-            onTouchCancel={finishGripTouch}
+            className={`sm:hidden flex-shrink-0 w-7 h-10 rounded-xl flex items-center justify-center transition-all ${showMoveControls ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
+            style={{ touchAction: 'manipulation' }}
+            title="Move exercise"
+            onClick={(e) => {
+              e.stopPropagation();
+              suppressNextClick.current = true;
+              closeSwipe();
+              setShowMoveControls(prev => !prev);
+            }}
+            onPointerDown={(e) => {
+              clearLongPress();
+              e.stopPropagation();
+            }}
           >
             <svg viewBox="0 0 12 18" fill="currentColor" className="w-3 h-4">
               <circle cx="3" cy="4" r="1.4" />
@@ -363,6 +309,27 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             <p className="text-xs text-stone-400 mt-0.5 leading-snug">{exercise.cue}</p>
             {note && (
               <p className="text-xs text-stone-500 mt-1 italic leading-snug line-clamp-1">📝 {note}</p>
+            )}
+            {showMoveControls && (
+              <div className="sm:hidden mt-2 flex items-center gap-1.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(-1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
+                  style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
+                >
+                  {moveBusy === 'up' ? 'Moving…' : '↑ Up'}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
+                  style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
+                >
+                  {moveBusy === 'down' ? 'Moving…' : '↓ Down'}
+                </button>
+                {moveFeedback && <span className="text-[11px] font-semibold text-stone-400">{moveFeedback}</span>}
+              </div>
             )}
           </div>
 
