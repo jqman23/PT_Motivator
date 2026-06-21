@@ -23,8 +23,8 @@ function jsonFromText(text: string) {
 function normalizeExercisePatch(raw: Record<string, unknown>) {
   const patch: Partial<Exercise> & { summary?: string[] } = {};
   const name = cleanText(raw.name, 90);
-  const cue = cleanText(raw.cue, 180);
-  const sets = cleanText(raw.sets, 100);
+  const cue = cleanText(raw.cue, 220);
+  const sets = cleanText(raw.sets, 120);
   const imageSearch = cleanText(raw.imageSearch, 160);
   const sourceId = cleanText(raw.sourceId, 90);
   const gifUrl = cleanText(raw.gifUrl, 400);
@@ -43,7 +43,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 
   const videoIds = cleanList(raw.videoIds, 6, 60);
   const videoTitles = cleanList(raw.videoTitles, 6, 120);
-  const tips = cleanList(raw.tips, 10, 240);
+  const tips = cleanList(raw.tips, 12, 260);
   const summary = cleanList(raw.summary, 6, 160);
 
   if (videoIds.length) patch.videoIds = videoIds;
@@ -59,13 +59,16 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
 
-    const { instruction, exercise } = await req.json();
-    if (!cleanText(instruction, 1000)) return NextResponse.json({ error: 'Instruction required' }, { status: 400 });
+    const { instruction, exercise, mode } = await req.json();
+    const cleanInstruction = cleanText(instruction, 1200);
+    const isEnhance = mode === 'enhance';
+
+    if (!cleanInstruction && !isEnhance) return NextResponse.json({ error: 'Instruction required' }, { status: 400 });
 
     const current = {
       id: cleanText(exercise?.id, 80),
       name: cleanText(exercise?.name, 100),
-      cue: cleanText(exercise?.cue, 180),
+      cue: cleanText(exercise?.cue, 220),
       sets: cleanText(exercise?.sets, 120),
       cat: cleanText(exercise?.cat, 20),
       optional: !!exercise?.optional,
@@ -75,16 +78,27 @@ export async function POST(req: NextRequest) {
       imageSearch: cleanText(exercise?.imageSearch, 160),
       videoIds: cleanList(exercise?.videoIds, 6, 60),
       videoTitles: cleanList(exercise?.videoTitles, 6, 120),
-      tips: cleanList(exercise?.tips, 10, 240),
+      tips: cleanList(exercise?.tips, 12, 260),
     };
 
     const system = [
       'You propose edits to one physical therapy exercise record. Return compact JSON only.',
       'Do not save anything. Only propose field values that should change or be improved.',
-      'Keep language concise, practical, and patient-friendly. Do not diagnose or add risky medical instructions.',
+      'Keep language concise, practical, patient-friendly, and easy to follow on a phone during a workout.',
+      'Do not diagnose, prescribe aggressive progression, promise outcomes, or add risky medical instructions.',
+      'Prefer clear setup, dosage, body position, movement path, tempo, sensation target, common mistakes, and stop/scale-down cues.',
       'Valid cat values: mobility, strength. Valid origin values: hep, patient_added, exercisedb, api_ninjas.',
       'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.',
       'Omit unchanged or irrelevant fields. Tips should be one instruction per item. YouTube videoIds should be IDs only, not full URLs.',
+    ].join(' ');
+
+    const enhanceInstruction = [
+      'Enhance this exercise record for clarity and usability.',
+      'Make it easier for someone to perform correctly without extra explanation.',
+      'Improve the cue if it is vague. Improve sets/dosage if it is unclear, but keep it conservative and editable.',
+      'Add practical tips and best-practice reminders: setup, posture, slow control, range of motion, where they should feel it, what to avoid, and when to stop or reduce intensity.',
+      'Keep it specific to the exercise. Do not add medical diagnosis or complex rehab theory.',
+      'Return proposed field edits only; the user will review before saving.',
     ].join(' ');
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -97,10 +111,10 @@ export async function POST(req: NextRequest) {
         model: MODEL,
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify({ instruction: cleanText(instruction, 1200), exercise: current }) },
+          { role: 'user', content: JSON.stringify({ instruction: isEnhance ? enhanceInstruction : cleanInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
         ],
-        temperature: 0.1,
-        max_completion_tokens: 900,
+        temperature: isEnhance ? 0.18 : 0.1,
+        max_completion_tokens: isEnhance ? 1200 : 900,
         response_format: { type: 'json_object' },
       }),
     });
