@@ -139,6 +139,7 @@ export default function SmartAddPortal() {
     if (proposal.newExercises?.length) {
       const additions: Exercise[] = proposal.newExercises.map((item, idx) => {
         const id = `ai-${Date.now()}-${idx}-${slug(item.name)}`;
+        const aiTips = Array.isArray(item.tips) ? item.tips.map(tip => tip.trim()).filter(Boolean) : [];
         newExerciseIds.push(id);
         return {
           id,
@@ -149,7 +150,7 @@ export default function SmartAddPortal() {
           videoIds: [],
           videoTitles: [],
           imageSearch: item.name.trim(),
-          tips: ['AI added — review form and dosage with your PT.'],
+          tips: aiTips.length ? aiTips : ['AI added — review form and dosage with your PT.'],
           origin: 'patient_added',
           sourceId: 'ai-added',
         };
