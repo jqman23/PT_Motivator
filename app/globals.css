@@ -120,6 +120,29 @@ body {
     user-select: none;
   }
 
+  /* Keep mobile exercise cards compact after adding move/actions controls. */
+  [data-exercise-card-id] {
+    gap: 0.45rem !important;
+    padding: 0.6rem !important;
+  }
+
+  [data-exercise-card-id] > div:first-child {
+    width: 1.1rem !important;
+    min-width: 1.1rem !important;
+    margin-left: -0.25rem !important;
+  }
+
+  [data-exercise-card-id] > div:nth-child(2) {
+    width: 1.2rem !important;
+    height: 1.2rem !important;
+    min-width: 1.2rem !important;
+    margin-left: -0.1rem !important;
+  }
+
+  [data-exercise-card-id] > div:last-child {
+    gap: 0.25rem !important;
+  }
+
   /* Avoid accidental scroll/tap pass-through on modal sheets. */
   .fixed.inset-0 {
     overscroll-behavior: contain;
