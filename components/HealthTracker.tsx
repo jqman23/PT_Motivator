@@ -206,6 +206,10 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
   const avg = values.length ? values.reduce((sum, row) => sum + row.value, 0) / values.length : null;
   const selectedPoint = selectedIndex !== null ? values[selectedIndex] : null;
   const formatValue = (n: number | null | undefined) => n === null || n === undefined ? '—' : `${Number.isInteger(n) ? n : n.toFixed(1)}${config.suffix}`;
+  const goToDate = (date: string) => {
+    localStorage.setItem('pt-selected-date', date);
+    window.location.reload();
+  };
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-stone-900/35 backdrop-blur-[2px] px-4 py-5" onClick={onClose}>
@@ -245,10 +249,15 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
               <text x={width - padX} y={padTop + 8} fill="#a8a29e" fontSize="10" textAnchor="end">{config.max}{config.suffix}</text>
             </svg>
             {selectedPoint && (
-              <div className="mb-2 rounded-2xl border px-3 py-2" style={{ borderColor: `${color.track}55`, background: '#fafaf9' }}>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Selected day</p>
+              <button
+                onClick={() => goToDate(selectedPoint.date)}
+                className="mb-2 w-full rounded-2xl border px-3 py-2 text-left transition-all hover:shadow-sm active:scale-[0.99]"
+                style={{ borderColor: `${color.track}55`, background: '#fafaf9', touchAction: 'manipulation' }}
+                title={`Go to ${longDate(selectedPoint.date)}`}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Selected day · tap to open</p>
                 <p className="text-sm font-bold text-stone-800">{longDate(selectedPoint.date)} · <span style={{ color: color.text }}>{formatValue(selectedPoint.value)}</span></p>
-              </div>
+              </button>
             )}
             <div className="grid grid-cols-3 gap-2 mt-2">
               <div className="rounded-xl bg-stone-50 px-3 py-2"><p className="text-[10px] uppercase font-bold text-stone-400">Latest</p><p className="text-sm font-bold" style={{ color: color.text }}>{formatValue(latest)}</p></div>
