@@ -68,6 +68,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [proposal, setProposal] = useState<ExercisePatch | null>(null);
+  const [proposalApplied, setProposalApplied] = useState(false);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -106,6 +107,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     setAiLoading(true);
     setAiError('');
     setProposal(null);
+    setProposalApplied(false);
 
     try {
       const res = await fetch('/api/ai-exercise-edit', {
@@ -137,6 +139,8 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     if (proposal.videoIds !== undefined) setVideoIds(listToLines(proposal.videoIds));
     if (proposal.videoTitles !== undefined) setVideoTitles(listToLines(proposal.videoTitles));
     if (proposal.tips !== undefined) setTipsText(listToLines(proposal.tips));
+    setProposalApplied(true);
+    window.setTimeout(() => setProposalApplied(false), 1200);
   };
 
   const save = async () => {
@@ -254,8 +258,18 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
                 ) : (
                   <p className="text-xs text-stone-500">AI did not propose field changes.</p>
                 )}
-                <button onClick={applyProposalToForm} disabled={!proposalRows.length} className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold disabled:opacity-40" style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}>
-                  Apply to form
+                <button
+                  onClick={applyProposalToForm}
+                  disabled={!proposalRows.length}
+                  className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 transition-all active:scale-[0.98]"
+                  style={{
+                    background: proposalApplied ? '#7E9B86' : '#E4ECE6',
+                    color: proposalApplied ? '#fff' : '#476653',
+                    touchAction: 'manipulation',
+                    boxShadow: proposalApplied ? '0 0 0 3px rgba(126,155,134,0.22)' : 'none',
+                  }}
+                >
+                  {proposalApplied ? 'Applied ✓' : 'Apply to form'}
                 </button>
               </div>
             )}
