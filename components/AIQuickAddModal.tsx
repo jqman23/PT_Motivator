@@ -7,6 +7,8 @@ import { SmartExerciseChange, SmartHealthChanges, SmartNewExercise, SmartProposa
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
+type ClarificationOption = { label?: string; value?: string } | string;
+type DraftProposal = SmartProposal & { clarificationOptions?: ClarificationOption[] };
 
 interface Props {
   date: string;
@@ -65,12 +67,20 @@ function listToLines(value?: string[]) {
   return (value ?? []).join('\n');
 }
 
+function optionLabel(option: ClarificationOption) {
+  return typeof option === 'string' ? option : String(option.label ?? option.value ?? '').trim();
+}
+
+function optionValue(option: ClarificationOption) {
+  return typeof option === 'string' ? option : String(option.value ?? option.label ?? '').trim();
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [proposal, setProposal] = useState<SmartProposal | null>(null);
+  const [proposal, setProposal] = useState<DraftProposal | null>(null);
   const [currentHealth, setCurrentHealth] = useState<SmartHealthChanges | null>(null);
 
   const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
@@ -97,7 +107,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     return row;
   };
 
-  const compactProposal = (raw: any, health: SmartHealthChanges | null): SmartProposal => {
+  const compactProposal = (raw: any, health: SmartHealthChanges | null): DraftProposal => {
     const exerciseChanges: SmartExerciseChange[] = (raw.exerciseChanges ?? [])
       .map((change: SmartExerciseChange) => {
         const currentDone = !!log[date]?.[change.id];
@@ -127,25 +137,39 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
       }))
       .filter((item: SmartNewExercise) => item.name);
 
+    const clarificationOptions = Array.isArray(raw.clarificationOptions)
+      ? raw.clarificationOptions
+          .map((item: ClarificationOption) => {
+            const label = optionLabel(item);
+            const value = optionValue(item);
+            return label ? { label, value: value || label } : null;
+          })
+          .filter(Boolean)
+          .slice(0, 3) as ClarificationOption[]
+      : [];
+
     return {
       summary: raw.summary ?? [],
       exerciseChanges,
       newExercises,
       healthChanges,
       questions: raw.questions ?? [],
+      clarificationOptions,
     };
   };
 
-  const analyze = async () => {
-    if (!input.trim()) return;
+  const analyze = async (overrideText?: string, overrideDraft?: DraftProposal | null) => {
+    const textToAnalyze = (overrideText ?? input).trim();
+    if (!textToAnalyze) return;
     setError('');
     setLoading(true);
     try {
       const health = await loadHealth();
+      const draftForRevision = overrideDraft ?? proposal;
       const res = await fetch('/api/ai-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: input, exercises: visibleExercises, health: health ?? {} }),
+        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI failed');
@@ -155,6 +179,14 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     } finally {
       setLoading(false);
     }
+  };
+
+  const chooseClarification = (option: ClarificationOption) => {
+    const choice = optionValue(option) || optionLabel(option);
+    if (!choice) return;
+    const nextInput = `${input.trim()}\n\nClarification selected: ${choice}`.trim();
+    setInput(nextInput);
+    void analyze(nextInput, proposal);
   };
 
   const updateExercise = (idx: number, patch: Partial<SmartExerciseChange>) => {
@@ -202,6 +234,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     }
   };
 
+  const clarificationOptions = proposal?.clarificationOptions ?? [];
+  const hasOptions = clarificationOptions.length > 0;
   const hasChanges = !!proposal && (proposal.exerciseChanges.length > 0 || proposal.newExercises.length > 0 || Object.keys(proposal.healthChanges || {}).length > 0);
 
   return (
@@ -220,14 +254,14 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder="Examples: Split seated nerve glide into 3 specific exercises. Or: Did calf stretch 2 x 60 sec, RDLs 3 x 8, pain 3."
+              placeholder="Examples: Split seated mobility into 3 specific exercises. Or: Did calf stretch 2 x 60 sec, RDLs 3 x 8, pain 3."
               rows={5}
               className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
-            <p className="mt-1 text-[11px] text-stone-400">Tip: you can ask it to split a broad exercise into 2–5 specific ones.</p>
+            <p className="mt-1 text-[11px] text-stone-400">Tip: after a draft appears, type a tweak and Review Changes will revise the pending draft without saving.</p>
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
-              {loading ? 'Reading…' : 'Review changes'}
+              {loading ? 'Reading…' : proposal ? 'Review draft update' : 'Review changes'}
             </button>
             {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
           </div>
@@ -237,7 +271,20 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
               {!!proposal.questions?.length && (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
                   <p className="text-xs font-bold text-amber-800 mb-1">AI was unsure</p>
-                  <ul className="space-y-1">{proposal.questions.map((q, i) => <li key={i} className="text-xs text-amber-700">• {q}</li>)}</ul>
+                  <ul className="space-y-1 mb-2">{proposal.questions.map((q, i) => <li key={i} className="text-xs text-amber-700">• {q}</li>)}</ul>
+                  {hasOptions && (
+                    <div className="space-y-1.5">
+                      {clarificationOptions.map((option, i) => {
+                        const label = optionLabel(option);
+                        return (
+                          <button key={`${label}-${i}`} onClick={e => { e.preventDefault(); e.stopPropagation(); chooseClarification(option); }} disabled={loading}
+                            className="w-full text-left rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800 disabled:opacity-50">
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -248,7 +295,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                 </div>
               )}
 
-              {!hasChanges && (
+              {!hasChanges && !hasOptions && (
                 <div className="bg-white rounded-2xl border border-stone-100 p-3 text-center">
                   <p className="text-sm font-bold text-stone-700">No new changes found</p>
                   <p className="text-xs text-stone-400 mt-1">Already-completed fields and unchanged notes are hidden.</p>
