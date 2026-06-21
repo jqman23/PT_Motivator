@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
+const PT_SEQUENCE = [
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: '30 second break' },
+  { seconds: 30, cueAfter: 'One minute starting' },
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: 'End' },
+];
 
 type Mode = 'timer' | 'stopwatch';
 
@@ -18,10 +25,23 @@ export default function QuickTimerWidget() {
   const [done, setDone] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('2');
   const [bellOn, setBellOn] = useState(true);
+  const [sequenceActive, setSequenceActive] = useState(false);
+  const [sequenceIndex, setSequenceIndex] = useState(0);
+  const [cue, setCue] = useState('');
   const panelRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const sequenceIndexRef = useRef(0);
 
   useEffect(() => setMounted(true), []);
+
+  const say = (message: string) => {
+    setCue(message);
+    if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.rate = 1;
+    window.speechSynthesis.speak(utterance);
+  };
 
   const stopTimer = () => {
     if (intervalRef.current) window.clearInterval(intervalRef.current);
@@ -32,13 +52,47 @@ export default function QuickTimerWidget() {
   const resetTimer = (nextDuration = duration) => {
     stopTimer();
     setDone(false);
+    setSequenceActive(false);
+    setSequenceIndex(0);
+    sequenceIndexRef.current = 0;
+    setCue('');
     setRemaining(nextDuration);
   };
 
   const resetStopwatch = () => {
     stopTimer();
     setDone(false);
+    setSequenceActive(false);
+    setSequenceIndex(0);
+    sequenceIndexRef.current = 0;
+    setCue('');
     setElapsed(0);
+  };
+
+  const finishTimer = () => {
+    stopTimer();
+    setDone(true);
+    setSequenceActive(false);
+    say('Done');
+  };
+
+  const advanceSequence = () => {
+    const currentIndex = sequenceIndexRef.current;
+    const currentStep = PT_SEQUENCE[currentIndex];
+    say(currentStep.cueAfter);
+
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= PT_SEQUENCE.length) {
+      stopTimer();
+      setDone(true);
+      setSequenceActive(false);
+      return;
+    }
+
+    sequenceIndexRef.current = nextIndex;
+    setSequenceIndex(nextIndex);
+    setDuration(PT_SEQUENCE[nextIndex].seconds);
+    setRemaining(PT_SEQUENCE[nextIndex].seconds);
   };
 
   const startCountdown = () => {
@@ -51,8 +105,11 @@ export default function QuickTimerWidget() {
     intervalRef.current = window.setInterval(() => {
       setRemaining(prev => {
         if (prev <= 1) {
-          stopTimer();
-          setDone(true);
+          if (sequenceActive) {
+            advanceSequence();
+            return PT_SEQUENCE[Math.min(sequenceIndexRef.current, PT_SEQUENCE.length - 1)].seconds;
+          }
+          finishTimer();
           return 0;
         }
         return prev - 1;
@@ -63,10 +120,24 @@ export default function QuickTimerWidget() {
   const startStopwatch = () => {
     stopTimer();
     setDone(false);
+    setSequenceActive(false);
+    setCue('');
     setRunning(true);
     intervalRef.current = window.setInterval(() => {
       setElapsed(prev => prev + 1);
     }, 1000);
+  };
+
+  const startSequencePreset = () => {
+    stopTimer();
+    setMode('timer');
+    setDone(false);
+    setSequenceActive(true);
+    setSequenceIndex(0);
+    sequenceIndexRef.current = 0;
+    setDuration(PT_SEQUENCE[0].seconds);
+    setRemaining(PT_SEQUENCE[0].seconds);
+    setCue('PT sequence ready');
   };
 
   const start = () => mode === 'timer' ? startCountdown() : startStopwatch();
@@ -111,6 +182,10 @@ export default function QuickTimerWidget() {
   const switchMode = (next: Mode) => {
     stopTimer();
     setDone(false);
+    setSequenceActive(false);
+    setSequenceIndex(0);
+    sequenceIndexRef.current = 0;
+    setCue('');
     setMode(next);
   };
 
@@ -120,12 +195,13 @@ export default function QuickTimerWidget() {
   const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
   const circumference = 2 * Math.PI * 22;
   const dashOffset = circumference * (1 - pct);
+  const sequenceLabel = sequenceActive ? `Step ${sequenceIndex + 1}/${PT_SEQUENCE.length}` : '';
 
   const panel = open ? (
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 235, touchAction: 'manipulation' }}
+      style={{ width: 250, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -140,25 +216,33 @@ export default function QuickTimerWidget() {
 
       {mode === 'timer' && (
         <>
-          <div className="flex gap-1.5 mb-3">
+          <div className="flex gap-1.5 mb-2">
             {PRESETS.map(seconds => (
-              <button key={seconds} onClick={event => { event.stopPropagation(); pickPreset(seconds); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '8px 0', background: duration === seconds && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !running && !done ? '#fff' : '#57534e' }}>{seconds}s</button>
+              <button key={seconds} onClick={event => { event.stopPropagation(); pickPreset(seconds); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '8px 0', background: duration === seconds && !sequenceActive && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !sequenceActive && !running && !done ? '#fff' : '#57534e' }}>{seconds}s</button>
             ))}
           </div>
+
+          <button
+            onClick={event => { event.stopPropagation(); startSequencePreset(); }}
+            className="mb-3 w-full rounded-lg text-xs font-bold transition-colors"
+            style={{ padding: '8px 0', background: sequenceActive ? '#E4ECE6' : '#f5f5f4', color: sequenceActive ? '#476653' : '#57534e', border: sequenceActive ? '1px solid #cfded3' : '1px solid transparent' }}
+          >
+            1m / switch / break preset
+          </button>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
             <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
-            <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Bell on/off">{bellOn ? '🔔' : '🔕'}</button>
+            <button onClick={event => { event.stopPropagation(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Voice cues on/off">{bellOn ? '🔔' : '🔕'}</button>
           </div>
         </>
       )}
 
-      <div className="flex items-center justify-center mb-4">
+      <div className="flex items-center justify-center mb-3">
         <div className="relative" style={{ width: 72, height: 72 }}>
           <svg viewBox="0 0 48 48" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
             <circle cx="24" cy="24" r="22" fill="none" stroke="#E7E5E4" strokeWidth="3.5" />
-            <circle cx="24" cy="24" r="22" fill="none" stroke={done ? '#7E9B86' : running ? '#D9A94B' : '#C17B4F'} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={dashOffset} style={{ transition: 'stroke-dashoffset 0.9s linear' }} />
+            <circle cx="24" cy="24" r="22" fill="none" stroke={done ? '#7E9B86' : running ? '#D9A94B' : sequenceActive ? '#7E9B86' : '#C17B4F'} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={dashOffset} style={{ transition: 'stroke-dashoffset 0.9s linear' }} />
           </svg>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>{mins}:{String(secs).padStart(2, '0')}</span>
@@ -166,6 +250,12 @@ export default function QuickTimerWidget() {
         </div>
       </div>
 
+      {(cue || sequenceLabel) && mode === 'timer' && (
+        <div className="text-center mb-3 rounded-xl px-2 py-1.5" style={{ background: '#E4ECE6', color: '#476653' }}>
+          {sequenceLabel && <p className="text-[10px] font-bold uppercase tracking-wider">{sequenceLabel}</p>}
+          {cue && <p className="text-xs font-bold">{cue}</p>}
+        </div>
+      )}
       {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
 
       <div className="flex gap-2">
@@ -177,7 +267,7 @@ export default function QuickTimerWidget() {
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-white border-stone-200 text-stone-500'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
