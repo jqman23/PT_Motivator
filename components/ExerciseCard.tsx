@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
@@ -43,7 +43,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     longPressTimer.current = null;
   };
 
-  const stopActionPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+  const stopActionPointer = (e: PointerEvent<HTMLDivElement>) => {
     clearLongPress();
     e.stopPropagation();
   };
