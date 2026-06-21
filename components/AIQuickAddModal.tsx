@@ -57,6 +57,14 @@ function sameHealthValue(key: string, oldValue: unknown, newValue: unknown) {
   return sameNote(oldValue, newValue);
 }
 
+function linesToList(value: string) {
+  return value.split('\n').map(line => line.trim()).filter(Boolean);
+}
+
+function listToLines(value?: string[]) {
+  return (value ?? []).join('\n');
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -112,8 +120,9 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         categoryName: categoryNames.includes(item.categoryName ?? '') ? item.categoryName : categoryNames[0],
         sets: String(item.sets ?? '').trim(),
         cue: String(item.cue ?? '').trim(),
+        tips: Array.isArray(item.tips) ? item.tips.map(tip => String(tip).trim()).filter(Boolean).slice(0, 6) : [],
         note: String(item.note ?? '').trim(),
-        completed: typeof item.completed === 'boolean' ? item.completed : true,
+        completed: typeof item.completed === 'boolean' ? item.completed : null,
         reason: String(item.reason ?? '').trim(),
       }))
       .filter((item: SmartNewExercise) => item.name);
@@ -201,7 +210,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg font-semibold text-stone-800">AI add</h2>
-            <p className="text-[11px] text-stone-400">Describe what happened. Review before saving.</p>
+            <p className="text-[11px] text-stone-400">Describe what happened or what to create. Review before saving.</p>
           </div>
           <button onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
@@ -211,11 +220,12 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder="Example: Did calf stretch 2 x 60 seconds both legs straight and bent. RDLs 3 x 8 each leg. Pain 3, energy 6, felt better overall."
+              placeholder="Examples: Split seated nerve glide into 3 specific exercises. Or: Did calf stretch 2 x 60 sec, RDLs 3 x 8, pain 3."
               rows={5}
               className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
+            <p className="mt-1 text-[11px] text-stone-400">Tip: you can ask it to split a broad exercise into 2–5 specific ones.</p>
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
               {loading ? 'Reading…' : 'Review changes'}
             </button>
@@ -262,6 +272,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                       </select>
                       <input value={item.sets ?? ''} onChange={e => updateNewExercise(idx, { sets: e.target.value })} placeholder="Sets/reps/time" className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm" style={{ fontSize: 16 }} />
                       <textarea value={item.cue ?? ''} onChange={e => updateNewExercise(idx, { cue: e.target.value })} placeholder="Cue / instructions" rows={2} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
+                      <textarea value={listToLines(item.tips)} onChange={e => updateNewExercise(idx, { tips: linesToList(e.target.value) })} placeholder="Tips, one per line" rows={3} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
                       <textarea value={item.note ?? ''} onChange={e => updateNewExercise(idx, { note: e.target.value })} placeholder="Optional note for today" rows={2} className="w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
                     </div>
                   ))}
