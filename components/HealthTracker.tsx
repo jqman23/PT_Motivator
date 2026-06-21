@@ -65,6 +65,10 @@ function shortDate(value: string) {
   return new Date(value + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function longDate(value: string) {
+  return new Date(value + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 interface SliderProps {
   metric: MetricKey;
   label: string;
@@ -183,6 +187,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
 function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: MetricKey; rows: TrendRow[]; loading: boolean; error: string; onClose: () => void }) {
   const config = METRICS[metric];
   const color = COLOR_MAP[config.color];
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const values = rows
     .map(row => ({ date: String(row.date).split('T')[0], value: row[metric] === null || row[metric] === undefined || row[metric] === '' ? null : Number(row[metric]) }))
     .filter((row): row is { date: string; value: number } => Number.isFinite(row.value));
@@ -199,6 +204,7 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
   const path = values.map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(index).toFixed(1)} ${y(point.value).toFixed(1)}`).join(' ');
   const latest = values.at(-1)?.value;
   const avg = values.length ? values.reduce((sum, row) => sum + row.value, 0) / values.length : null;
+  const selectedPoint = selectedIndex !== null ? values[selectedIndex] : null;
   const formatValue = (n: number | null | undefined) => n === null || n === undefined ? '—' : `${Number.isInteger(n) ? n : n.toFixed(1)}${config.suffix}`;
 
   return (
@@ -225,11 +231,25 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
               <line x1={padX} y1={height - padBottom} x2={width - padX} y2={height - padBottom} stroke="#e7e5e4" strokeWidth="1" />
               <line x1={padX} y1={y(config.max / 2)} x2={width - padX} y2={y(config.max / 2)} stroke="#f5f5f4" strokeWidth="1" />
               <path d={path} fill="none" stroke={color.track} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              {values.map((point, index) => <circle key={`${point.date}-${index}`} cx={x(index)} cy={y(point.value)} r="3.2" fill="white" stroke={color.track} strokeWidth="2" />)}
+              {values.map((point, index) => {
+                const selected = selectedIndex === index;
+                return (
+                  <g key={`${point.date}-${index}`} onClick={e => { e.stopPropagation(); setSelectedIndex(index); }} style={{ cursor: 'pointer' }}>
+                    <circle cx={x(index)} cy={y(point.value)} r="10" fill="transparent" />
+                    <circle cx={x(index)} cy={y(point.value)} r={selected ? 5 : 3.2} fill={selected ? color.track : 'white'} stroke={color.track} strokeWidth="2" />
+                  </g>
+                );
+              })}
               <text x={padX} y={height - 7} fill="#a8a29e" fontSize="10">{shortDate(values[0].date)}</text>
               <text x={width - padX} y={height - 7} fill="#a8a29e" fontSize="10" textAnchor="end">{shortDate(values[values.length - 1].date)}</text>
               <text x={width - padX} y={padTop + 8} fill="#a8a29e" fontSize="10" textAnchor="end">{config.max}{config.suffix}</text>
             </svg>
+            {selectedPoint && (
+              <div className="mb-2 rounded-2xl border px-3 py-2" style={{ borderColor: `${color.track}55`, background: '#fafaf9' }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Selected day</p>
+                <p className="text-sm font-bold text-stone-800">{longDate(selectedPoint.date)} · <span style={{ color: color.text }}>{formatValue(selectedPoint.value)}</span></p>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2 mt-2">
               <div className="rounded-xl bg-stone-50 px-3 py-2"><p className="text-[10px] uppercase font-bold text-stone-400">Latest</p><p className="text-sm font-bold" style={{ color: color.text }}>{formatValue(latest)}</p></div>
               <div className="rounded-xl bg-stone-50 px-3 py-2"><p className="text-[10px] uppercase font-bold text-stone-400">Average</p><p className="text-sm font-bold text-stone-700">{formatValue(avg)}</p></div>
