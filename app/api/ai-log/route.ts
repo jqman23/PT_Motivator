@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
 
-    const { text, exercises = [], health = {} } = await req.json();
+    const { text, exercises = [], health = {}, draftProposal = null } = await req.json();
     const diaryText = cleanText(text, 1800);
     const safeExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises.slice(0, 100).map((ex: ExerciseBrief) => ({
       id: cleanText(ex.id, 60),
@@ -48,27 +48,22 @@ export async function POST(req: NextRequest) {
 
     const system = [
       'You are the PT Motivator smart-add assistant. Convert the user note into proposed app changes. Return compact JSON only.',
-      'The user may be logging today, creating new exercises, editing intent, or asking to split one broad exercise into multiple specific exercises.',
+      'If draftProposal is provided, treat the user text as a revision to that pending draft. Preserve existing draft items unless the user asks to change or remove them. Return the full updated draft.',
+      'If the request is unclear, return one question and 2-3 clarificationOptions. For clarification-only responses, return no changes.',
       'Use existing exercise ids in exerciseChanges when the note clearly refers to an existing exercise. Never invent ids in exerciseChanges.',
       'Use newExercises for exercises not already present. Choose categoryName from the provided categories exactly.',
-      'Decomposition rule: if the user asks to split/break down/separate a broad/general exercise, create multiple newExercises, usually 2-5, each with a distinct name, purpose, dosage, cue, and tips. Do not collapse the request into one generic exercise.',
-      'When splitting, make each exercise atomic: one movement pattern, one setup, one clear cue. Example broad terms like nerve glide, balance work, foot intrinsic work, ankle mobility, calf work, or metatarsalgia work should become specific variants when the user asks.',
-      'If the user names a target count such as 3 specific exercises, return that many newExercises unless unsafe or impossible.',
-      'Do not ask a question when the request is clear enough to draft safe editable proposals. Use questions only for missing critical details that affect safety or meaning.',
-      'Default: did exercise => completed true; skipped/not done => false. For newly proposed library exercises that were not performed today, completed should be null.',
-      'Notes format for completed exercises: "sets x reps/time, leg/body part, details" e.g. "2 x 60 seconds, both legs, straight and bent."',
+      'If the user asks to split a broad exercise, create multiple newExercises, usually 2-5.',
+      'Default: did exercise means completed true; skipped/not done means false. For newly proposed library exercises that were not performed today, completed should be null.',
       'For newExercises, sets should be concise dosage; cue should be user-facing form/setup; tips should be 2-5 short safety/form bullets.',
-      'Avoid diagnosis, aggressive progression, or medical certainty. Keep PT wording practical and editable.',
-      'Health ranges: sleep_hours 0-12; sleep_quality/energy/mood/pain 0-10.',
-      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":""}],"healthChanges":{},"questions":[]}.',
-      'healthChanges keys: sleep_hours,sleep_quality,energy,mood,pain,sleep_notes,sleep_quality_notes,energy_notes,mood_notes,pain_notes,general_notes,treatment_notes.',
-      'Only include fields you are adding/updating. Do not echo unchanged data.'
+      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":""}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}.',
+      'Only include fields you are adding/updating. Do not echo unchanged saved data.'
     ].join(' ');
 
     const userPayload = JSON.stringify({
       diary: diaryText,
       categories,
       splitIntent,
+      draftProposal,
       exercises: safeExercises,
       health,
     });
@@ -85,8 +80,8 @@ export async function POST(req: NextRequest) {
           { role: 'system', content: system },
           { role: 'user', content: userPayload },
         ],
-        temperature: splitIntent ? 0.18 : 0.1,
-        max_completion_tokens: splitIntent ? 1800 : 1300,
+        temperature: splitIntent || draftProposal ? 0.18 : 0.1,
+        max_completion_tokens: splitIntent || draftProposal ? 1900 : 1300,
         response_format: { type: 'json_object' },
       }),
     });
@@ -129,6 +124,7 @@ export async function POST(req: NextRequest) {
       newExercises,
       healthChanges: parsed.healthChanges && typeof parsed.healthChanges === 'object' ? parsed.healthChanges : {},
       questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, 8) : [],
+      clarificationOptions: Array.isArray(parsed.clarificationOptions) ? parsed.clarificationOptions.slice(0, 3) : [],
       model: MODEL,
     });
   } catch (err) {
