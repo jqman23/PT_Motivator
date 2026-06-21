@@ -86,13 +86,13 @@ export default function QuickTimerWidget() {
       stopTimer();
       setDone(true);
       setSequenceActive(false);
-      return;
+      return 0;
     }
 
     sequenceIndexRef.current = nextIndex;
     setSequenceIndex(nextIndex);
     setDuration(PT_SEQUENCE[nextIndex].seconds);
-    setRemaining(PT_SEQUENCE[nextIndex].seconds);
+    return PT_SEQUENCE[nextIndex].seconds;
   };
 
   const startCountdown = () => {
@@ -105,10 +105,7 @@ export default function QuickTimerWidget() {
     intervalRef.current = window.setInterval(() => {
       setRemaining(prev => {
         if (prev <= 1) {
-          if (sequenceActive) {
-            advanceSequence();
-            return PT_SEQUENCE[Math.min(sequenceIndexRef.current, PT_SEQUENCE.length - 1)].seconds;
-          }
+          if (sequenceActive) return advanceSequence();
           finishTimer();
           return 0;
         }
