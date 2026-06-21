@@ -6,6 +6,7 @@ import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
 import ExerciseHistoryModal from './ExerciseHistoryModal';
+import ExerciseEditModal from './ExerciseEditModal';
 
 interface Props {
   exercise: Exercise;
@@ -21,6 +22,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressOpened = useRef(false);
   const isStrength = exercise.cat === 'strength';
@@ -111,8 +113,21 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             }`}
             title="Add note"
           >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <path d="M4 2.5h6.5L13 5v8.5H4z" />
+              <path d="M10.5 2.5V5H13" />
+              <path d="M6 7.5h5M6 10h4" />
+            </svg>
+          </button>
+
+          <button
+            onClick={() => setShowEdit(true)}
+            className="w-7 h-7 rounded-lg bg-stone-100 text-stone-400 hover:bg-stone-200 flex items-center justify-center transition-colors"
+            title="Edit exercise"
+          >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-              <path d="M2 12.5V14h1.5l8-8L10 4.5l-8 8z"/><path d="M11.5 3l1.5 1.5"/>
+              <path d="M2.5 11.7V14h2.3L12 6.8 9.7 4.5z" />
+              <path d="M11 3.2l1.8 1.8" />
             </svg>
           </button>
 
@@ -150,6 +165,10 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
       {showHistory && (
         <ExerciseHistoryModal exercise={exercise} onClose={() => setShowHistory(false)} />
+      )}
+
+      {showEdit && (
+        <ExerciseEditModal exercise={exercise} onClose={() => setShowEdit(false)} />
       )}
 
       {showNotes && (
