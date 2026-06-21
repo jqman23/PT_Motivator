@@ -2,14 +2,17 @@ import type { Metadata } from "next";
 import SmartAddPortal from "@/components/SmartAddPortal";
 import "./globals.css";
 
+const DRIVE_FILE_ID = "1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD";
+const DRIVE_ICON_URL = `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w512`;
+
 export const metadata: Metadata = {
   title: "PT Motivator — Ankle Recovery",
   description: "Track your physical therapy exercises and progress",
   applicationName: "PT Motivator",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: [{ url: "/icon", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: DRIVE_ICON_URL, sizes: "512x512", type: "image/png" }],
+    apple: [{ url: DRIVE_ICON_URL, sizes: "512x512", type: "image/png" }],
   },
   appleWebApp: {
     capable: true,
