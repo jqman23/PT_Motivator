@@ -114,6 +114,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
   const moveWithinCurrentSection = async (targetId: string, after: boolean) => {
     setOrderBusy(true);
+    let saved = false;
     try {
       const layout = await getConfigValue<CategoryConfig[]>('layout', []);
       if (!Array.isArray(layout)) return;
@@ -131,10 +132,12 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
       idsWithoutSource.splice(targetIndex + (after ? 1 : 0), 0, exercise.id);
       const nextLayout = layout.map((item, idx) => idx === catIndex ? { ...item, exerciseIds: idsWithoutSource } : item);
       await saveConfigValue('layout', nextLayout);
+      saved = true;
       window.location.reload();
     } catch (err) {
       console.error(err);
-      setOrderBusy(false);
+    } finally {
+      if (!saved) setOrderBusy(false);
     }
   };
 
