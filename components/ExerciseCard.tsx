@@ -20,6 +20,8 @@ interface Props {
 
 const SWIPE_REVEAL = 92;
 const SWIPE_THRESHOLD = 44;
+const DRAG_HOLD_MS = 350;
+const HISTORY_HOLD_MS = 2000;
 
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
   const res = await fetch(`/api/config?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
@@ -36,6 +38,16 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
+function closestOtherExerciseFromPoint(x: number, y: number, sourceId: string) {
+  const elements = document.elementsFromPoint(x, y);
+  for (const el of elements) {
+    const card = el instanceof HTMLElement ? el.closest<HTMLElement>('[data-exercise-card-id]') : null;
+    const id = card?.dataset.exerciseCardId;
+    if (card && id && id !== sourceId) return card;
+  }
+  return null;
+}
+
 export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -47,10 +59,17 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [removeError, setRemoveError] = useState('');
   const [swipeX, setSwipeX] = useState(0);
   const [swipeOpen, setSwipeOpen] = useState(false);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragReadyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragReady = useRef(false);
   const suppressNextClick = useRef(false);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const touchStart = useRef<{ x: number; y: number; t: number } | null>(null);
   const swiping = useRef(false);
+  const dragging = useRef(false);
+  const dropTarget = useRef<{ id: string; after: boolean } | null>(null);
   const isStrength = exercise.cat === 'strength';
 
   const cardColor = done
@@ -66,20 +85,57 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     setSwipeOpen(false);
   };
 
+  const clearTimers = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    if (dragReadyTimer.current) clearTimeout(dragReadyTimer.current);
+    longPressTimer.current = null;
+    dragReadyTimer.current = null;
+  };
+
   const openHistory = (suppressClick = false) => {
+    if (dragging.current || swiping.current) return;
     if (suppressClick) suppressNextClick.current = true;
     closeSwipe();
     setShowHistory(true);
   };
 
-  const clearLongPress = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = null;
+  const stopActionPointer = (e: PointerEvent<HTMLDivElement>) => {
+    clearTimers();
+    e.stopPropagation();
   };
 
-  const stopActionPointer = (e: PointerEvent<HTMLDivElement>) => {
-    clearLongPress();
-    e.stopPropagation();
+  const resetDragState = () => {
+    dragging.current = false;
+    dragReady.current = false;
+    dropTarget.current = null;
+    setIsDragging(false);
+    setDragY(0);
+  };
+
+  const moveWithinCurrentSection = async (targetId: string, after: boolean) => {
+    setOrderBusy(true);
+    try {
+      const layout = await getConfigValue<CategoryConfig[]>('layout', []);
+      if (!Array.isArray(layout)) return;
+
+      const catIndex = layout.findIndex(cat => cat.exerciseIds.includes(exercise.id));
+      if (catIndex < 0) return;
+
+      const cat = layout[catIndex];
+      if (!cat.exerciseIds.includes(targetId)) return;
+
+      const idsWithoutSource = cat.exerciseIds.filter(id => id !== exercise.id);
+      const targetIndex = idsWithoutSource.indexOf(targetId);
+      if (targetIndex < 0) return;
+
+      idsWithoutSource.splice(targetIndex + (after ? 1 : 0), 0, exercise.id);
+      const nextLayout = layout.map((item, idx) => idx === catIndex ? { ...item, exerciseIds: idsWithoutSource } : item);
+      await saveConfigValue('layout', nextLayout);
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      setOrderBusy(false);
+    }
   };
 
   const hideFromHomeScreen = async () => {
@@ -124,6 +180,22 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     }
   };
 
+  const beginDrag = (e: PointerEvent<HTMLDivElement>, dy: number) => {
+    if (dragging.current) return;
+    dragging.current = true;
+    swiping.current = false;
+    suppressNextClick.current = true;
+    closeSwipe();
+    clearTimers();
+    setIsDragging(true);
+    setDragY(Math.max(-90, Math.min(90, dy)));
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  const transformStyle = isDragging
+    ? `translateY(${dragY}px) scale(1.02)`
+    : `translateX(${swipeX}px)`;
+
   return (
     <>
       <div className="relative overflow-hidden rounded-2xl sm:overflow-visible">
@@ -138,8 +210,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
         </div>
 
         <div
-          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor}`}
-          style={{ transform: `translateX(${swipeX}px)`, touchAction: 'pan-y' }}
+          data-exercise-card-id={exercise.id}
+          className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${isDragging ? 'shadow-xl ring-2 ring-[#7E9B86]/30 opacity-95 z-30 relative' : ''}`}
+          style={{ transform: transformStyle, touchAction: isDragging ? 'none' : 'pan-y' }}
           onClick={() => {
             if (suppressNextClick.current) {
               suppressNextClick.current = false;
@@ -156,30 +229,61 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             openHistory(false);
           }}
           onPointerDown={(e) => {
-            if (e.pointerType === 'mouse') return;
-            touchStart.current = { x: e.clientX, y: e.clientY };
+            if (e.pointerType === 'mouse' || orderBusy) return;
+            touchStart.current = { x: e.clientX, y: e.clientY, t: Date.now() };
             swiping.current = false;
-            clearLongPress();
-            longPressTimer.current = setTimeout(() => openHistory(true), 900);
+            dragging.current = false;
+            dragReady.current = false;
+            dropTarget.current = null;
+            clearTimers();
+            dragReadyTimer.current = setTimeout(() => { dragReady.current = true; }, DRAG_HOLD_MS);
+            longPressTimer.current = setTimeout(() => openHistory(true), HISTORY_HOLD_MS);
           }}
           onPointerMove={(e) => {
-            if (e.pointerType === 'mouse' || !touchStart.current) return;
+            if (e.pointerType === 'mouse' || !touchStart.current || orderBusy) return;
             const dx = e.clientX - touchStart.current.x;
             const dy = e.clientY - touchStart.current.y;
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
-            if (absX > 12 && absX > absY) {
+            const age = Date.now() - touchStart.current.t;
+
+            if (!dragging.current && absX > 12 && absX > absY) {
               swiping.current = true;
               suppressNextClick.current = true;
-              clearLongPress();
+              clearTimers();
               const base = swipeOpen ? -SWIPE_REVEAL : 0;
               const next = Math.min(0, Math.max(-SWIPE_REVEAL, base + dx));
               setSwipeX(next);
+              return;
+            }
+
+            if (!dragging.current && absY > 12 && absY > absX && (dragReady.current || age > DRAG_HOLD_MS)) {
+              beginDrag(e, dy);
+            }
+
+            if (dragging.current) {
+              e.preventDefault();
+              suppressNextClick.current = true;
+              setDragY(Math.max(-110, Math.min(110, dy)));
+              const targetCard = closestOtherExerciseFromPoint(e.clientX, e.clientY, exercise.id);
+              if (targetCard?.dataset.exerciseCardId) {
+                const rect = targetCard.getBoundingClientRect();
+                dropTarget.current = {
+                  id: targetCard.dataset.exerciseCardId,
+                  after: e.clientY > rect.top + rect.height / 2,
+                };
+              }
             }
           }}
           onPointerUp={() => {
-            clearLongPress();
+            clearTimers();
             touchStart.current = null;
+            if (dragging.current) {
+              const target = dropTarget.current;
+              resetDragState();
+              if (target) void moveWithinCurrentSection(target.id, target.after);
+              return;
+            }
             if (swiping.current) {
               const shouldOpen = swipeX < -SWIPE_THRESHOLD;
               setSwipeOpen(shouldOpen);
@@ -188,13 +292,16 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             }
           }}
           onPointerCancel={() => {
-            clearLongPress();
+            clearTimers();
             touchStart.current = null;
             swiping.current = false;
+            resetDragState();
             setSwipeX(swipeOpen ? -SWIPE_REVEAL : 0);
           }}
-          onPointerLeave={clearLongPress}
-          title="Tap to check off. Right-click or long-press for exercise history. Swipe left on mobile to remove."
+          onPointerLeave={() => {
+            if (!dragging.current) clearTimers();
+          }}
+          title="Tap to check off. Hold then drag on mobile to reorder. Hold still for history. Swipe left on mobile to remove."
         >
           <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 ${checkColor}`}>
             {done && (
@@ -207,7 +314,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className={`text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
-                {exercise.name}
+                {orderBusy ? 'Moving…' : exercise.name}
               </span>
               {exercise.optional && <span className="text-xs text-stone-400">(optional)</span>}
             </div>
