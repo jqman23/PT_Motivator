@@ -16,12 +16,12 @@ interface Props {
   today: string;
   onToggle: () => void;
   onNoteSave: (note: string) => void;
+  onMoveExercise?: (exerciseId: string, direction: -1 | 1) => Promise<boolean> | boolean;
 }
 
 const SWIPE_REVEAL = 92;
 const SWIPE_THRESHOLD = 44;
 const HISTORY_HOLD_MS = 2000;
-let latestOrderSave = 0;
 
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
   const res = await fetch(`/api/config?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
@@ -38,36 +38,7 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
-function sectionOrderForWrapper(wrapper: Element) {
-  const parent = wrapper.parentElement;
-  if (!parent) return [];
-  return Array.from(parent.children)
-    .filter((el): el is HTMLElement => el instanceof HTMLElement && el.matches('[data-exercise-card-wrap]'))
-    .map(el => el.querySelector<HTMLElement>('[data-exercise-card-id]')?.dataset.exerciseCardId)
-    .filter((id): id is string => !!id);
-}
-
-function moveCardElement(exerciseId: string, direction: -1 | 1) {
-  const card = document.querySelector(`[data-exercise-card-id="${CSS.escape(exerciseId)}"]`);
-  const wrapper = card?.closest('[data-exercise-card-wrap]');
-  if (!(wrapper instanceof HTMLElement)) return null;
-
-  const sibling = direction === -1
-    ? wrapper.previousElementSibling
-    : wrapper.nextElementSibling;
-
-  if (!(sibling instanceof HTMLElement) || !sibling.matches('[data-exercise-card-wrap]')) return null;
-
-  if (direction === -1) {
-    sibling.before(wrapper);
-  } else {
-    sibling.after(wrapper);
-  }
-
-  return sectionOrderForWrapper(wrapper);
-}
-
-export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave }: Props) {
+export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave, onMoveExercise }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
@@ -77,6 +48,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const [showMoveControls, setShowMoveControls] = useState(false);
   const [removeBusy, setRemoveBusy] = useState<'hide' | 'library' | null>(null);
   const [removeError, setRemoveError] = useState('');
+  const [moveBusy, setMoveBusy] = useState<'up' | 'down' | null>(null);
   const [moveFeedback, setMoveFeedback] = useState('');
   const [swipeX, setSwipeX] = useState(0);
   const [swipeOpen, setSwipeOpen] = useState(false);
@@ -116,41 +88,26 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     e.stopPropagation();
   };
 
-  const persistSectionOrder = async (visibleOrder: string[]) => {
-    const saveId = ++latestOrderSave;
+  const moveWithinSection = async (direction: -1 | 1) => {
+    if (moveBusy) return;
+    setMoveBusy(direction === -1 ? 'up' : 'down');
+    setMoveFeedback('Saving…');
+
     try {
-      const layout = await getConfigValue<CategoryConfig[]>('layout', []);
-      if (!Array.isArray(layout) || saveId !== latestOrderSave) return;
-
-      const nextLayout = layout.map(cat => {
-        if (!cat.exerciseIds.includes(exercise.id)) return cat;
-        const visibleSet = new Set(visibleOrder);
-        const orderedVisible = visibleOrder.filter(id => cat.exerciseIds.includes(id));
-        const hiddenOrMissing = cat.exerciseIds.filter(id => !visibleSet.has(id));
-        return { ...cat, exerciseIds: [...orderedVisible, ...hiddenOrMissing] };
-      });
-
-      await saveConfigValue('layout', nextLayout);
+      const moved = onMoveExercise ? await onMoveExercise(exercise.id, direction) : false;
+      if (!moved) {
+        setMoveFeedback(direction === -1 ? 'Top' : 'Bottom');
+      } else {
+        setMoveFeedback('Saved ✓');
+      }
+      window.setTimeout(() => setMoveFeedback(''), 1200);
     } catch (err) {
       console.error(err);
       setMoveFeedback('Save failed');
-      window.setTimeout(() => setMoveFeedback(''), 1200);
+      window.setTimeout(() => setMoveFeedback(''), 1500);
+    } finally {
+      setMoveBusy(null);
     }
-  };
-
-  const moveWithinSection = (direction: -1 | 1) => {
-    setMoveFeedback('');
-    const visibleOrder = moveCardElement(exercise.id, direction);
-
-    if (!visibleOrder) {
-      setMoveFeedback(direction === -1 ? 'Top' : 'Bottom');
-      window.setTimeout(() => setMoveFeedback(''), 700);
-      return;
-    }
-
-    setMoveFeedback('✓');
-    window.setTimeout(() => setMoveFeedback(''), 650);
-    void persistSectionOrder(visibleOrder);
   };
 
   const hideFromHomeScreen = async () => {
@@ -321,18 +278,20 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
             {showMoveControls && (
               <div className="sm:hidden mt-2 flex items-center gap-1.5">
                 <button
-                  onClick={(e) => { e.stopPropagation(); moveWithinSection(-1); }}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold active:scale-95 transition-transform"
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(-1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
                   style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
                 >
-                  ↑ Up
+                  {moveBusy === 'up' ? 'Saving…' : '↑ Up'}
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); moveWithinSection(1); }}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold active:scale-95 transition-transform"
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
                   style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
                 >
-                  ↓ Down
+                  {moveBusy === 'down' ? 'Saving…' : '↓ Down'}
                 </button>
                 {moveFeedback && <span className="text-[11px] font-semibold text-stone-400">{moveFeedback}</span>}
               </div>
