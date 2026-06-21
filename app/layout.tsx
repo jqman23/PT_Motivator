@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import SmartAddPortal from "@/components/SmartAddPortal";
+import SavingStatusPortal from "@/components/SavingStatusPortal";
 import "./globals.css";
 
 const DRIVE_FILE_ID = "1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD";
@@ -39,6 +40,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col" style={{ colorScheme: 'light', background: '#F6F1E7', color: '#353B33' }}>
         {children}
         <SmartAddPortal />
+        <SavingStatusPortal />
       </body>
     </html>
   );
