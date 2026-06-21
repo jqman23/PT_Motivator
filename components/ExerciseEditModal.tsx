@@ -9,6 +9,7 @@ interface Props {
 }
 
 type ExercisePatch = Partial<Exercise> & { summary?: string[] };
+type AiAction = 'custom' | 'enhance' | null;
 
 const ORIGIN_OPTIONS: { value: NonNullable<Exercise['origin']>; label: string }[] = [
   { value: 'hep', label: 'HEP' },
@@ -65,7 +66,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [aiText, setAiText] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAction, setAiAction] = useState<AiAction>(null);
   const [aiError, setAiError] = useState('');
   const [proposal, setProposal] = useState<ExercisePatch | null>(null);
   const [proposalApplied, setProposalApplied] = useState(false);
@@ -102,9 +103,9 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
       .map(([key, value]) => ({ key, label: fieldLabel(key), value: previewValue(value) }));
   }, [proposal]);
 
-  const askAi = async () => {
-    if (!aiText.trim()) return;
-    setAiLoading(true);
+  const requestAiProposal = async (mode: 'custom' | 'enhance') => {
+    if (mode === 'custom' && !aiText.trim()) return;
+    setAiAction(mode);
     setAiError('');
     setProposal(null);
     setProposalApplied(false);
@@ -113,7 +114,11 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
       const res = await fetch('/api/ai-exercise-edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction: aiText, exercise: currentDraft }),
+        body: JSON.stringify({
+          instruction: mode === 'enhance' ? '' : aiText,
+          mode,
+          exercise: currentDraft,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI failed');
@@ -121,7 +126,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'AI failed');
     } finally {
-      setAiLoading(false);
+      setAiAction(null);
     }
   };
 
@@ -223,7 +228,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
               <div className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-xs font-bold" style={{ background: '#7E9B86' }}>AI</div>
               <div>
                 <p className="text-xs font-bold text-stone-700">Describe edits</p>
-                <p className="text-[11px] text-stone-400">Preview first. Nothing saves until Save exercise.</p>
+                <p className="text-[11px] text-stone-400">Preview first. Enhance auto-adds clarity and practical tips.</p>
               </div>
             </div>
             <textarea
@@ -234,9 +239,24 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
               className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none resize-none bg-white"
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
-            <button onClick={askAi} disabled={aiLoading || !aiText.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86', touchAction: 'manipulation' }}>
-              {aiLoading ? 'Drafting…' : 'Preview AI edits'}
-            </button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => requestAiProposal('custom')}
+                disabled={!!aiAction || !aiText.trim()}
+                className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
+              >
+                {aiAction === 'custom' ? 'Drafting…' : 'Preview AI edits'}
+              </button>
+              <button
+                onClick={() => requestAiProposal('enhance')}
+                disabled={!!aiAction}
+                className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-40"
+                style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
+              >
+                {aiAction === 'enhance' ? 'Enhancing…' : 'Enhance'}
+              </button>
+            </div>
             {aiError && <p className="mt-2 text-xs font-semibold text-red-600">{aiError}</p>}
 
             {proposal && (
