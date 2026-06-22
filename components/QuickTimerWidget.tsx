@@ -101,7 +101,7 @@ function setLabelParts(label: SequenceOption['label']) {
 
 function noteForSequence(seq: SequenceOption) {
   const count = seq.label.split(' ')[0];
-  return `${count}×${seq.holdSeconds}s ea side`;
+  return `${count} x ${seq.holdSeconds} seconds ea side`;
 }
 
 function getFriendlyVoice() {
@@ -169,7 +169,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   // Pre-fill log note when timer completes
   useEffect(() => {
     if (!done || sequenceActive) return;
-    setLogNoteText(sequenceKey ? noteForSequence(getSequence(sequenceKey)) : `1×${duration}s`);
+    setLogNoteText(sequenceKey ? noteForSequence(getSequence(sequenceKey)) : `1 x ${duration} seconds`);
     setLogSaved(false);
   }, [done, sequenceActive, sequenceKey, duration]);
 

@@ -48,10 +48,10 @@ const QUOTES = [
 
 function mergeTimerNotes(existing: string, incoming: string): string {
   if (!existing) return incoming;
-  const pattern = /^(\d+)×(\d+)s ea side$/;
+  const pattern = /^(\d+) x (\d+) seconds ea side$/;
   const a = existing.match(pattern);
   const b = incoming.match(pattern);
-  if (a && b && a[2] === b[2]) return `${Number(a[1]) + Number(b[1])}×${a[2]}s ea side`;
+  if (a && b && a[2] === b[2]) return `${Number(a[1]) + Number(b[1])} x ${a[2]} seconds ea side`;
   return `${existing}\n${incoming}`;
 }
 

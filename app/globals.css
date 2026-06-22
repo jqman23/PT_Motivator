@@ -65,12 +65,13 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
 
 main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto {
   position: fixed;
-  right: var(--pt-dock-right, max(1rem, calc(env(safe-area-inset-right) + 1rem)));
+  /* Offset +10px so the icon column (36px) centers over the dock button (56px): (56-36)/2 = 10 */
+  right: calc(var(--pt-dock-right, max(1rem, calc(env(safe-area-inset-right) + 1rem))) + 10px);
   bottom: max(5.25rem, calc(env(safe-area-inset-bottom) + 5.25rem));
   z-index: 10000;
   display: flex !important;
   flex-direction: column-reverse;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-start !important;
   gap: 0.55rem !important;
   width: auto !important;
@@ -82,7 +83,7 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.
   visibility: hidden;
   pointer-events: none;
   transform: translateY(12px) scale(0.94);
-  transform-origin: bottom right;
+  transform-origin: bottom center;
   transition: opacity 160ms ease, transform 180ms ease, visibility 0s linear 180ms;
   -webkit-overflow-scrolling: auto;
 }

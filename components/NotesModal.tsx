@@ -291,6 +291,16 @@ export default function NotesModal({
               >
                 Cancel
               </button>
+              {note && (
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNote(''); setStandardizeError(''); setReview(null); }}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl text-red-500 bg-red-50"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  Clear
+                </button>
+              )}
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(note); }}
