@@ -99,6 +99,11 @@ export default function LibraryModal({
   const tips = tipsText.split('\n').map(t => t.trim()).filter(Boolean);
   const q = query.trim().toLowerCase();
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
+  const hasDatabaseMatches = exerciseDbResults.length > 0;
+  const manualCreateReady = creating && hasDatabaseMatches && sourceSearchReviewed && !importedExerciseDbMeta;
+  const createButtonLabel = manualCreateReady
+    ? (addToCatId ? 'Create manual & add' : 'Create manually anyway')
+    : (addToCatId ? 'Create & add' : 'Create');
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
     if (e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
@@ -216,19 +221,18 @@ export default function LibraryModal({
 
       const results = [...exerciseDbData, ...apiNinjasData];
       setExerciseDbResults(results);
-      setSourceSearchReviewed(results.length === 0);
+      setSourceSearchReviewed(true);
 
       if (results.length > 0 && fromAiCreate) {
-        setExerciseDbError('Found database matches first. Tap one if it works; otherwise click Create again to make a manual exercise.');
+        setExerciseDbError('Found database matches first. Tap one if it works, or use the green Create manually anyway button below.');
       } else if (!exerciseDbRes.success && !apiNinjasRes.success) {
         setExerciseDbError('External exercise search failed. You can still create manually.');
-        setSourceSearchReviewed(true);
       } else if (!apiNinjasRes.success) {
-        setExerciseDbError('ExerciseDB results shown. API Ninjas unavailable or missing key.');
+        setExerciseDbError('ExerciseDB results shown. API Ninjas unavailable or missing key. You can still create manually.');
       } else if (results.length === 0) {
         setExerciseDbError('No database matches found. Manual create is okay.');
       } else {
-        setExerciseDbError('');
+        setExerciseDbError('Review matches below, or create manually anyway.');
       }
 
       return results;
@@ -392,6 +396,7 @@ export default function LibraryModal({
           onChange={e => {
             const next = e.target.value;
             setExerciseDbQuery(next);
+            setSourceSearchReviewed(false);
             if (!next.trim()) clearExerciseDbResults();
           }}
           onKeyDown={e => {
@@ -412,7 +417,7 @@ export default function LibraryModal({
 
       {exerciseDbResults.length > 0 && (
         <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
-          <p className="text-[10px] text-stone-500">Do any of these suffice? Tap one to import its metadata, or click Create again to continue manually.</p>
+          <p className="text-[10px] text-stone-500">Do any of these suffice? Tap one to import its metadata, or use the green manual-create button below.</p>
           {exerciseDbResults.map(result => {
             const isApiNinjas = result.source === 'api_ninjas';
             const key = resultKey(result);
@@ -514,8 +519,8 @@ export default function LibraryModal({
               {sourceSearchBox}
               {formFields}
               <div className="flex gap-2">
-                <button onClick={submitCreate} disabled={exerciseDbLoading} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-60" style={{ background: '#7E9B86' }}>
-                  {addToCatId ? 'Create & add' : 'Create'}
+                <button onClick={submitCreate} disabled={exerciseDbLoading} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-60" style={{ background: manualCreateReady ? '#C17B4F' : '#7E9B86' }}>
+                  {createButtonLabel}
                 </button>
                 <button onClick={() => { setCreating(false); resetForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button>
               </div>
