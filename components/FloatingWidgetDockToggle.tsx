@@ -2,15 +2,47 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-const TOOLBAR_SELECTOR = 'main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto';
+function findWidgetToolbar() {
+  const settingsButton = document.querySelector('button[title="Widget settings"]');
+  const libraryButton = document.querySelector('button[title="Exercise library"]');
+  const anchor = settingsButton ?? libraryButton;
+  return anchor?.parentElement instanceof HTMLElement ? anchor.parentElement : null;
+}
 
 export default function FloatingWidgetDockToggle() {
   const [open, setOpen] = useState(false);
+  const toolbarRef = useRef<HTMLElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    document.body.classList.toggle('pt-widget-dock-open', open);
-    return () => document.body.classList.remove('pt-widget-dock-open');
+    let stopped = false;
+
+    const attachToolbar = () => {
+      if (stopped) return;
+      const toolbar = findWidgetToolbar();
+      if (!toolbar) return;
+      toolbarRef.current = toolbar;
+      toolbar.classList.add('pt-floating-widget-row');
+      toolbar.classList.toggle('pt-floating-widget-row-open', open);
+    };
+
+    attachToolbar();
+    const observer = new MutationObserver(attachToolbar);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      stopped = true;
+      observer.disconnect();
+      toolbarRef.current?.classList.remove('pt-floating-widget-row', 'pt-floating-widget-row-open');
+    };
+  }, [open]);
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current ?? findWidgetToolbar();
+    if (!toolbar) return;
+    toolbarRef.current = toolbar;
+    toolbar.classList.add('pt-floating-widget-row');
+    toolbar.classList.toggle('pt-floating-widget-row-open', open);
   }, [open]);
 
   useEffect(() => {
@@ -21,9 +53,9 @@ export default function FloatingWidgetDockToggle() {
     const closeAfterToolClick = (event: MouseEvent) => {
       if (!open) return;
       const target = event.target as Node | null;
+      const toolbar = toolbarRef.current;
       if (!target || buttonRef.current?.contains(target)) return;
-      const toolbar = document.querySelector(TOOLBAR_SELECTOR);
-      if (toolbar?.contains(target)) window.setTimeout(() => setOpen(false), 80);
+      if (toolbar?.contains(target)) window.setTimeout(() => setOpen(false), 90);
     };
 
     document.addEventListener('keydown', closeOnEscape);
@@ -41,6 +73,7 @@ export default function FloatingWidgetDockToggle() {
       aria-label={open ? 'Collapse tools' : 'Open tools'}
       aria-expanded={open}
       onClick={(event) => {
+        event.preventDefault();
         event.stopPropagation();
         setOpen(current => !current);
       }}
