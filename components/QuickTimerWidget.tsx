@@ -290,16 +290,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     void playTone(secondsLeft === 1 ? 1320 : 1040, secondsLeft === 1 ? 0.2 : 0.13, 0.09);
   };
 
-  const requestNotificationPermission = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission === 'default') await Notification.requestPermission();
-  };
-
-  const notifyDone = (message: string) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-    try { new Notification('⏱ ' + message, { body: 'PT Motivator timer', silent: true }); } catch {}
-  };
 
   const stopTimer = () => {
     setRunning(false);
@@ -314,7 +304,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setSequenceActive(false);
     sequenceActiveRef.current = false;
     playCue(message);
-    notifyDone(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
   };
 
@@ -425,7 +414,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const startCountdown = async () => {
     await unlockAudio();
-    void requestNotificationPermission();
     if (done) {
       resetTimer();
       return;
