@@ -142,6 +142,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const bellOnRef = useRef(bellOn);
+  const originalTitleRef = useRef('');
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSequenceRef = useRef<TimerStep[]>(DEFAULT_SEQUENCE.steps);
   const endAtRef = useRef<number | null>(null);
@@ -153,6 +154,25 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const lastCountdownSecondRef = useRef<number | null>(null);
 
   useEffect(() => { bellOnRef.current = bellOn; }, [bellOn]);
+
+  // Save original page title on mount, restore on unmount
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    originalTitleRef.current = document.title;
+    return () => { document.title = originalTitleRef.current; };
+  }, []);
+
+  // Update document title to mimic native timer indicator (shows in iOS app switcher)
+  useEffect(() => {
+    if (typeof document === 'undefined' || !mounted) return;
+    if (running && mode === 'timer') {
+      document.title = `⏱ ${formatTime(remaining)} · PT Timer`;
+    } else if (done && mode === 'timer') {
+      document.title = `✅ Done · PT Motivator`;
+    } else {
+      document.title = originalTitleRef.current || 'PT Motivator';
+    }
+  }, [running, done, remaining, mode, mounted]);
 
   const activeSequence = getSequence(sequenceKey);
   const currentStep = sequenceActive && sequenceIndex >= 0 ? activeSequenceRef.current[sequenceIndex] : undefined;
@@ -270,6 +290,17 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     void playTone(secondsLeft === 1 ? 1320 : 1040, secondsLeft === 1 ? 0.2 : 0.13, 0.09);
   };
 
+  const requestNotificationPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') await Notification.requestPermission();
+  };
+
+  const notifyDone = (message: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    try { new Notification('⏱ ' + message, { body: 'PT Motivator timer', silent: true }); } catch {}
+  };
+
   const stopTimer = () => {
     setRunning(false);
     runningRef.current = false;
@@ -283,6 +314,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setSequenceActive(false);
     sequenceActiveRef.current = false;
     playCue(message);
+    notifyDone(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
   };
 
@@ -393,6 +425,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const startCountdown = async () => {
     await unlockAudio();
+    void requestNotificationPermission();
     if (done) {
       resetTimer();
       return;
@@ -717,7 +750,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
               </div>
             </>
           ) : (
-            <button onClick={e => { e.stopPropagation(); if (onOpenNote && logExerciseId) { onOpenNote(logExerciseId); } else { setLogSaved(false); } }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
+            <button onClick={e => { e.stopPropagation(); if (onOpenNote && logExerciseId) { setOpen(false); onOpenNote(logExerciseId); } else { setLogSaved(false); } }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
           )}
         </div>
       )}
