@@ -39,10 +39,32 @@ function makeSchemaText(ex: ExerciseBrief) {
   ].filter(Boolean).join('; '), 420);
 }
 
+function groqDetailFromText(text: string) {
+  try {
+    const parsed = JSON.parse(text);
+    const message = parsed?.error?.message || parsed?.message || parsed?.detail || text;
+    const type = parsed?.error?.type || parsed?.type;
+    const code = parsed?.error?.code || parsed?.code;
+    return [message, type ? `type: ${type}` : '', code ? `code: ${code}` : ''].filter(Boolean).join(' | ');
+  } catch {
+    return text;
+  }
+}
+
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err ?? 'Unknown error');
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
+    if (!apiKey) {
+      return NextResponse.json({
+        error: 'Missing GROQ_KEY_PTMOTIVATOR',
+        detail: 'The server environment variable GROQ_KEY_PTMOTIVATOR is not set, so AI Add cannot call Groq.',
+        model: MODEL,
+      }, { status: 500 });
+    }
 
     const { text, exercises = [], health = {}, draftProposal = null } = await req.json();
     const diaryText = cleanText(text, 1800);
@@ -126,13 +148,36 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const detail = await res.text();
-      return NextResponse.json({ error: 'Groq request failed', detail: detail.slice(0, 500) }, { status: 502 });
+      const rawDetail = await res.text();
+      const requestId = res.headers.get('x-request-id') || res.headers.get('cf-ray') || '';
+      const detail = groqDetailFromText(rawDetail);
+      return NextResponse.json({
+        error: 'Groq request failed',
+        detail: cleanText(detail, 1200),
+        groqStatus: res.status,
+        groqStatusText: res.statusText,
+        model: MODEL,
+        requestId,
+        hint: res.status === 401 ? 'Likely bad or missing Groq API key.'
+          : res.status === 429 ? 'Groq rate limit or quota issue.'
+          : res.status === 400 ? 'Groq rejected the request body, model, or response_format.'
+          : 'Groq returned a non-OK response.',
+      }, { status: 502 });
     }
 
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content ?? '{}';
-    const parsed = jsonFromText(content);
+    let parsed: any;
+    try {
+      parsed = jsonFromText(content);
+    } catch (parseErr) {
+      return NextResponse.json({
+        error: 'AI returned invalid JSON',
+        detail: errorMessage(parseErr),
+        rawModelOutput: cleanText(content, 1200),
+        model: MODEL,
+      }, { status: 502 });
+    }
 
     const allowed = new Set(safeExercises.map(ex => ex.id));
     const exerciseChanges = Array.isArray(parsed.exerciseChanges)
@@ -174,6 +219,10 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: 'AI parse failed' }, { status: 500 });
+    return NextResponse.json({
+      error: 'AI parse failed',
+      detail: errorMessage(err),
+      model: MODEL,
+    }, { status: 500 });
   }
 }
