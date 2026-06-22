@@ -43,6 +43,70 @@ function localFallback(note: string) {
   return cleanText(note, 220);
 }
 
+function splitParts(value: string) {
+  return cleanText(value, 260)
+    .split(/[,;]+/)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function isKnownModifier(value: string) {
+  return /\b(no band|without band|with band|banded|yellow band|red band|green band|blue band|black band|light band|heavy band|no support|wall support|hand support|shoes on|barefoot|no shoes|no weight|bodyweight|weighted|assisted|unassisted)\b/i.test(value);
+}
+
+function isLikelyOutcome(value: string) {
+  return /\b(easy|moderate|moderately|hard|difficult|pain|painful|sore|tight|better|worse|stable|unstable|burning|tingling|felt|improved|irritated)\b/i.test(value);
+}
+
+function pullEmbeddedModifier(value: string) {
+  const text = cleanText(value, 260);
+  const embedded = text.match(/\b(no band|without band|with band|banded|yellow band|red band|green band|blue band|black band|light band|heavy band|no support|wall support|hand support|shoes on|barefoot|no shoes|no weight|bodyweight|weighted|assisted|unassisted)\b/i)?.[0];
+  if (!embedded) return { text, modifier: '' };
+  const remaining = cleanText(text.replace(new RegExp(`\\b${embedded.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), '').replace(/^[,\s]+|[,\s]+$/g, ''), 220);
+  return { text: remaining, modifier: embedded.toLowerCase() };
+}
+
+function normalizeFields(fields: StandardizedFields): StandardizedFields {
+  const modifierParts: string[] = [];
+  const outcomeParts: string[] = [];
+
+  for (const part of splitParts(fields.modifier ?? '')) {
+    const embedded = pullEmbeddedModifier(part);
+    if (embedded.modifier) modifierParts.push(embedded.modifier);
+    if (embedded.text) {
+      if (isLikelyOutcome(embedded.text) && !isKnownModifier(embedded.text)) outcomeParts.push(embedded.text);
+      else modifierParts.push(embedded.text);
+    }
+  }
+
+  for (const part of splitParts(fields.outcome ?? '')) {
+    const embedded = pullEmbeddedModifier(part);
+    if (embedded.modifier) modifierParts.push(embedded.modifier);
+    if (embedded.text) outcomeParts.push(embedded.text);
+  }
+
+  const unique = (items: string[]) => Array.from(new Set(items.map(item => cleanText(item, 120)).filter(Boolean)));
+
+  return {
+    dose: cleanText(fields.dose, 80),
+    target: cleanText(fields.target, 100),
+    variation: cleanText(fields.variation, 120),
+    modifier: unique(modifierParts).join(', '),
+    outcome: unique(outcomeParts).join(', '),
+  };
+}
+
+function assembleStandardizedNote(aiNote: string, fields: StandardizedFields) {
+  const normalized = normalizeFields(fields);
+  const parts = [normalized.dose, normalized.target, normalized.variation, normalized.modifier, normalized.outcome]
+    .map(part => cleanText(part, 140))
+    .filter(Boolean);
+  return {
+    fields: normalized,
+    standardizedNote: parts.length >= 2 ? cleanText(parts.join(', '), 260) : cleanText(aiNote, 260),
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
@@ -86,9 +150,10 @@ export async function POST(req: NextRequest) {
       'You standardize manual exercise notes for a tracking app. Return compact JSON only.',
       'Goal: convert messy free text into a short standardized note, while preserving the user meaning.',
       'Do not add advice. Do not invent symptoms. Only normalize the note.',
-      'Use this grammar: dose, target/body part/side, variation/component, modifier, outcome/descriptor.',
+      'Use this strict grammar and order: dose, target/body part/side, variation/component, modifier, outcome/descriptor.',
+      'Modifier must come before outcome. Never combine modifier and outcome in one field.',
       'The standardizedNote should be one comma-separated line. Put dose first whenever dose is stated or strongly implied.',
-      'Examples: "2 × 60 sec, right + left leg, inversion + eversion, no band"; "1 × 60 sec, big toe + toe spread + arch lift"; "3 × 12, right ankle, slow controlled".',
+      'Examples: "2 × 60 sec, right + left leg, inversion + eversion, no band, moderately difficult"; "1 × 60 sec, big toe + toe spread + arch lift"; "3 × 12, right ankle, slow controlled".',
       'Use × not x. Use sec not seconds. Use + for combined sides/components. Prefer right + left over both when sides matter.',
       'If exercise schema, recent notes, or clarification make shorthand clear, use them.',
       'If one or more fields are unclear in cleanupMode, still produce the best standardizedNote from known info, and ask at most one short question for the most important missing field.',
@@ -146,14 +211,15 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json();
     const parsed = parseJson(data?.choices?.[0]?.message?.content ?? '{}');
-    const standardizedNote = cleanText(parsed.standardizedNote || rawNote, 260);
-    const fields: StandardizedFields = parsed.fields && typeof parsed.fields === 'object' ? {
+    const rawStandardizedNote = cleanText(parsed.standardizedNote || rawNote, 260);
+    const rawFields: StandardizedFields = parsed.fields && typeof parsed.fields === 'object' ? {
       dose: cleanText(parsed.fields.dose, 80),
       target: cleanText(parsed.fields.target, 100),
       variation: cleanText(parsed.fields.variation, 120),
       modifier: cleanText(parsed.fields.modifier, 120),
       outcome: cleanText(parsed.fields.outcome, 120),
     } : {};
+    const { standardizedNote, fields } = assembleStandardizedNote(rawStandardizedNote, rawFields);
 
     const clarificationOptions = Array.isArray(parsed.clarificationOptions)
       ? parsed.clarificationOptions.map((option: { label?: unknown; value?: unknown } | string) => {
