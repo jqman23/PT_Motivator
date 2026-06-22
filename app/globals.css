@@ -67,7 +67,7 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.
   position: fixed;
   right: var(--pt-dock-right, max(1rem, calc(env(safe-area-inset-right) + 1rem)));
   bottom: max(5.25rem, calc(env(safe-area-inset-bottom) + 5.25rem));
-  z-index: 9997;
+  z-index: 10000;
   display: flex !important;
   flex-direction: column-reverse;
   align-items: flex-end;

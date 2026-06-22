@@ -208,7 +208,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
       const res = await fetch('/api/ai-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision }),
+        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision, date }),
       });
       const data = await readResponseJson(res);
       if (!res.ok) throw new Error(formatApiError(data, res));

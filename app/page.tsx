@@ -23,26 +23,26 @@ type NotesMap = Record<string, string>;
 type PTSession = { date: string; note?: string };
 
 const QUOTES = [
-  'Recovery is not linear. Every rep, every day counts.',
-  'The comeback is always stronger than the setback.',
-  'Small steps every day lead to big changes.',
-  'Consistency beats intensity every single time.',
-  'Trust the process. Your body knows how to heal.',
-  'Every workout is a deposit into your health account.',
-  'Rest when you must. Move when you can.',
-  'Healing takes courage — and you have it.',
-  'Progress, not perfection.',
-  'Your only competition is who you were yesterday.',
-  'One day at a time. One rep at a time.',
-  "The pain you feel today is the strength you'll feel tomorrow.",
-  "Be patient with yourself. You're getting better every day.",
-  'Motion is the lotion. Keep moving.',
-  'Your body hears everything your mind says. Stay positive.',
-  "The hardest step is the first one. You've already taken it.",
-  'Celebrate every small win. They add up.',
-  "You've come too far to only come this far.",
-  "Focus on what your body CAN do, not what it can't.",
-  'Rehabilitation is a marathon, not a sprint.',
+  'You showed up. That's already half the work.',
+  'Soreness is adaptation in progress — not a warning sign.',
+  'Seven minutes of movement beats seven hours of thinking about it.',
+  'Resting is training. Recovery isn\'t optional.',
+  'You don\'t have to feel like it. You just have to start.',
+  'Consistency compounds quietly. Today\'s reps build tomorrow\'s baseline.',
+  'One skipped day is data, not failure.',
+  'Your nervous system is learning even when it doesn\'t feel like progress.',
+  'The workout you almost didn\'t do is usually the one that matters most.',
+  'Movement is non-negotiable. Intensity is adjustable.',
+  'Three reps done beats ten reps planned.',
+  'Pain is information, not instruction.',
+  'You can\'t cheat tissue. But you can trust it.',
+  'Adaptation takes weeks, not days. Keep logging.',
+  'The body keeps a ledger. Every session is a deposit.',
+  'Hard mornings make stronger afternoons.',
+  'Every logged rep is one you can build on tomorrow.',
+  'The best protocol is the one you actually do.',
+  'Form is just biomechanics you control. Start there.',
+  'Tight and weak aren\'t the same problem. Neither are busy and recovered.',
 ];
 
 const DEFAULT_WIDGET_PREFS: WidgetPrefs = {
@@ -129,6 +129,8 @@ export default function Home() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
 
+  const [dailySummary, setDailySummary] = useState<string | null>(null);
+
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [colorMenuCat, setColorMenuCat] = useState<string | null>(null);
@@ -201,6 +203,21 @@ export default function Home() {
     fetch('/api/config?key=appTitle').then(r => r.json()).then(data => { if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value); }).catch(console.error);
     fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => { if (Array.isArray(data.value)) setPtSessions(data.value.map((item: string | PTSession) => typeof item === 'string' ? { date: item, note: '' } : item)); }).catch(console.error);
     fetch('/api/config?key=widgetPrefs').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...data.value }); }).catch(console.error);
+
+    // Daily summary: fetch once per calendar day, gate via localStorage
+    const summaryKey = 'pt-summary-shown';
+    const shownDate = typeof localStorage !== 'undefined' ? localStorage.getItem(summaryKey) : null;
+    if (shownDate !== todayStr()) {
+      fetch('/api/daily-summary', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (typeof data.summary === 'string' && data.summary.trim()) setDailySummary(data.summary.trim());
+        })
+        .catch(() => {})
+        .finally(() => {
+          try { localStorage.setItem(summaryKey, todayStr()); } catch {}
+        });
+    }
   }, []);
 
   const loadLog = useCallback(async (selected: string) => {
@@ -417,6 +434,13 @@ export default function Home() {
           </div>
 
           <h1 className="sm:hidden text-center font-serif text-3xl font-semibold text-stone-800 mt-3">{appTitle}</h1>
+          {dailySummary && (
+            <div className="mt-3 rounded-2xl px-4 py-3 flex items-start gap-3" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4' }}>
+              <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }}>☀️</span>
+              <p className="flex-1 text-sm text-stone-700 leading-snug">{dailySummary}</p>
+              <button onClick={() => setDailySummary(null)} className="text-stone-400 hover:text-stone-600 text-base leading-none flex-shrink-0" style={{ touchAction: 'manipulation' }}>×</button>
+            </div>
+          )}
           <DayControls />
           {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
           <div className="mt-2 flex items-center justify-center gap-2">

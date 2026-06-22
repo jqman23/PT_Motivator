@@ -224,7 +224,7 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
                   </div>
 
                   {/* Colors */}
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-stone-100">
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-stone-100">
                     {COLOR_KEYS.map(c => (
                       <button key={c} onClick={() => recolorCat(cat.id, c)}
                         className="w-5 h-5 rounded-full"

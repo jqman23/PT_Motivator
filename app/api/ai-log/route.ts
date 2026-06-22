@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getRecentNotes } from '@/lib/db';
 
 type ExerciseBrief = {
   id: string;
@@ -10,6 +11,7 @@ type ExerciseBrief = {
   schemaText?: string;
   done?: boolean;
   note?: string;
+  recentNotes?: string[];
 };
 
 const MODEL = process.env.GROQ_MODEL_PTMOTIVATOR || 'llama-3.3-70b-versatile';
@@ -66,9 +68,14 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    const { text, exercises = [], health = {}, draftProposal = null } = await req.json();
+    const { text, exercises = [], health = {}, draftProposal = null, date: requestDate } = await req.json();
     const diaryText = cleanText(text, 1800);
-    const safeExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises.slice(0, 100).map((ex: ExerciseBrief) => {
+    const todayDate: string = typeof requestDate === 'string' && requestDate.match(/^\d{4}-\d{2}-\d{2}$/)
+      ? requestDate
+      : new Date().toISOString().split('T')[0];
+
+    const rawExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises : [];
+    const safeExercises: ExerciseBrief[] = rawExercises.slice(0, 100).map((ex: ExerciseBrief) => {
       const safe: ExerciseBrief = {
         id: cleanText(ex.id, 60),
         name: cleanText(ex.name, 90),
@@ -81,7 +88,21 @@ export async function POST(req: NextRequest) {
       };
       safe.schemaText = makeSchemaText(safe);
       return safe;
-    }) : [];
+    });
+
+    // Fetch recent note history for completed exercises to guide style consistency
+    const completedExercises = safeExercises.filter(ex => ex.done && ex.id).slice(0, 8);
+    if (completedExercises.length > 0) {
+      const histories = await Promise.all(
+        completedExercises.map(ex => getRecentNotes(ex.id, todayDate).catch(() => []))
+      );
+      for (let i = 0; i < completedExercises.length; i++) {
+        const notes = histories[i].map(r => r.note).filter(Boolean).slice(0, 3);
+        if (notes.length > 0) {
+          completedExercises[i].recentNotes = notes;
+        }
+      }
+    }
     const categories = Array.from(new Set(safeExercises.map(ex => ex.category).filter(Boolean))).slice(0, 12);
     const splitIntent = /\b(split|break\s*(it|this)?\s*(up|down)|separate|specific|variants?|versions?|make .*\b\d+\b|\b\d+\s+(specific|separate|different))\b/i.test(diaryText);
     const updateOnlyIntent = /\b(just\s+update|update\s+only|only\s+update|can't\s+create|cannot\s+create|do\s+not\s+create|don't\s+create|no\s+new|existing\s+only|current\s+only|update\s+(the|this|that|existing|current)|change\s+(the|this|that|existing|current)|edit\s+(the|this|that|existing|current)|modify\s+(the|this|that|existing|current)|revise\s+(the|this|that|existing|current))\b/i.test(diaryText);
@@ -116,7 +137,8 @@ export async function POST(req: NextRequest) {
       'Use cue for setup/form details and note for what happened today.',
       'For newExercises, sets should be concise standardized dosage; cue should be user-facing form/setup; tips should be 2-5 short safety/form bullets.',
       'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":""}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}.',
-      'Only include fields you are adding/updating. Do not echo unchanged saved data.'
+      'Only include fields you are adding/updating. Do not echo unchanged saved data.',
+      'PATTERN MATCHING: If an exercise has recentNotes in its data, those are real past session notes the user logged. Match their exact style, structure, terminology, dosage format, and abbreviations exactly. Do not reformat or improve them — consistency is the priority. Only deviate if the user explicitly requests a different format in their message.',
     ].join(' ');
 
     const userPayload = JSON.stringify({

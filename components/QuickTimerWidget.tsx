@@ -725,7 +725,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#FEF3C7] border-[#D97706] text-[#92400E]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
         <span style={labelStyle}>timer</span>
       </button>
