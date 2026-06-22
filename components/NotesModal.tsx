@@ -7,8 +7,40 @@ interface Props {
   exerciseId: string;
   date: string;
   initialNote: string;
+  exerciseSets?: string;
+  exerciseCue?: string;
+  exerciseTips?: string[];
   onSave: (note: string) => void;
   onClose: () => void;
+}
+
+type StandardizedFields = {
+  dose?: string;
+  target?: string;
+  variation?: string;
+  modifier?: string;
+  outcome?: string;
+};
+
+type StandardizeResult = {
+  originalNote: string;
+  standardizedNote: string;
+  fields?: StandardizedFields;
+  summary?: string[];
+  changed?: boolean;
+  error?: string;
+  detail?: string;
+};
+
+function cleanLines(value?: string[]) {
+  return Array.isArray(value) ? value.filter(Boolean).slice(0, 6) : [];
+}
+
+async function readJson(res: Response) {
+  const raw = await res.text();
+  if (!raw) return {};
+  try { return JSON.parse(raw); }
+  catch { return { error: 'Non-JSON response', detail: raw.slice(0, 800) }; }
 }
 
 export default function NotesModal({
@@ -16,18 +48,28 @@ export default function NotesModal({
   exerciseId,
   date,
   initialNote,
+  exerciseSets = '',
+  exerciseCue = '',
+  exerciseTips = [],
   onSave,
   onClose,
 }: Props) {
   const [note, setNote] = useState(initialNote);
   const [loadingStoredNote, setLoadingStoredNote] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [standardizing, setStandardizing] = useState(false);
+  const [standardizeError, setStandardizeError] = useState('');
+  const [review, setReview] = useState<StandardizeResult | null>(null);
+  const [standardizedNote, setStandardizedNote] = useState('');
 
   // Always re-check the stored note when the modal opens. The parent notes map can
   // be stale after adding exercises or switching dates, so the modal should trust DB.
   useEffect(() => {
     let cancelled = false;
     setNote(initialNote ?? '');
+    setReview(null);
+    setStandardizedNote('');
+    setStandardizeError('');
     setLoadingStoredNote(true);
 
     fetch(`/api/notes?date=${encodeURIComponent(date)}`, { cache: 'no-store' })
@@ -46,7 +88,7 @@ export default function NotesModal({
     return () => { cancelled = true; };
   }, [exerciseId, date, initialNote]);
 
-  // Fetch recent notes from the past 3 days
+  // Fetch recent notes from the past few days so they can be reused as templates.
   useEffect(() => {
     fetch(`/api/recent-notes?exerciseId=${encodeURIComponent(exerciseId)}&beforeDate=${date}`)
       .then(r => r.json())
@@ -62,9 +104,64 @@ export default function NotesModal({
     return () => document.removeEventListener('keydown', fn);
   }, [onClose]);
 
-  const handleSave = () => {
-    onSave(note.trim());
+  const saveAndClose = (value: string) => {
+    onSave(value.trim());
     onClose();
+  };
+
+  const handleReview = async () => {
+    const rawNote = note.trim();
+    if (!rawNote) {
+      saveAndClose('');
+      return;
+    }
+
+    setStandardizeError('');
+    setStandardizing(true);
+    try {
+      const res = await fetch('/api/standardize-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exerciseId,
+          exerciseName,
+          rawNote,
+          exerciseSets,
+          exerciseCue,
+          exerciseTips: cleanLines(exerciseTips),
+          recentNotes: suggestions,
+        }),
+      });
+      const data = await readJson(res) as StandardizeResult;
+      if (!res.ok) {
+        const detail = [data.error, data.detail].filter(Boolean).join(': ');
+        setStandardizeError(detail || 'Could not standardize note. You can still save the original.');
+        setReview({ originalNote: rawNote, standardizedNote: data.standardizedNote || rawNote, fields: {}, changed: false });
+        setStandardizedNote(data.standardizedNote || rawNote);
+        return;
+      }
+      setReview(data);
+      setStandardizedNote(data.standardizedNote || rawNote);
+    } catch (err) {
+      setStandardizeError(err instanceof Error ? err.message : 'Could not standardize note. You can still save the original.');
+      setReview({ originalNote: rawNote, standardizedNote: rawNote, fields: {}, changed: false });
+      setStandardizedNote(rawNote);
+    } finally {
+      setStandardizing(false);
+    }
+  };
+
+  const useSuggestion = (value: string) => {
+    setNote(value);
+    setReview(null);
+    setStandardizedNote('');
+    setStandardizeError('');
+  };
+
+  const editOriginal = () => {
+    setReview(null);
+    setStandardizedNote('');
+    setStandardizeError('');
   };
 
   const displayDate = new Date(date + 'T12:00:00').toLocaleDateString(undefined, {
@@ -72,6 +169,9 @@ export default function NotesModal({
     month: 'short',
     day: 'numeric',
   });
+
+  const fields = review?.fields ?? {};
+  const fieldChips = [fields.dose, fields.target, fields.variation, fields.modifier, fields.outcome].filter(Boolean);
 
   return (
     <div
@@ -87,7 +187,6 @@ export default function NotesModal({
         onPointerUp={(e) => e.stopPropagation()}
         style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
-        {/* Header */}
         <div className="p-4 border-b border-stone-100 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-stone-800 text-sm">{exerciseName}</h3>
@@ -104,73 +203,131 @@ export default function NotesModal({
         </div>
 
         <div className="p-4">
-          {/* Suggestion chips from recent notes */}
-          {suggestions.length > 0 && (
+          {suggestions.length > 0 && !review && (
             <div className="mb-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">
-                Recent notes — tap to use
+                Past templates — tap to reuse/edit
               </p>
-              <div
-                className="flex gap-2 overflow-x-auto pb-1"
-                style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-              >
+              <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
                 {suggestions.map((s, i) => (
                   <button
-                    key={i}
+                    key={`${s}-${i}`}
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNote(s); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); useSuggestion(s); }}
                     className="flex-shrink-0 text-xs px-3 py-2 rounded-full border transition-colors text-left"
                     style={{
                       borderColor: note === s ? '#7E9B86' : '#e7e5e4',
                       background: note === s ? '#E4ECE6' : '#fafaf9',
                       color: note === s ? '#7E9B86' : '#57534e',
-                      maxWidth: 200,
+                      maxWidth: 220,
                       touchAction: 'manipulation',
                     }}
                   >
-                    <span
-                      style={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      } as React.CSSProperties}
-                    >{s}</span>
+                    <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{s}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Text area */}
-          <textarea
-            autoFocus
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="How did it feel? Any pain, improvements, modifications..."
-            className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2"
-            style={{ fontSize: 16, colorScheme: 'light' }}
-            onFocus={(e) => e.currentTarget.style.outlineColor = '#7E9B86'}
-          />
+          {!review ? (
+            <>
+              <textarea
+                autoFocus
+                value={note}
+                onChange={(e) => { setNote(e.target.value); setStandardizeError(''); }}
+                placeholder="Messy is fine — AI will standardize on save. Example: both sides inversion eversion 60 no band"
+                className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2"
+                style={{ fontSize: 16, colorScheme: 'light' }}
+                onFocus={(e) => e.currentTarget.style.outlineColor = '#7E9B86'}
+              />
+              <p className="mt-2 text-[11px] text-stone-400 leading-snug">
+                Save will preview a standardized note: dose, side/body part, variation, modifier, outcome.
+              </p>
+            </>
+          ) : (
+            <div className="space-y-3">
+              {standardizeError && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                  {standardizeError}
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-stone-100 bg-stone-50 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Original</p>
+                <p className="text-xs text-stone-600 leading-snug">{review.originalNote}</p>
+              </div>
+
+              <div className="rounded-2xl border p-3" style={{ borderColor: '#cfded3', background: '#F8FBF8' }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: '#476653' }}>Standardized</p>
+                <textarea
+                  value={standardizedNote}
+                  onChange={(e) => setStandardizedNote(e.target.value)}
+                  rows={3}
+                  className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2 focus:outline-none bg-white"
+                  style={{ fontSize: 16, colorScheme: 'light' }}
+                />
+                {fieldChips.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {fieldChips.map((chip, i) => (
+                      <span key={`${chip}-${i}`} className="text-[10px] font-semibold px-2 py-1 rounded-full" style={{ background: '#E4ECE6', color: '#476653' }}>{chip}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="px-4 pb-4 flex gap-2 justify-end">
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
-            className="px-4 py-2 text-sm text-stone-500"
-            style={{ touchAction: 'manipulation' }}
-          >
-            Cancel
-          </button>
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSave(); }}
-            className="px-5 py-2 text-sm font-medium text-white rounded-xl"
-            style={{ background: '#7E9B86', touchAction: 'manipulation' }}
-          >
-            Save note
-          </button>
+        <div className="px-4 pb-4 flex flex-wrap gap-2 justify-end">
+          {!review ? (
+            <>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+                className="px-4 py-2 text-sm text-stone-500"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Cancel
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleReview(); }}
+                disabled={standardizing || loadingStoredNote}
+                className="px-5 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50"
+                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
+              >
+                {standardizing ? 'Standardizing…' : 'Review note'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); editOriginal(); }}
+                className="px-3 py-2 text-sm text-stone-500"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Edit original
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(review.originalNote); }}
+                className="px-3 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-500"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Keep original
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(standardizedNote); }}
+                className="px-4 py-2 text-sm font-bold text-white rounded-xl"
+                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
+              >
+                Save standardized
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
