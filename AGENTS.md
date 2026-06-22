@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Workflow rules
 
-- Do not create pull requests unless Josh explicitly asks for a PR.
+- Do not create pull requests unless explicitly asked for a PR.
 - Do not run `gh pr create`.
 - Prefer committing and pushing directly to `main`.
 - After completing changes, run:
