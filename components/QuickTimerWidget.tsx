@@ -4,12 +4,20 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
+const STRETCH_SECONDS = 60;
+const SWITCH_SECONDS = 15;
+const BREAK_SECONDS = 30;
 const LEAD_IN_SECONDS = 10;
 const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
 
-type TimerStep = { seconds: number; cueAfter: string };
+type TimerStep = {
+  seconds: number;
+  cueAfter: string;
+  kind: 'stretch' | 'switch' | 'break';
+  countdownToStretch?: boolean;
+};
 type Mode = 'timer' | 'stopwatch';
-type SequenceKey = 'single' | 'three';
+type SequenceKey = 'one' | 'two' | 'three' | 'single';
 
 type StoredTimerState = {
   mode: Mode;
@@ -28,38 +36,38 @@ type StoredTimerState = {
   savedAt: number;
 };
 
-const SINGLE_SET_SEQUENCE: TimerStep[] = [
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: '30 second break' },
-  { seconds: 30, cueAfter: 'One minute starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: 'End' },
-];
-
-const THREE_SET_SEQUENCE: TimerStep[] = [
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: '30 second break' },
-  { seconds: 30, cueAfter: 'One minute starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: 'Set 2 starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: '30 second break' },
-  { seconds: 30, cueAfter: 'One minute starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: 'Set 3 starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: '30 second break' },
-  { seconds: 30, cueAfter: 'One minute starting' },
-  { seconds: 60, cueAfter: 'Switch' },
-  { seconds: 60, cueAfter: 'End' },
-];
-
-function sequenceForKey(key: SequenceKey) {
-  return key === 'three' ? THREE_SET_SEQUENCE : SINGLE_SET_SEQUENCE;
+function buildSetSequence(setCount: number): TimerStep[] {
+  const steps: TimerStep[] = [];
+  for (let set = 1; set <= setCount; set += 1) {
+    steps.push({ seconds: STRETCH_SECONDS, cueAfter: 'Switch', kind: 'stretch' });
+    steps.push({ seconds: SWITCH_SECONDS, cueAfter: 'Start', kind: 'switch', countdownToStretch: true });
+    steps.push({ seconds: STRETCH_SECONDS, cueAfter: set === setCount ? 'End' : '30 second break', kind: 'stretch' });
+    if (set < setCount) steps.push({ seconds: BREAK_SECONDS, cueAfter: 'One minute starting', kind: 'break', countdownToStretch: true });
+  }
+  return steps;
 }
 
-function keyForSequenceName(name: string): SequenceKey {
-  return name === '3 sets' ? 'three' : 'single';
+const ONE_SET_SEQUENCE = buildSetSequence(1);
+const TWO_SET_SEQUENCE = buildSetSequence(2);
+const THREE_SET_SEQUENCE = buildSetSequence(3);
+
+function sequenceForKey(key: SequenceKey) {
+  if (key === 'one') return ONE_SET_SEQUENCE;
+  if (key === 'three') return THREE_SET_SEQUENCE;
+  return TWO_SET_SEQUENCE;
+}
+
+function keyForSequenceName(name: string): Exclude<SequenceKey, 'single'> {
+  if (name === '1 set') return 'one';
+  if (name === '3 sets') return 'three';
+  return 'two';
+}
+
+function segmentLabel(step?: TimerStep) {
+  if (!step) return '';
+  if (step.kind === 'switch') return 'Switch · 15 sec';
+  if (step.kind === 'break') return 'Break · 30 sec';
+  return 'Stretch · 1 min';
 }
 
 export default function QuickTimerWidget() {
@@ -75,17 +83,18 @@ export default function QuickTimerWidget() {
   const [bellOn, setBellOn] = useState(true);
   const [sequenceActive, setSequenceActive] = useState(false);
   const [sequenceIndex, setSequenceIndex] = useState(0);
-  const [sequenceName, setSequenceName] = useState('1 set');
-  const [activeSequence, setActiveSequence] = useState<TimerStep[]>(SINGLE_SET_SEQUENCE);
+  const [sequenceName, setSequenceName] = useState('2 sets');
+  const [activeSequence, setActiveSequence] = useState<TimerStep[]>(TWO_SET_SEQUENCE);
   const [cue, setCue] = useState('');
   const panelRef = useRef<HTMLDivElement | null>(null);
   const sequenceIndexRef = useRef(0);
-  const activeSequenceRef = useRef<TimerStep[]>(SINGLE_SET_SEQUENCE);
+  const activeSequenceRef = useRef<TimerStep[]>(TWO_SET_SEQUENCE);
   const endAtRef = useRef<number | null>(null);
   const runningRef = useRef(false);
   const modeRef = useRef<Mode>('timer');
   const sequenceActiveRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const lastCountdownSecondRef = useRef<number | null>(null);
 
   const persistTimer = (patch: Partial<StoredTimerState> = {}) => {
     if (typeof window === 'undefined') return;
@@ -162,6 +171,24 @@ export default function QuickTimerWidget() {
     });
   };
 
+  const playCountdownBeep = async (count: number) => {
+    if (!bellOn) return;
+    const ctx = await unlockAudio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(count === 1 ? 1320 : 1040, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(count === 1 ? 0.2 : 0.13, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.1);
+  };
+
   const speakCue = (message: string) => {
     if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
@@ -171,12 +198,27 @@ export default function QuickTimerWidget() {
   };
 
   const playCue = (message: string) => {
+    lastCountdownSecondRef.current = null;
     setCue(message);
     if (!bellOn) return;
     void playBeep(message);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(message.toLowerCase().includes('end') ? [120, 60, 120] : 120);
     speakCue(message);
     showNotification(message);
+  };
+
+  const isCountdownToStretchSegment = () => {
+    if (!sequenceActiveRef.current) return false;
+    if (sequenceIndexRef.current < 0) return true;
+    return !!activeSequenceRef.current[sequenceIndexRef.current]?.countdownToStretch;
+  };
+
+  const maybeCountdownBeep = (secondsLeft: number) => {
+    if (!runningRef.current || !isCountdownToStretchSegment()) return;
+    if (secondsLeft < 1 || secondsLeft > 5) return;
+    if (lastCountdownSecondRef.current === secondsLeft) return;
+    lastCountdownSecondRef.current = secondsLeft;
+    void playCountdownBeep(secondsLeft);
   };
 
   const stopTimer = () => {
@@ -192,6 +234,7 @@ export default function QuickTimerWidget() {
     let nextDuration = duration;
 
     while (endAt <= now) {
+      lastCountdownSecondRef.current = null;
       if (index < 0) {
         lastCue = 'Start';
         index = 0;
@@ -234,7 +277,9 @@ export default function QuickTimerWidget() {
     const now = Date.now();
 
     if (endAtRef.current > now) {
-      setRemaining(Math.max(1, Math.ceil((endAtRef.current - now) / 1000)));
+      const nextRemaining = Math.max(1, Math.ceil((endAtRef.current - now) / 1000));
+      setRemaining(nextRemaining);
+      maybeCountdownBeep(nextRemaining);
       return;
     }
 
@@ -255,6 +300,7 @@ export default function QuickTimerWidget() {
     setDuration(resolved.duration);
     setRemaining(resolved.remaining);
     if (playMissedCue && resolved.lastCue) playCue(resolved.lastCue);
+    maybeCountdownBeep(resolved.remaining);
     persistTimer({
       running: true,
       done: false,
@@ -269,6 +315,7 @@ export default function QuickTimerWidget() {
   const resetTimer = (nextDuration = duration) => {
     stopTimer();
     endAtRef.current = null;
+    lastCountdownSecondRef.current = null;
     setDone(false);
     setSequenceActive(false);
     sequenceActiveRef.current = false;
@@ -282,6 +329,7 @@ export default function QuickTimerWidget() {
   const resetStopwatch = () => {
     stopTimer();
     endAtRef.current = null;
+    lastCountdownSecondRef.current = null;
     setDone(false);
     setSequenceActive(false);
     sequenceActiveRef.current = false;
@@ -308,6 +356,7 @@ export default function QuickTimerWidget() {
     setMode('timer');
     setRunning(true);
     setDone(false);
+    lastCountdownSecondRef.current = null;
     if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
     persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceName, sequenceKey: keyForSequenceName(sequenceName), endAt });
   };
@@ -332,6 +381,7 @@ export default function QuickTimerWidget() {
     await requestNotificationAccess();
     stopTimer();
     endAtRef.current = null;
+    lastCountdownSecondRef.current = null;
     activeSequenceRef.current = steps;
     setActiveSequence(steps);
     setSequenceName(name);
@@ -363,7 +413,7 @@ export default function QuickTimerWidget() {
     if (!raw) return;
     try {
       const stored = JSON.parse(raw) as StoredTimerState;
-      const steps = sequenceForKey(stored.sequenceKey || 'single');
+      const steps = sequenceForKey(stored.sequenceKey || 'two');
       activeSequenceRef.current = steps;
       endAtRef.current = stored.endAt ?? null;
       sequenceIndexRef.current = stored.sequenceIndex ?? 0;
@@ -380,7 +430,7 @@ export default function QuickTimerWidget() {
       setBellOn(stored.bellOn !== false);
       setSequenceActive(!!stored.sequenceActive);
       setSequenceIndex(stored.sequenceIndex ?? 0);
-      setSequenceName(stored.sequenceName || '1 set');
+      setSequenceName(stored.sequenceName === '1 set' && stored.sequenceKey === 'single' ? '2 sets' : stored.sequenceName || '2 sets');
       setCue(stored.cue || '');
       window.setTimeout(() => syncTimerFromClock(true), 0);
     } catch {
@@ -402,7 +452,7 @@ export default function QuickTimerWidget() {
         persistTimer({ mode: 'stopwatch', elapsed: next, running: true, endAt: null });
         return next;
       });
-    }, mode === 'timer' ? 500 : 1000);
+    }, mode === 'timer' ? 350 : 1000);
     return () => window.clearInterval(id);
   }, [running, mode, sequenceActive, sequenceName]);
 
@@ -483,19 +533,27 @@ export default function QuickTimerWidget() {
     persistTimer({ running: false, endAt: null, remaining: pausedRemaining });
   };
 
+  const currentSegment = sequenceActive && sequenceIndex >= 0 ? activeSequence[sequenceIndex] : undefined;
   const shownSeconds = mode === 'timer' ? remaining : elapsed;
   const mins = Math.floor(shownSeconds / 60);
   const secs = shownSeconds % 60;
   const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
   const circumference = 2 * Math.PI * 22;
   const dashOffset = circumference * (1 - pct);
-  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `${sequenceName} · Step ${sequenceIndex + 1}/${activeSequence.length}`) : '';
+  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `${sequenceName} · ${segmentLabel(currentSegment)}`) : '';
+
+  const sequenceButtonStyle = (name: string) => ({
+    padding: '8px 0',
+    background: sequenceActive && sequenceName === name ? '#E4ECE6' : '#f5f5f4',
+    color: sequenceActive && sequenceName === name ? '#476653' : '#57534e',
+    border: sequenceActive && sequenceName === name ? '1px solid #cfded3' : '1px solid transparent',
+  });
 
   const panel = open ? (
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 250, touchAction: 'manipulation' }}
+      style={{ width: 260, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -516,22 +574,12 @@ export default function QuickTimerWidget() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-1.5 mb-3">
-            <button
-              onClick={event => { event.stopPropagation(); void startSequencePreset(SINGLE_SET_SEQUENCE, '1 set'); }}
-              className="rounded-lg text-xs font-bold transition-colors"
-              style={{ padding: '8px 0', background: sequenceActive && sequenceName === '1 set' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '1 set' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '1 set' ? '1px solid #cfded3' : '1px solid transparent' }}
-            >
-              1 set
-            </button>
-            <button
-              onClick={event => { event.stopPropagation(); void startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }}
-              className="rounded-lg text-xs font-bold transition-colors"
-              style={{ padding: '8px 0', background: sequenceActive && sequenceName === '3 sets' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '3 sets' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '3 sets' ? '1px solid #cfded3' : '1px solid transparent' }}
-            >
-              3 sets
-            </button>
+          <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+            <button onClick={event => { event.stopPropagation(); void startSequencePreset(ONE_SET_SEQUENCE, '1 set'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('1 set')}>1 set</button>
+            <button onClick={event => { event.stopPropagation(); void startSequencePreset(TWO_SET_SEQUENCE, '2 sets'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('2 sets')}>2 sets</button>
+            <button onClick={event => { event.stopPropagation(); void startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('3 sets')}>3 sets</button>
           </div>
+          <p className="mb-3 text-[10px] text-center text-stone-400">Each set: 1 min · 15s switch · 1 min</p>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
@@ -558,6 +606,7 @@ export default function QuickTimerWidget() {
         <div className="text-center mb-3 rounded-xl px-2 py-1.5" style={{ background: '#E4ECE6', color: '#476653' }}>
           {sequenceLabel && <p className="text-[10px] font-bold uppercase tracking-wider">{sequenceLabel}</p>}
           {cue && <p className="text-xs font-bold">{cue}</p>}
+          {running && isCountdownToStretchSegment() && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Stretch starts in {remaining}</p>}
           {running && <p className="text-[10px] font-semibold mt-0.5 opacity-70">Persists with app switching when iOS allows web timers/notifications.</p>}
         </div>
       )}
