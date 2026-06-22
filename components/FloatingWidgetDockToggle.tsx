@@ -11,43 +11,11 @@ function findWidgetToolbar() {
 
 export default function FloatingWidgetDockToggle() {
   const [open, setOpen] = useState(false);
-  const toolbarRef = useRef<HTMLElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    let stopped = false;
-
-    const attachToolbar = () => {
-      if (stopped) return;
-      const toolbar = findWidgetToolbar();
-      if (!toolbar) return;
-      toolbarRef.current = toolbar;
-      toolbar.classList.add('pt-floating-widget-row');
-      toolbar.classList.toggle('pt-floating-widget-row-open', open);
-    };
-
-    attachToolbar();
-    const observer = new MutationObserver(attachToolbar);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      stopped = true;
-      observer.disconnect();
-      toolbarRef.current?.classList.remove('pt-floating-widget-row', 'pt-floating-widget-row-open');
-    };
-  }, [open]);
 
   useEffect(() => {
     document.body.classList.toggle('pt-widget-dock-open', open);
     return () => document.body.classList.remove('pt-widget-dock-open');
-  }, [open]);
-
-  useEffect(() => {
-    const toolbar = toolbarRef.current ?? findWidgetToolbar();
-    if (!toolbar) return;
-    toolbarRef.current = toolbar;
-    toolbar.classList.add('pt-floating-widget-row');
-    toolbar.classList.toggle('pt-floating-widget-row-open', open);
   }, [open]);
 
   useEffect(() => {
@@ -58,8 +26,8 @@ export default function FloatingWidgetDockToggle() {
     const closeAfterToolClick = (event: MouseEvent) => {
       if (!open) return;
       const target = event.target as Node | null;
-      const toolbar = toolbarRef.current;
       if (!target || buttonRef.current?.contains(target)) return;
+      const toolbar = findWidgetToolbar();
       if (toolbar?.contains(target)) window.setTimeout(() => setOpen(false), 90);
     };
 
