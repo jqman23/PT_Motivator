@@ -31,12 +31,11 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
   const [reply, setReply] = useState<AiReply | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const clarificationCountRef = useRef(0);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', fn);
-    inputRef.current?.focus();
     return () => document.removeEventListener('keydown', fn);
   }, [onClose]);
 
@@ -56,6 +55,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
         body: JSON.stringify({
           question: clean,
           history: nextHistory,
+          clarificationCount: clarificationCountRef.current,
           exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
         }),
       });
@@ -63,6 +63,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
       if (!res.ok) throw new Error(data.error || 'AI coach failed');
       const nextReply: AiReply = data.reply;
       setReply(nextReply);
+      clarificationCountRef.current = nextReply.confirmedExercise ? 0 : clarificationCountRef.current + 1;
       setHistory(trimHistory([...nextHistory, { role: 'assistant', content: nextReply.answer }]));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI coach failed');
@@ -111,7 +112,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
         </div>
 
         <div className="px-5 py-4 border-t border-stone-200">
-          <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void ask(input); } }} placeholder="Ask: do you know much about the ankle band thing where it pulls sideways?" rows={2} className="w-full text-sm border border-stone-200 rounded-2xl px-3 py-3 focus:outline-none resize-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void ask(input); } }} placeholder="Ask: do you know much about the ankle band thing where it pulls sideways?" rows={2} className="w-full text-sm border border-stone-200 rounded-2xl px-3 py-3 focus:outline-none resize-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
           <button onClick={() => ask(input)} disabled={loading || !input.trim()} className="mt-2 w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>{loading ? 'Asking…' : 'Ask AI'}</button>
         </div>
       </div>
