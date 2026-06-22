@@ -308,7 +308,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           >
             <button
               onClick={() => setShowNotes(true)}
-              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
                 note
                   ? isStrength ? 'bg-[#C17B4F]/20 text-[#C17B4F]' : 'bg-[#7E9B86]/20 text-[#7E9B86]'
                   : 'bg-stone-100 text-stone-400 hover:bg-stone-200'

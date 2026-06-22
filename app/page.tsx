@@ -18,6 +18,7 @@ import MasterDatabaseModal from '@/components/MasterDatabaseModal';
 import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 import NotesModal from '@/components/NotesModal';
+import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -162,6 +163,8 @@ export default function Home() {
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
   const [showMasterDatabase, setShowMasterDatabase] = useState(false);
   const [showPTReport, setShowPTReport] = useState(false);
+  const [showAiCoach, setShowAiCoach] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
@@ -188,6 +191,24 @@ export default function Home() {
   useEffect(() => {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
+  }, []);
+
+  const requestDailySummary = useCallback(async (force = false) => {
+    const summaryKey = 'pt-summary-shown';
+    if (!force) {
+      try { if (localStorage.getItem(summaryKey) === todayStr()) return; } catch {}
+    }
+    setSummaryLoading(true);
+    try {
+      const res = await fetch('/api/daily-summary', { method: 'POST' });
+      const data = await res.json();
+      if (typeof data.summary === 'string' && data.summary.trim()) {
+        setDailySummary(data.summary.trim());
+        setSummaryVisible(true);
+        try { localStorage.setItem(summaryKey, todayStr()); } catch {}
+      }
+    } catch (err) { console.error(err); }
+    finally { setSummaryLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -221,21 +242,8 @@ export default function Home() {
     fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => { if (Array.isArray(data.value)) setPtSessions(data.value.map((item: string | PTSession) => typeof item === 'string' ? { date: item, note: '' } : item)); }).catch(console.error);
     fetch('/api/config?key=widgetPrefs').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...data.value }); }).catch(console.error);
 
-    // Daily summary: fetch once per calendar day, gate via localStorage
-    const summaryKey = 'pt-summary-shown';
-    const shownDate = typeof localStorage !== 'undefined' ? localStorage.getItem(summaryKey) : null;
-    if (shownDate !== todayStr()) {
-      fetch('/api/daily-summary', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-          if (typeof data.summary === 'string' && data.summary.trim()) { setDailySummary(data.summary.trim()); setSummaryVisible(true); }
-        })
-        .catch(() => {})
-        .finally(() => {
-          try { localStorage.setItem(summaryKey, todayStr()); } catch {}
-        });
-    }
-  }, []);
+    void requestDailySummary(false);
+  }, [requestDailySummary]);
 
   const loadLog = useCallback(async (selected: string) => {
     const rangeStart = selected < weekStart ? selected : weekStart;
@@ -438,6 +446,7 @@ export default function Home() {
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
               {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} onSaveNote={handleTimerNoteSave} onOpenNote={setNoteModalId} />}
               <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
+              <IconButton title="Ask AI about exercise" label="AI?" onClick={() => setShowAiCoach(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M7.8 7.4A2.4 2.4 0 0 1 10.2 5c1.4 0 2.5.9 2.5 2.2 0 1.1-.6 1.7-1.7 2.4-.8.5-1 1-1 1.9"/><path d="M10 14.6h.01"/></svg></IconButton>
               {widgetPrefs.info && <IconButton title="Exercise guide" label="guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}
               <IconButton title="Reorder & edit" label="edit" onClick={() => setShowManage(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></IconButton>
               {widgetPrefs.calendar && <IconButton title="Calendar" label="cal" onClick={() => setShowCalendar(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></IconButton>}
@@ -464,7 +473,7 @@ export default function Home() {
             {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
             <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
             {!confirmClearDay && <button onClick={() => setConfirmClearDay(true)} className="text-xs font-medium px-3 py-1 rounded-full" style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>{clearing ? 'Clearing…' : '× Clear'}</button>}
-            {dailySummary && !summaryVisible && <button onClick={() => setSummaryVisible(true)} className="text-sm px-2 py-1 rounded-full leading-none" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation' }} title="Show yesterday's summary">☀️</button>}
+            <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="text-sm px-2 py-1 rounded-full leading-none disabled:opacity-50" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary">{summaryLoading ? '…' : '☀️'}</button>
           </div>
           {confirmClearDay && <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Are you sure? Clear ALL data for {displayForDate(selectedDate)}?</span><button onClick={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onClick={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>}
         </div>
@@ -476,6 +485,7 @@ export default function Home() {
         {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} onClose={() => setShowInfo(false)} />}
         {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onClose={() => setShowWidgetSettings(false)} />}
         {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
+        {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} onClose={() => setShowAiCoach(false)} />}
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
