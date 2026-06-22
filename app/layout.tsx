@@ -3,6 +3,7 @@ import SmartAddPortal from "@/components/SmartAddPortal";
 import SavingStatusPortal from "@/components/SavingStatusPortal";
 import ExerciseCardMobileEnhancer from "@/components/ExerciseCardMobileEnhancer";
 import "./globals.css";
+import "./widget-rescue.css";
 
 const DRIVE_FILE_ID = "1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD";
 const DRIVE_ICON_URL = `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w512`;
