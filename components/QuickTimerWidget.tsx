@@ -4,19 +4,29 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
+const LEAD_IN_SECONDS = 10;
 const SWITCH_SECONDS = 15;
 const BREAK_SECONDS = 30;
-const LEAD_IN_SECONDS = 10;
 const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
+
+type Mode = 'timer' | 'stopwatch';
+type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30';
+type StepKind = 'stretch' | 'switch' | 'break';
 
 type TimerStep = {
   seconds: number;
   cueAfter: string;
-  kind: 'stretch' | 'switch' | 'break';
+  kind: StepKind;
   countdownToStretch?: boolean;
 };
-type Mode = 'timer' | 'stopwatch';
-type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30' | 'one' | 'two' | 'three' | 'single';
+
+type SequenceOption = {
+  key: SequenceKey;
+  label: '1 set' | '2 sets' | '3 sets';
+  group: '60 sec holds' | '30 sec holds';
+  holdSeconds: 30 | 60;
+  steps: TimerStep[];
+};
 
 type StoredTimerState = {
   mode: Mode;
@@ -29,81 +39,42 @@ type StoredTimerState = {
   cue: string;
   sequenceActive: boolean;
   sequenceIndex: number;
-  sequenceName: string;
-  sequenceKey: SequenceKey;
+  sequenceKey: SequenceKey | null;
   endAt: number | null;
-  savedAt: number;
-};
-
-type SequenceOption = {
-  name: string;
-  key: Exclude<SequenceKey, 'single' | 'one' | 'two' | 'three'>;
-  steps: TimerStep[];
-  pattern: string;
-  stretchSeconds: 30 | 60;
 };
 
 type SequenceResolution =
   | { done: true; lastCue: string }
   | { done: false; index: number; endAt: number; remaining: number; duration: number; lastCue: string };
 
-function stretchStartCue(stretchSeconds: number) {
-  return stretchSeconds === 60 ? 'One minute starting' : '30 seconds starting';
+function startCue(holdSeconds: 30 | 60) {
+  return holdSeconds === 60 ? 'One minute starting' : '30 seconds starting';
 }
 
-function buildSetSequence(setCount: number, stretchSeconds: 30 | 60): TimerStep[] {
+function buildSequence(setCount: number, holdSeconds: 30 | 60): TimerStep[] {
   const steps: TimerStep[] = [];
   for (let set = 1; set <= setCount; set += 1) {
-    steps.push({ seconds: stretchSeconds, cueAfter: 'Switch', kind: 'stretch' });
+    steps.push({ seconds: holdSeconds, cueAfter: 'Switch', kind: 'stretch' });
     steps.push({ seconds: SWITCH_SECONDS, cueAfter: 'Start', kind: 'switch', countdownToStretch: true });
-    steps.push({ seconds: stretchSeconds, cueAfter: set === setCount ? 'End' : '30 second break', kind: 'stretch' });
-    if (set < setCount) steps.push({ seconds: BREAK_SECONDS, cueAfter: stretchStartCue(stretchSeconds), kind: 'break', countdownToStretch: true });
+    steps.push({ seconds: holdSeconds, cueAfter: set === setCount ? 'End' : '30 second break', kind: 'stretch' });
+    if (set < setCount) steps.push({ seconds: BREAK_SECONDS, cueAfter: startCue(holdSeconds), kind: 'break', countdownToStretch: true });
   }
   return steps;
 }
 
-const ONE_SET_60_SEQUENCE = buildSetSequence(1, 60);
-const TWO_SET_60_SEQUENCE = buildSetSequence(2, 60);
-const THREE_SET_60_SEQUENCE = buildSetSequence(3, 60);
-const ONE_SET_30_SEQUENCE = buildSetSequence(1, 30);
-const TWO_SET_30_SEQUENCE = buildSetSequence(2, 30);
-const THREE_SET_30_SEQUENCE = buildSetSequence(3, 30);
-
-const DEFAULT_SEQUENCE_OPTION: SequenceOption = {
-  name: '2 sets · 60s',
-  key: 'two60',
-  steps: TWO_SET_60_SEQUENCE,
-  pattern: '10, 60, 15, 60, 30, 60, 15, 60',
-  stretchSeconds: 60,
-};
-
 const SEQUENCE_OPTIONS: SequenceOption[] = [
-  { name: '1 set · 60s', key: 'one60', steps: ONE_SET_60_SEQUENCE, pattern: '10, 60, 15, 60', stretchSeconds: 60 },
-  DEFAULT_SEQUENCE_OPTION,
-  { name: '3 sets · 60s', key: 'three60', steps: THREE_SET_60_SEQUENCE, pattern: '10, 60, 15, 60, 30, 60, 15, 60, 30, 60, 15, 60', stretchSeconds: 60 },
-  { name: '1 set · 30s', key: 'one30', steps: ONE_SET_30_SEQUENCE, pattern: '10, 30, 15, 30', stretchSeconds: 30 },
-  { name: '2 sets · 30s', key: 'two30', steps: TWO_SET_30_SEQUENCE, pattern: '10, 30, 15, 30, 30, 30, 15, 30', stretchSeconds: 30 },
-  { name: '3 sets · 30s', key: 'three30', steps: THREE_SET_30_SEQUENCE, pattern: '10, 30, 15, 30, 30, 30, 15, 30, 30, 30, 15, 30', stretchSeconds: 30 },
+  { key: 'one60', label: '1 set', group: '60 sec holds', holdSeconds: 60, steps: buildSequence(1, 60) },
+  { key: 'two60', label: '2 sets', group: '60 sec holds', holdSeconds: 60, steps: buildSequence(2, 60) },
+  { key: 'three60', label: '3 sets', group: '60 sec holds', holdSeconds: 60, steps: buildSequence(3, 60) },
+  { key: 'one30', label: '1 set', group: '30 sec holds', holdSeconds: 30, steps: buildSequence(1, 30) },
+  { key: 'two30', label: '2 sets', group: '30 sec holds', holdSeconds: 30, steps: buildSequence(2, 30) },
+  { key: 'three30', label: '3 sets', group: '30 sec holds', holdSeconds: 30, steps: buildSequence(3, 30) },
 ];
 
-function optionForKey(key?: SequenceKey) {
-  if (key === 'one') return SEQUENCE_OPTIONS.find(option => option.key === 'one60') ?? DEFAULT_SEQUENCE_OPTION;
-  if (key === 'two' || key === 'single') return DEFAULT_SEQUENCE_OPTION;
-  if (key === 'three') return SEQUENCE_OPTIONS.find(option => option.key === 'three60') ?? DEFAULT_SEQUENCE_OPTION;
-  return SEQUENCE_OPTIONS.find(option => option.key === key) ?? DEFAULT_SEQUENCE_OPTION;
-}
+const DEFAULT_SEQUENCE = SEQUENCE_OPTIONS[1];
 
-function keyForSequenceName(name: string): SequenceKey {
-  return SEQUENCE_OPTIONS.find(option => option.name === name)?.key ?? DEFAULT_SEQUENCE_OPTION.key;
-}
-
-function normalizeStoredOption(name?: string, key?: SequenceKey) {
-  const byKey = optionForKey(key);
-  if (key && key !== 'single') return byKey;
-  if (name === '1 set') return SEQUENCE_OPTIONS.find(option => option.key === 'one60') ?? DEFAULT_SEQUENCE_OPTION;
-  if (name === '2 sets') return DEFAULT_SEQUENCE_OPTION;
-  if (name === '3 sets') return SEQUENCE_OPTIONS.find(option => option.key === 'three60') ?? DEFAULT_SEQUENCE_OPTION;
-  return SEQUENCE_OPTIONS.find(option => option.name === name) ?? DEFAULT_SEQUENCE_OPTION;
+function getSequence(key: SequenceKey | null | undefined) {
+  return SEQUENCE_OPTIONS.find(option => option.key === key) ?? DEFAULT_SEQUENCE;
 }
 
 function segmentLabel(step?: TimerStep) {
@@ -111,6 +82,12 @@ function segmentLabel(step?: TimerStep) {
   if (step.kind === 'switch') return 'Switch · 15 sec';
   if (step.kind === 'break') return 'Break · 30 sec';
   return step.seconds === 60 ? 'Stretch · 1 min' : 'Stretch · 30 sec';
+}
+
+function formatTime(totalSeconds: number) {
+  const minutes = Math.floor(Math.max(0, totalSeconds) / 60);
+  const seconds = Math.max(0, totalSeconds) % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 export default function QuickTimerWidget() {
@@ -122,26 +99,39 @@ export default function QuickTimerWidget() {
   const [elapsed, setElapsed] = useState(0);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
-  const [customMinutes, setCustomMinutes] = useState('2');
   const [bellOn, setBellOn] = useState(true);
+  const [customMinutes, setCustomMinutes] = useState('2');
+  const [cue, setCue] = useState('');
   const [sequenceActive, setSequenceActive] = useState(false);
   const [sequenceIndex, setSequenceIndex] = useState(0);
-  const [sequenceName, setSequenceName] = useState(DEFAULT_SEQUENCE_OPTION.name);
-  const [activeSequence, setActiveSequence] = useState<TimerStep[]>(DEFAULT_SEQUENCE_OPTION.steps);
-  const [cue, setCue] = useState('');
+  const [sequenceKey, setSequenceKey] = useState<SequenceKey | null>(null);
+
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const sequenceIndexRef = useRef(0);
-  const activeSequenceRef = useRef<TimerStep[]>(DEFAULT_SEQUENCE_OPTION.steps);
-  const endAtRef = useRef<number | null>(null);
-  const runningRef = useRef(false);
-  const modeRef = useRef<Mode>('timer');
-  const sequenceActiveRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSequenceRef = useRef<TimerStep[]>(DEFAULT_SEQUENCE.steps);
+  const endAtRef = useRef<number | null>(null);
+  const modeRef = useRef<Mode>('timer');
+  const runningRef = useRef(false);
+  const sequenceActiveRef = useRef(false);
+  const sequenceIndexRef = useRef(0);
+  const sequenceKeyRef = useRef<SequenceKey | null>(null);
   const lastCountdownSecondRef = useRef<number | null>(null);
+
+  const activeSequence = getSequence(sequenceKey);
+  const currentStep = sequenceActive && sequenceIndex >= 0 ? activeSequenceRef.current[sequenceIndex] : undefined;
+  const shownSeconds = mode === 'timer' ? remaining : elapsed;
+  const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
+  const circumference = 2 * Math.PI * 22;
+  const dashOffset = circumference * (1 - pct);
+  const sequenceLabel = sequenceActive
+    ? sequenceIndex < 0
+      ? 'Start in 10'
+      : `${activeSequence.label} · ${activeSequence.holdSeconds}s · ${segmentLabel(currentStep)}`
+    : '';
 
   const persistTimer = (patch: Partial<StoredTimerState> = {}) => {
     if (typeof window === 'undefined') return;
-    const next: StoredTimerState = {
+    const state: StoredTimerState = {
       mode,
       duration,
       remaining,
@@ -152,26 +142,11 @@ export default function QuickTimerWidget() {
       cue,
       sequenceActive,
       sequenceIndex: sequenceIndexRef.current,
-      sequenceName,
-      sequenceKey: keyForSequenceName(sequenceName),
+      sequenceKey: sequenceKeyRef.current,
       endAt: endAtRef.current,
-      savedAt: Date.now(),
       ...patch,
     };
-    localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(next));
-  };
-
-  const requestNotificationAccess = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission === 'default') {
-      try { await Notification.requestPermission(); } catch { /* ignore */ }
-    }
-  };
-
-  const showNotification = (message: string) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-    try { new Notification('PT timer', { body: message, silent: false }); } catch { /* ignore */ }
+    localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state));
   };
 
   const unlockAudio = async () => {
@@ -183,36 +158,7 @@ export default function QuickTimerWidget() {
     return audioContextRef.current;
   };
 
-  const playBeep = async (message: string) => {
-    if (!bellOn) return;
-    const ctx = await unlockAudio();
-    if (!ctx) return;
-    const normalized = message.toLowerCase();
-    const pattern = normalized.includes('end') || normalized.includes('done')
-      ? [880, 988, 1175]
-      : normalized.includes('break')
-        ? [660, 520]
-        : normalized.includes('start')
-          ? [740, 880]
-          : [880, 880];
-
-    pattern.forEach((freq, index) => {
-      const start = ctx.currentTime + index * 0.18;
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(freq, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.16, start + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.14);
-    });
-  };
-
-  const playCountdownBeep = async (count: number) => {
+  const playTone = async (frequency: number, volume = 0.15, length = 0.12) => {
     if (!bellOn) return;
     const ctx = await unlockAudio();
     if (!ctx) return;
@@ -220,51 +166,68 @@ export default function QuickTimerWidget() {
     const oscillator = ctx.createOscillator();
     const gain = ctx.createGain();
     oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(count === 1 ? 1320 : 1040, now);
+    oscillator.frequency.setValueAtTime(frequency, now);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(count === 1 ? 0.2 : 0.13, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + length);
     oscillator.connect(gain);
     gain.connect(ctx.destination);
     oscillator.start(now);
-    oscillator.stop(now + 0.1);
-  };
-
-  const speakCue = (message: string) => {
-    if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(message);
-    utterance.rate = 1;
-    window.speechSynthesis.speak(utterance);
+    oscillator.stop(now + length + 0.02);
   };
 
   const playCue = (message: string) => {
     lastCountdownSecondRef.current = null;
     setCue(message);
     if (!bellOn) return;
-    void playBeep(message);
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(message.toLowerCase().includes('end') ? [120, 60, 120] : 120);
-    speakCue(message);
-    showNotification(message);
+    const lower = message.toLowerCase();
+    if (lower.includes('end') || lower.includes('done')) {
+      void playTone(880, 0.16);
+      window.setTimeout(() => void playTone(988, 0.16), 170);
+      window.setTimeout(() => void playTone(1175, 0.16), 340);
+    } else if (lower.includes('break')) {
+      void playTone(660, 0.14);
+      window.setTimeout(() => void playTone(520, 0.14), 170);
+    } else {
+      void playTone(880, 0.14);
+    }
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(lower.includes('end') ? [120, 60, 120] : 120);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.rate = 1;
+      window.speechSynthesis.speak(utterance);
+    }
   };
 
-  const isCountdownToStretchSegment = () => {
+  const isCountdownToStretch = () => {
     if (!sequenceActiveRef.current) return false;
     if (sequenceIndexRef.current < 0) return true;
     return !!activeSequenceRef.current[sequenceIndexRef.current]?.countdownToStretch;
   };
 
   const maybeCountdownBeep = (secondsLeft: number) => {
-    if (!runningRef.current || !isCountdownToStretchSegment()) return;
+    if (!runningRef.current || !isCountdownToStretch()) return;
     if (secondsLeft < 1 || secondsLeft > 5) return;
     if (lastCountdownSecondRef.current === secondsLeft) return;
     lastCountdownSecondRef.current = secondsLeft;
-    void playCountdownBeep(secondsLeft);
+    void playTone(secondsLeft === 1 ? 1320 : 1040, secondsLeft === 1 ? 0.2 : 0.13, 0.09);
   };
 
   const stopTimer = () => {
     setRunning(false);
     runningRef.current = false;
+  };
+
+  const finishTimer = (message = 'Done') => {
+    stopTimer();
+    endAtRef.current = null;
+    setRemaining(0);
+    setDone(true);
+    setSequenceActive(false);
+    sequenceActiveRef.current = false;
+    playCue(message);
+    persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
   };
 
   const resolveSequenceAt = (now: number): SequenceResolution => {
@@ -282,14 +245,14 @@ export default function QuickTimerWidget() {
         nextDuration = steps[0]?.seconds ?? duration;
         endAt += nextDuration * 1000;
       } else {
-        const currentStep = steps[index];
-        if (!currentStep) return { done: true, lastCue: lastCue || 'End' };
-        lastCue = currentStep.cueAfter;
+        const current = steps[index];
+        if (!current) return { done: true, lastCue: lastCue || 'End' };
+        lastCue = current.cueAfter;
         const nextIndex = index + 1;
-        const nextStep = steps[nextIndex];
-        if (!nextStep) return { done: true, lastCue };
+        const next = steps[nextIndex];
+        if (!next) return { done: true, lastCue };
         index = nextIndex;
-        nextDuration = nextStep.seconds;
+        nextDuration = next.seconds;
         endAt += nextDuration * 1000;
       }
     }
@@ -302,17 +265,6 @@ export default function QuickTimerWidget() {
       duration: nextDuration,
       lastCue,
     };
-  };
-
-  const finishTimer = (message = 'Done') => {
-    stopTimer();
-    endAtRef.current = null;
-    setRemaining(0);
-    setDone(true);
-    setSequenceActive(false);
-    sequenceActiveRef.current = false;
-    playCue(message);
-    persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
   };
 
   const syncTimerFromClock = (playMissedCue = true) => {
@@ -385,12 +337,10 @@ export default function QuickTimerWidget() {
 
   const startCountdown = async () => {
     await unlockAudio();
-    await requestNotificationAccess();
     if (done) {
       resetTimer();
       return;
     }
-
     const startSeconds = Math.max(1, remaining || duration);
     const endAt = Date.now() + startSeconds * 1000;
     endAtRef.current = endAt;
@@ -401,7 +351,7 @@ export default function QuickTimerWidget() {
     setDone(false);
     lastCountdownSecondRef.current = null;
     if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
-    persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceName, sequenceKey: keyForSequenceName(sequenceName), endAt });
+    persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceKey: sequenceKeyRef.current, endAt });
   };
 
   const startStopwatch = async () => {
@@ -421,13 +371,12 @@ export default function QuickTimerWidget() {
 
   const startSequencePreset = async (option: SequenceOption) => {
     await unlockAudio();
-    await requestNotificationAccess();
     stopTimer();
     endAtRef.current = null;
     lastCountdownSecondRef.current = null;
     activeSequenceRef.current = option.steps;
-    setActiveSequence(option.steps);
-    setSequenceName(option.name);
+    sequenceKeyRef.current = option.key;
+    setSequenceKey(option.key);
     setMode('timer');
     modeRef.current = 'timer';
     setDone(false);
@@ -437,13 +386,12 @@ export default function QuickTimerWidget() {
     sequenceIndexRef.current = -1;
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
-    setCue(`${option.name} ready · ${option.pattern}`);
-    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceName: option.name, sequenceKey: option.key, endAt: null, cue: `${option.name} ready · ${option.pattern}` });
+    setCue(`${option.label} · ${option.holdSeconds}s ready`);
+    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} · ${option.holdSeconds}s ready` });
   };
 
   const testSound = async () => {
     await unlockAudio();
-    await requestNotificationAccess();
     playCue('Sound test');
   };
 
@@ -456,14 +404,15 @@ export default function QuickTimerWidget() {
     if (!raw) return;
     try {
       const stored = JSON.parse(raw) as StoredTimerState;
-      const option = normalizeStoredOption(stored.sequenceName, stored.sequenceKey);
+      const option = getSequence(stored.sequenceKey);
       activeSequenceRef.current = option.steps;
+      sequenceKeyRef.current = option.key;
       endAtRef.current = stored.endAt ?? null;
       sequenceIndexRef.current = stored.sequenceIndex ?? 0;
       sequenceActiveRef.current = !!stored.sequenceActive;
       runningRef.current = !!stored.running;
       modeRef.current = stored.mode ?? 'timer';
-      setActiveSequence(option.steps);
+      setSequenceKey(option.key);
       setMode(stored.mode ?? 'timer');
       setDuration(stored.duration || 30);
       setRemaining(stored.remaining || stored.duration || 30);
@@ -473,7 +422,6 @@ export default function QuickTimerWidget() {
       setBellOn(stored.bellOn !== false);
       setSequenceActive(!!stored.sequenceActive);
       setSequenceIndex(stored.sequenceIndex ?? 0);
-      setSequenceName(option.name);
       setCue(stored.cue || '');
       window.setTimeout(() => syncTimerFromClock(true), 0);
     } catch {
@@ -497,7 +445,7 @@ export default function QuickTimerWidget() {
       });
     }, mode === 'timer' ? 350 : 1000);
     return () => window.clearInterval(id);
-  }, [running, mode, sequenceActive, sequenceName]);
+  }, [running, mode, sequenceActive, cue, duration, remaining]);
 
   useEffect(() => {
     const sync = () => syncTimerFromClock(true);
@@ -532,15 +480,17 @@ export default function QuickTimerWidget() {
     await unlockAudio();
     stopTimer();
     endAtRef.current = null;
+    sequenceKeyRef.current = null;
     setMode('timer');
     modeRef.current = 'timer';
     setDuration(seconds);
+    setSequenceKey(null);
     setSequenceActive(false);
     sequenceActiveRef.current = false;
     setDone(false);
     setRemaining(seconds);
     setCue('');
-    persistTimer({ mode: 'timer', duration: seconds, remaining: seconds, running: false, done: false, sequenceActive: false, endAt: null, cue: '' });
+    persistTimer({ mode: 'timer', duration: seconds, remaining: seconds, running: false, done: false, sequenceActive: false, sequenceKey: null, endAt: null, cue: '' });
   };
 
   const applyCustomMinutes = async () => {
@@ -576,32 +526,16 @@ export default function QuickTimerWidget() {
     persistTimer({ running: false, endAt: null, remaining: pausedRemaining });
   };
 
-  const currentSegment = sequenceActive && sequenceIndex >= 0 ? activeSequence[sequenceIndex] : undefined;
-  const shownSeconds = mode === 'timer' ? remaining : elapsed;
-  const mins = Math.floor(shownSeconds / 60);
-  const secs = shownSeconds % 60;
-  const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
-  const circumference = 2 * Math.PI * 22;
-  const dashOffset = circumference * (1 - pct);
-  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `${sequenceName} · ${segmentLabel(currentSegment)}`) : '';
-
-  const sequenceButtonStyle = (name: string) => ({
-    padding: '9px 10px',
-    background: sequenceActive && sequenceName === name ? '#E4ECE6' : '#f5f5f4',
-    color: sequenceActive && sequenceName === name ? '#476653' : '#57534e',
-    border: sequenceActive && sequenceName === name ? '1px solid #cfded3' : '1px solid transparent',
-  });
-
   const groupedSequenceOptions = [
-    { label: '60 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.stretchSeconds === 60) },
-    { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.stretchSeconds === 30) },
+    { label: '60 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '60 sec holds') },
+    { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '30 sec holds') },
   ];
 
   const panel = open ? (
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 288, touchAction: 'manipulation' }}
+      style={{ width: 280, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -626,26 +560,33 @@ export default function QuickTimerWidget() {
             {groupedSequenceOptions.map(group => (
               <div key={group.label} className="space-y-1.5">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{group.label}</p>
-                {group.options.map(option => (
-                  <button
-                    key={option.key}
-                    onClick={event => { event.stopPropagation(); void startSequencePreset(option); }}
-                    className="w-full rounded-lg text-left transition-colors"
-                    style={sequenceButtonStyle(option.name)}
-                  >
-                    <span className="block text-xs font-bold">{option.name}</span>
-                    <span className="block text-[10px] leading-snug opacity-75">{option.pattern}</span>
-                  </button>
-                ))}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {group.options.map(option => (
+                    <button
+                      key={option.key}
+                      onClick={event => { event.stopPropagation(); void startSequencePreset(option); }}
+                      className="rounded-lg text-center text-xs font-bold transition-colors"
+                      style={{
+                        minHeight: 36,
+                        padding: '8px 4px',
+                        background: sequenceActive && sequenceKey === option.key ? '#E4ECE6' : '#f5f5f4',
+                        color: sequenceActive && sequenceKey === option.key ? '#476653' : '#57534e',
+                        border: sequenceActive && sequenceKey === option.key ? '1px solid #cfded3' : '1px solid transparent',
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
-          <p className="mb-3 text-[10px] text-center text-stone-400">1 set = 10 sec lead-in, side A, 15 sec switch, side B</p>
+          <p className="mb-3 text-[10px] text-center text-stone-400">Set = side A · switch · side B</p>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
             <button onClick={event => { event.stopPropagation(); void applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
-            <button onClick={event => { event.stopPropagation(); void unlockAudio(); void requestNotificationAccess(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
+            <button onClick={event => { event.stopPropagation(); void unlockAudio(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
             <button onClick={event => { event.stopPropagation(); void testSound(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }} title="Test sound">Test</button>
           </div>
         </>
@@ -658,7 +599,7 @@ export default function QuickTimerWidget() {
             <circle cx="24" cy="24" r="22" fill="none" stroke={done ? '#7E9B86' : running ? '#D9A94B' : sequenceActive ? '#7E9B86' : '#C17B4F'} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={dashOffset} style={{ transition: 'stroke-dashoffset 0.9s linear' }} />
           </svg>
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>{mins}:{String(secs).padStart(2, '0')}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#1c1917', fontFamily: 'inherit' }}>{formatTime(shownSeconds)}</span>
           </div>
         </div>
       </div>
@@ -667,8 +608,7 @@ export default function QuickTimerWidget() {
         <div className="text-center mb-3 rounded-xl px-2 py-1.5" style={{ background: '#E4ECE6', color: '#476653' }}>
           {sequenceLabel && <p className="text-[10px] font-bold uppercase tracking-wider">{sequenceLabel}</p>}
           {cue && <p className="text-xs font-bold">{cue}</p>}
-          {running && isCountdownToStretchSegment() && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Stretch starts in {remaining}</p>}
-          {running && <p className="text-[10px] font-semibold mt-0.5 opacity-70">Persists with app switching when iOS allows web timers/notifications.</p>}
+          {running && isCountdownToStretch() && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Stretch starts in {remaining}</p>}
         </div>
       )}
       {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
@@ -682,7 +622,7 @@ export default function QuickTimerWidget() {
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); void unlockAudio(); void requestNotificationAccess(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
