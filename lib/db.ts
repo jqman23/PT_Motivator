@@ -93,11 +93,11 @@ export async function getRecentNotes(exerciseId: string, beforeDate: string): Pr
     FROM exercise_notes
     WHERE exercise_id = ${exerciseId}
       AND date < ${beforeDate}::date
-      AND date >= ${beforeDate}::date - INTERVAL '3 days'
+      AND date >= ${beforeDate}::date - INTERVAL '21 days'
       AND note != ''
     GROUP BY note
     ORDER BY MAX(date) DESC
-    LIMIT 5
+    LIMIT 8
   `;
   return rows as Array<{ note: string }>;
 }
