@@ -65,7 +65,7 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
 
 main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto {
   position: fixed;
-  right: max(1rem, calc(env(safe-area-inset-right) + 1rem));
+  right: var(--pt-dock-right, max(1rem, calc(env(safe-area-inset-right) + 1rem)));
   bottom: max(5.25rem, calc(env(safe-area-inset-bottom) + 5.25rem));
   z-index: 9997;
   display: flex !important;

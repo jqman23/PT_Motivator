@@ -386,10 +386,13 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                     <div className="space-y-1.5">
                       {clarificationOptions.map((option, i) => {
                         const label = optionLabel(option);
+                        const value = optionValue(option);
+                        const hasPreview = value && value !== label;
                         return (
                           <button key={`${label}-${i}`} onClick={e => { e.preventDefault(); e.stopPropagation(); chooseClarification(option); }} disabled={loading}
-                            className="w-full text-left rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800 disabled:opacity-50">
-                            {label}
+                            className="w-full text-left rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs disabled:opacity-50">
+                            <span className="font-bold text-amber-800">{label}</span>
+                            {hasPreview && <span className="block mt-0.5 text-amber-700 font-normal leading-snug opacity-80">{value}</span>}
                           </button>
                         );
                       })}
