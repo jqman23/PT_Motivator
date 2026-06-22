@@ -404,6 +404,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           exerciseId={exercise.id}
           date={today}
           initialNote={note}
+          exerciseSets={exercise.sets ?? ''}
+          exerciseCue={exercise.cue ?? ''}
+          exerciseTips={exercise.tips ?? []}
           onSave={onNoteSave}
           onClose={() => setShowNotes(false)}
         />
