@@ -38,6 +38,11 @@ export default function FloatingWidgetDockToggle() {
   }, [open]);
 
   useEffect(() => {
+    document.body.classList.toggle('pt-widget-dock-open', open);
+    return () => document.body.classList.remove('pt-widget-dock-open');
+  }, [open]);
+
+  useEffect(() => {
     const toolbar = toolbarRef.current ?? findWidgetToolbar();
     if (!toolbar) return;
     toolbarRef.current = toolbar;
