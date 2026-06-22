@@ -36,6 +36,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
   const [reply, setReply] = useState<AiReply | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const clarificationCountRef = useRef(0);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -60,7 +61,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
           question: clean,
           history: nextHistory,
           clarificationCount: clarificationCountRef.current,
-          exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets })).slice(0, 40),
+          exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
         }),
       });
       const data = await res.json();
@@ -68,6 +69,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
       const nextReply: AiReply = { ...data.reply, options: (data.reply?.options ?? []).slice(0, 3) };
       clarificationCountRef.current = nextReply.options.length ? Math.min(2, clarificationCountRef.current + 1) : 0;
       setReply(nextReply);
+      clarificationCountRef.current = nextReply.confirmedExercise ? 0 : clarificationCountRef.current + 1;
       setHistory(trimHistory([...nextHistory, { role: 'assistant', content: nextReply.answer }]));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI coach failed');
