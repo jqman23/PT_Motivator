@@ -71,7 +71,7 @@ const SEQUENCE_OPTIONS: SequenceOption[] = [
   { key: 'three30', label: '3 sets', group: '30 sec holds', holdSeconds: 30, steps: buildSequence(3, 30) },
 ];
 
-const DEFAULT_SEQUENCE = SEQUENCE_OPTIONS[1];
+const DEFAULT_SEQUENCE = SEQUENCE_OPTIONS[0];
 
 function getSequence(key: SequenceKey | null | undefined) {
   return SEQUENCE_OPTIONS.find(option => option.key === key) ?? DEFAULT_SEQUENCE;
