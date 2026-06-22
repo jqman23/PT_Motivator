@@ -23,7 +23,7 @@ type NotesMap = Record<string, string>;
 type PTSession = { date: string; note?: string };
 
 const QUOTES = [
-  'You showed up. That's already half the work.',
+  "You showed up. That's already half the work.",
   'Soreness is adaptation in progress — not a warning sign.',
   'Seven minutes of movement beats seven hours of thinking about it.',
   'Resting is training. Recovery isn\'t optional.',
@@ -44,6 +44,15 @@ const QUOTES = [
   'Form is just biomechanics you control. Start there.',
   'Tight and weak aren\'t the same problem. Neither are busy and recovered.',
 ];
+
+function mergeTimerNotes(existing: string, incoming: string): string {
+  if (!existing) return incoming;
+  const pattern = /^(\d+)×(\d+)s ea side$/;
+  const a = existing.match(pattern);
+  const b = incoming.match(pattern);
+  if (a && b && a[2] === b[2]) return `${Number(a[1]) + Number(b[1])}×${a[2]}s ea side`;
+  return `${existing}\n${incoming}`;
+}
 
 const DEFAULT_WIDGET_PREFS: WidgetPrefs = {
   timer: true,
@@ -162,9 +171,14 @@ export default function Home() {
     layout.flatMap(cat => cat.exerciseIds.map(id => exerciseMap[id]).filter((ex): ex is Exercise => Boolean(ex))),
     [layout, exerciseMap]
   );
+  const notesRef = useRef<NotesMap>({});
+  useEffect(() => { notesRef.current = notes; }, [notes]);
+
   const handleTimerNoteSave = useCallback(async (exerciseId: string, note: string) => {
-    setNotes(prev => ({ ...prev, [exerciseId]: note }));
-    try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today, exerciseId, note }) }); }
+    const existing = notesRef.current[exerciseId] ?? '';
+    const merged = mergeTimerNotes(existing, note);
+    setNotes(prev => ({ ...prev, [exerciseId]: merged }));
+    try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today, exerciseId, note: merged }) }); }
     catch (err) { console.error(err); }
   }, [today]);
 

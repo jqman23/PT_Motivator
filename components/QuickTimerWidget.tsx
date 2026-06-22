@@ -140,6 +140,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   const [logSaved, setLogSaved] = useState(false);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const bellOnRef = useRef(bellOn);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSequenceRef = useRef<TimerStep[]>(DEFAULT_SEQUENCE.steps);
   const endAtRef = useRef<number | null>(null);
@@ -149,6 +150,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   const sequenceIndexRef = useRef(0);
   const sequenceKeyRef = useRef<SequenceKey | null>(null);
   const lastCountdownSecondRef = useRef<number | null>(null);
+
+  useEffect(() => { bellOnRef.current = bellOn; }, [bellOn]);
 
   const activeSequence = getSequence(sequenceKey);
   const currentStep = sequenceActive && sequenceIndex >= 0 ? activeSequenceRef.current[sequenceIndex] : undefined;
@@ -207,7 +210,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   };
 
   const playTone = async (frequency: number, volume = 0.15, length = 0.12) => {
-    if (!bellOn) return;
+    if (!bellOnRef.current) return;
     const ctx = await unlockAudio();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -225,7 +228,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   };
 
   const speakCue = (message: string) => {
-    if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!bellOnRef.current || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message);
     const voice = getFriendlyVoice();
@@ -245,7 +248,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   const playCue = (message: string) => {
     lastCountdownSecondRef.current = null;
     setCue(message);
-    if (!bellOn) return;
+    if (!bellOnRef.current) return;
     const lower = message.toLowerCase();
     if (lower.includes('end') || lower.includes('done')) playDoneDing();
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(lower.includes('end') ? [120, 60, 120] : 80);
@@ -673,8 +676,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
         </div>
       )}
 
-      {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-2" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
-
       {showLogSection && (
         <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
           {!logSaved ? (
@@ -709,7 +710,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
               </div>
             </>
           ) : (
-            <p className="text-center text-xs font-bold py-0.5" style={{ color: '#7E9B86' }}>✓ Note logged</p>
+            <button onClick={e => { e.stopPropagation(); setLogSaved(false); }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
           )}
         </div>
       )}
@@ -725,7 +726,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#FEF3C7] border-[#D97706] text-[#92400E]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className="w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0" title="Quick timer" style={{ touchAction: 'manipulation', background: running ? '#D9A94B' : done ? '#7E9B86' : '#FEF3C7', borderColor: running ? '#D9A94B' : done ? '#7E9B86' : '#D97706', color: running || done ? '#ffffff' : '#92400E' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
         <span style={labelStyle}>timer</span>
       </button>
