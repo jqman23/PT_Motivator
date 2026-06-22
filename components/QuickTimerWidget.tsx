@@ -5,8 +5,28 @@ import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
 const LEAD_IN_SECONDS = 10;
+const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
 
 type TimerStep = { seconds: number; cueAfter: string };
+type Mode = 'timer' | 'stopwatch';
+type SequenceKey = 'single' | 'three';
+
+type StoredTimerState = {
+  mode: Mode;
+  duration: number;
+  remaining: number;
+  elapsed: number;
+  running: boolean;
+  done: boolean;
+  bellOn: boolean;
+  cue: string;
+  sequenceActive: boolean;
+  sequenceIndex: number;
+  sequenceName: string;
+  sequenceKey: SequenceKey;
+  endAt: number | null;
+  savedAt: number;
+};
 
 const SINGLE_SET_SEQUENCE: TimerStep[] = [
   { seconds: 60, cueAfter: 'Switch' },
@@ -34,7 +54,13 @@ const THREE_SET_SEQUENCE: TimerStep[] = [
   { seconds: 60, cueAfter: 'End' },
 ];
 
-type Mode = 'timer' | 'stopwatch';
+function sequenceForKey(key: SequenceKey) {
+  return key === 'three' ? THREE_SET_SEQUENCE : SINGLE_SET_SEQUENCE;
+}
+
+function keyForSequenceName(name: string): SequenceKey {
+  return name === '3 sets' ? 'three' : 'single';
+}
 
 export default function QuickTimerWidget() {
   const [mounted, setMounted] = useState(false);
@@ -53,12 +79,50 @@ export default function QuickTimerWidget() {
   const [activeSequence, setActiveSequence] = useState<TimerStep[]>(SINGLE_SET_SEQUENCE);
   const [cue, setCue] = useState('');
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const intervalRef = useRef<number | null>(null);
   const sequenceIndexRef = useRef(0);
   const activeSequenceRef = useRef<TimerStep[]>(SINGLE_SET_SEQUENCE);
+  const endAtRef = useRef<number | null>(null);
+  const runningRef = useRef(false);
+  const modeRef = useRef<Mode>('timer');
+  const sequenceActiveRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  useEffect(() => setMounted(true), []);
+  const persistTimer = (patch: Partial<StoredTimerState> = {}) => {
+    if (typeof window === 'undefined') return;
+    const next: StoredTimerState = {
+      mode,
+      duration,
+      remaining,
+      elapsed,
+      running,
+      done,
+      bellOn,
+      cue,
+      sequenceActive,
+      sequenceIndex: sequenceIndexRef.current,
+      sequenceName,
+      sequenceKey: keyForSequenceName(sequenceName),
+      endAt: endAtRef.current,
+      savedAt: Date.now(),
+      ...patch,
+    };
+    localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const requestNotificationAccess = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch { /* ignore */ }
+    }
+  };
+
+  const showNotification = (message: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    try {
+      new Notification('PT timer', { body: message, silent: false });
+    } catch { /* ignore */ }
+  };
 
   const unlockAudio = async () => {
     if (typeof window === 'undefined') return null;
@@ -112,127 +176,245 @@ export default function QuickTimerWidget() {
     void playBeep(message);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(message.toLowerCase().includes('end') ? [120, 60, 120] : 120);
     speakCue(message);
+    showNotification(message);
   };
 
   const stopTimer = () => {
-    if (intervalRef.current) window.clearInterval(intervalRef.current);
-    intervalRef.current = null;
     setRunning(false);
+    runningRef.current = false;
+  };
+
+  const resolveSequenceAt = (now: number) => {
+    const steps = activeSequenceRef.current;
+    let index = sequenceIndexRef.current;
+    let endAt = endAtRef.current ?? now;
+    let lastCue = '';
+    let nextDuration = duration;
+
+    while (endAt <= now) {
+      if (index < 0) {
+        lastCue = 'Start';
+        index = 0;
+        nextDuration = steps[0].seconds;
+        endAt += nextDuration * 1000;
+      } else {
+        const currentStep = steps[index];
+        lastCue = currentStep.cueAfter;
+        const nextIndex = index + 1;
+        if (nextIndex >= steps.length) return { done: true, lastCue };
+        index = nextIndex;
+        nextDuration = steps[index].seconds;
+        endAt += nextDuration * 1000;
+      }
+    }
+
+    return {
+      done: false,
+      index,
+      endAt,
+      remaining: Math.max(1, Math.ceil((endAt - now) / 1000)),
+      duration: nextDuration,
+      lastCue,
+    };
+  };
+
+  const finishTimer = (message = 'Done') => {
+    stopTimer();
+    endAtRef.current = null;
+    setRemaining(0);
+    setDone(true);
+    setSequenceActive(false);
+    sequenceActiveRef.current = false;
+    playCue(message);
+    persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
+  };
+
+  const syncTimerFromClock = (playMissedCue = true) => {
+    if (modeRef.current !== 'timer' || !runningRef.current || !endAtRef.current) return;
+    const now = Date.now();
+
+    if (endAtRef.current > now) {
+      setRemaining(Math.max(1, Math.ceil((endAtRef.current - now) / 1000)));
+      return;
+    }
+
+    if (!sequenceActiveRef.current) {
+      finishTimer('Done');
+      return;
+    }
+
+    const resolved = resolveSequenceAt(now);
+    if (resolved.done) {
+      finishTimer(resolved.lastCue || 'End');
+      return;
+    }
+
+    sequenceIndexRef.current = resolved.index;
+    endAtRef.current = resolved.endAt;
+    setSequenceIndex(resolved.index);
+    setDuration(resolved.duration);
+    setRemaining(resolved.remaining);
+    if (playMissedCue && resolved.lastCue) playCue(resolved.lastCue);
+    persistTimer({
+      running: true,
+      done: false,
+      duration: resolved.duration,
+      remaining: resolved.remaining,
+      sequenceIndex: resolved.index,
+      endAt: resolved.endAt,
+      cue: resolved.lastCue || cue,
+    });
   };
 
   const resetTimer = (nextDuration = duration) => {
     stopTimer();
+    endAtRef.current = null;
     setDone(false);
     setSequenceActive(false);
+    sequenceActiveRef.current = false;
     setSequenceIndex(0);
     sequenceIndexRef.current = 0;
     setCue('');
     setRemaining(nextDuration);
+    persistTimer({ running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, remaining: nextDuration, duration: nextDuration, cue: '' });
   };
 
   const resetStopwatch = () => {
     stopTimer();
+    endAtRef.current = null;
     setDone(false);
     setSequenceActive(false);
+    sequenceActiveRef.current = false;
     setSequenceIndex(0);
     sequenceIndexRef.current = 0;
     setCue('');
     setElapsed(0);
+    persistTimer({ mode: 'stopwatch', running: false, done: false, elapsed: 0, sequenceActive: false, endAt: null, cue: '' });
   };
 
-  const finishTimer = () => {
-    stopTimer();
-    setDone(true);
-    setSequenceActive(false);
-    playCue('Done');
-  };
-
-  const advanceSequence = () => {
-    const steps = activeSequenceRef.current;
-    const currentIndex = sequenceIndexRef.current;
-
-    if (currentIndex < 0) {
-      playCue('Start');
-      sequenceIndexRef.current = 0;
-      setSequenceIndex(0);
-      setDuration(steps[0].seconds);
-      return steps[0].seconds;
-    }
-
-    const currentStep = steps[currentIndex];
-    playCue(currentStep.cueAfter);
-
-    const nextIndex = currentIndex + 1;
-    if (nextIndex >= steps.length) {
-      stopTimer();
-      setDone(true);
-      setSequenceActive(false);
-      return 0;
-    }
-
-    sequenceIndexRef.current = nextIndex;
-    setSequenceIndex(nextIndex);
-    setDuration(steps[nextIndex].seconds);
-    return steps[nextIndex].seconds;
-  };
-
-  const startCountdown = () => {
-    void unlockAudio();
+  const startCountdown = async () => {
+    await unlockAudio();
+    await requestNotificationAccess();
     if (done) {
       resetTimer();
       return;
     }
-    if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
-    stopTimer();
+
+    const startSeconds = Math.max(1, remaining || duration);
+    const endAt = Date.now() + startSeconds * 1000;
+    endAtRef.current = endAt;
+    modeRef.current = 'timer';
+    runningRef.current = true;
+    setMode('timer');
     setRunning(true);
-    intervalRef.current = window.setInterval(() => {
-      setRemaining(prev => {
-        if (prev <= 1) {
-          if (sequenceActive) return advanceSequence();
-          finishTimer();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    setDone(false);
+    if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
+    persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceName, sequenceKey: keyForSequenceName(sequenceName), endAt });
   };
 
-  const startStopwatch = () => {
-    void unlockAudio();
+  const startStopwatch = async () => {
+    await unlockAudio();
     stopTimer();
+    endAtRef.current = null;
+    modeRef.current = 'stopwatch';
+    setMode('stopwatch');
     setDone(false);
     setSequenceActive(false);
+    sequenceActiveRef.current = false;
     setCue('');
+    runningRef.current = true;
     setRunning(true);
-    intervalRef.current = window.setInterval(() => {
-      setElapsed(prev => prev + 1);
-    }, 1000);
+    persistTimer({ mode: 'stopwatch', running: true, done: false, sequenceActive: false, endAt: null });
   };
 
-  const startSequencePreset = (steps: TimerStep[], name: string) => {
-    void unlockAudio();
+  const startSequencePreset = async (steps: TimerStep[], name: string) => {
+    await unlockAudio();
+    await requestNotificationAccess();
     stopTimer();
+    endAtRef.current = null;
     activeSequenceRef.current = steps;
     setActiveSequence(steps);
     setSequenceName(name);
     setMode('timer');
+    modeRef.current = 'timer';
     setDone(false);
     setSequenceActive(true);
+    sequenceActiveRef.current = true;
     setSequenceIndex(-1);
     sequenceIndexRef.current = -1;
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
     setCue(`${name} ready · press Start`);
+    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceName: name, sequenceKey: keyForSequenceName(name), endAt: null, cue: `${name} ready · press Start` });
   };
 
-  const testSound = () => {
-    void unlockAudio().then(() => playCue('Sound test'));
+  const testSound = async () => {
+    await unlockAudio();
+    await requestNotificationAccess();
+    playCue('Sound test');
   };
 
-  const start = () => mode === 'timer' ? startCountdown() : startStopwatch();
+  const start = () => mode === 'timer' ? void startCountdown() : void startStopwatch();
   const reset = () => mode === 'timer' ? resetTimer() : resetStopwatch();
 
-  useEffect(() => () => stopTimer(), []);
+  const restoreStoredTimer = () => {
+    if (typeof window === 'undefined') return;
+    const raw = localStorage.getItem(TIMER_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw) as StoredTimerState;
+      const steps = sequenceForKey(stored.sequenceKey || 'single');
+      activeSequenceRef.current = steps;
+      endAtRef.current = stored.endAt ?? null;
+      sequenceIndexRef.current = stored.sequenceIndex ?? 0;
+      sequenceActiveRef.current = !!stored.sequenceActive;
+      runningRef.current = !!stored.running;
+      modeRef.current = stored.mode ?? 'timer';
+      setActiveSequence(steps);
+      setMode(stored.mode ?? 'timer');
+      setDuration(stored.duration || 30);
+      setRemaining(stored.remaining || stored.duration || 30);
+      setElapsed(stored.elapsed || 0);
+      setRunning(!!stored.running);
+      setDone(!!stored.done);
+      setBellOn(stored.bellOn !== false);
+      setSequenceActive(!!stored.sequenceActive);
+      setSequenceIndex(stored.sequenceIndex ?? 0);
+      setSequenceName(stored.sequenceName || '1 set');
+      setCue(stored.cue || '');
+      window.setTimeout(() => syncTimerFromClock(true), 0);
+    } catch {
+      localStorage.removeItem(TIMER_STORAGE_KEY);
+    }
+  };
+
+  useEffect(() => {
+    setMounted(true);
+    restoreStoredTimer();
+  }, []);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => {
+      if (modeRef.current === 'timer') syncTimerFromClock(true);
+      else setElapsed(prev => {
+        const next = prev + 1;
+        persistTimer({ mode: 'stopwatch', elapsed: next, running: true, endAt: null });
+        return next;
+      });
+    }, mode === 'timer' ? 500 : 1000);
+    return () => window.clearInterval(id);
+  }, [running, mode, sequenceActive, sequenceName]);
+
+  useEffect(() => {
+    const sync = () => syncTimerFromClock(true);
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -253,31 +435,52 @@ export default function QuickTimerWidget() {
     };
   }, [open]);
 
-  const pickPreset = (seconds: number) => {
-    void unlockAudio();
+  const pickPreset = async (seconds: number) => {
+    await unlockAudio();
+    stopTimer();
+    endAtRef.current = null;
     setMode('timer');
+    modeRef.current = 'timer';
     setDuration(seconds);
-    resetTimer(seconds);
+    setSequenceActive(false);
+    sequenceActiveRef.current = false;
+    setDone(false);
+    setRemaining(seconds);
+    setCue('');
+    persistTimer({ mode: 'timer', duration: seconds, remaining: seconds, running: false, done: false, sequenceActive: false, endAt: null, cue: '' });
   };
 
-  const applyCustomMinutes = () => {
-    void unlockAudio();
+  const applyCustomMinutes = async () => {
+    await unlockAudio();
     const minutes = Number(customMinutes);
     if (!Number.isFinite(minutes) || minutes <= 0) return;
     const seconds = Math.max(1, Math.round(minutes * 60));
     setMode('timer');
+    modeRef.current = 'timer';
     setDuration(seconds);
     resetTimer(seconds);
   };
 
   const switchMode = (next: Mode) => {
     stopTimer();
+    endAtRef.current = null;
     setDone(false);
     setSequenceActive(false);
+    sequenceActiveRef.current = false;
     setSequenceIndex(0);
     sequenceIndexRef.current = 0;
     setCue('');
     setMode(next);
+    modeRef.current = next;
+    persistTimer({ mode: next, running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, cue: '' });
+  };
+
+  const pauseTimer = () => {
+    const pausedRemaining = mode === 'timer' && endAtRef.current ? Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000)) : remaining;
+    stopTimer();
+    endAtRef.current = null;
+    setRemaining(pausedRemaining);
+    persistTimer({ running: false, endAt: null, remaining: pausedRemaining });
   };
 
   const shownSeconds = mode === 'timer' ? remaining : elapsed;
@@ -309,20 +512,20 @@ export default function QuickTimerWidget() {
         <>
           <div className="flex gap-1.5 mb-2">
             {PRESETS.map(seconds => (
-              <button key={seconds} onClick={event => { event.stopPropagation(); pickPreset(seconds); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '8px 0', background: duration === seconds && !sequenceActive && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !sequenceActive && !running && !done ? '#fff' : '#57534e' }}>{seconds}s</button>
+              <button key={seconds} onClick={event => { event.stopPropagation(); void pickPreset(seconds); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '8px 0', background: duration === seconds && !sequenceActive && !running && !done ? '#D9A94B' : '#f5f5f4', color: duration === seconds && !sequenceActive && !running && !done ? '#fff' : '#57534e' }}>{seconds}s</button>
             ))}
           </div>
 
           <div className="grid grid-cols-2 gap-1.5 mb-3">
             <button
-              onClick={event => { event.stopPropagation(); startSequencePreset(SINGLE_SET_SEQUENCE, '1 set'); }}
+              onClick={event => { event.stopPropagation(); void startSequencePreset(SINGLE_SET_SEQUENCE, '1 set'); }}
               className="rounded-lg text-xs font-bold transition-colors"
               style={{ padding: '8px 0', background: sequenceActive && sequenceName === '1 set' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '1 set' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '1 set' ? '1px solid #cfded3' : '1px solid transparent' }}
             >
               1 set
             </button>
             <button
-              onClick={event => { event.stopPropagation(); startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }}
+              onClick={event => { event.stopPropagation(); void startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }}
               className="rounded-lg text-xs font-bold transition-colors"
               style={{ padding: '8px 0', background: sequenceActive && sequenceName === '3 sets' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '3 sets' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '3 sets' ? '1px solid #cfded3' : '1px solid transparent' }}
             >
@@ -331,10 +534,10 @@ export default function QuickTimerWidget() {
           </div>
 
           <div className="flex gap-1.5 mb-3">
-            <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
-            <button onClick={event => { event.stopPropagation(); applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
-            <button onClick={event => { event.stopPropagation(); void unlockAudio(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
-            <button onClick={event => { event.stopPropagation(); testSound(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }} title="Test sound">Test</button>
+            <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
+            <button onClick={event => { event.stopPropagation(); void applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
+            <button onClick={event => { event.stopPropagation(); void unlockAudio(); void requestNotificationAccess(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
+            <button onClick={event => { event.stopPropagation(); void testSound(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }} title="Test sound">Test</button>
           </div>
         </>
       )}
@@ -355,12 +558,13 @@ export default function QuickTimerWidget() {
         <div className="text-center mb-3 rounded-xl px-2 py-1.5" style={{ background: '#E4ECE6', color: '#476653' }}>
           {sequenceLabel && <p className="text-[10px] font-bold uppercase tracking-wider">{sequenceLabel}</p>}
           {cue && <p className="text-xs font-bold">{cue}</p>}
+          {running && <p className="text-[10px] font-semibold mt-0.5 opacity-70">Persists with app switching when iOS allows web timers/notifications.</p>}
         </div>
       )}
       {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
 
       <div className="flex gap-2">
-        <button onClick={event => { event.stopPropagation(); running ? stopTimer() : start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
+        <button onClick={event => { event.stopPropagation(); running ? pauseTimer() : start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
         <button onClick={event => { event.stopPropagation(); reset(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c' }}>Reset</button>
       </div>
     </div>
@@ -368,7 +572,7 @@ export default function QuickTimerWidget() {
 
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); void requestNotificationAccess(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
