@@ -9,6 +9,7 @@ type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
 type ClarificationOption = { label?: string; value?: string } | string;
 type DraftProposal = SmartProposal & { clarificationOptions?: ClarificationOption[] };
+type RawProposal = Partial<SmartProposal> & { clarificationOptions?: ClarificationOption[] };
 
 type ApiErrorBody = {
   error?: string;
@@ -116,6 +117,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const [error, setError] = useState('');
   const [proposal, setProposal] = useState<DraftProposal | null>(null);
   const [currentHealth, setCurrentHealth] = useState<SmartHealthChanges | null>(null);
+  const [manualExerciseId, setManualExerciseId] = useState('');
+  const [manualNote, setManualNote] = useState('');
 
   const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
 
@@ -143,7 +146,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     return row;
   };
 
-  const compactProposal = (raw: any, health: SmartHealthChanges | null): DraftProposal => {
+  const compactProposal = (raw: RawProposal, health: SmartHealthChanges | null): DraftProposal => {
     const exerciseChanges: SmartExerciseChange[] = (raw.exerciseChanges ?? [])
       .map((change: SmartExerciseChange) => {
         const currentDone = !!log[date]?.[change.id];
@@ -225,6 +228,55 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     void analyze(nextInput, proposal);
   };
 
+  const ensureProposal = () => {
+    const draft: DraftProposal = proposal ?? {
+      summary: [],
+      exerciseChanges: [],
+      newExercises: [],
+      healthChanges: {},
+      questions: [],
+      clarificationOptions: [],
+    };
+    return draft;
+  };
+
+  const addManualNote = () => {
+    if (!manualExerciseId || !manualNote.trim()) return;
+    const draft = ensureProposal();
+    const existingIndex = draft.exerciseChanges.findIndex(change => change.id === manualExerciseId);
+    const nextChange: SmartExerciseChange = {
+      ...(existingIndex >= 0 ? draft.exerciseChanges[existingIndex] : { id: manualExerciseId }),
+      note: manualNote.trim(),
+      reason: 'Manual note',
+    };
+    const nextChanges = existingIndex >= 0
+      ? draft.exerciseChanges.map((change, idx) => idx === existingIndex ? nextChange : change)
+      : [...draft.exerciseChanges, nextChange];
+    setProposal({ ...draft, exerciseChanges: nextChanges });
+    setManualNote('');
+  };
+
+  const addManualExerciseDraft = () => {
+    const draft = ensureProposal();
+    setProposal({
+      ...draft,
+      newExercises: [
+        ...draft.newExercises,
+        {
+          name: '',
+          categoryName: categoryNames[0] ?? '',
+          sets: '',
+          cue: '',
+          tips: [],
+          note: '',
+          completed: null,
+          reason: 'Manual exercise',
+          origin: 'patient_added',
+        },
+      ],
+    });
+  };
+
   const updateExercise = (idx: number, patch: Partial<SmartExerciseChange>) => {
     if (!proposal) return;
     const next = [...proposal.exerciseChanges];
@@ -257,11 +309,16 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
 
   const apply = async () => {
     if (!proposal) return;
+    const cleanedProposal: SmartProposal = {
+      ...proposal,
+      newExercises: proposal.newExercises.filter(item => item.name.trim()),
+      exerciseChanges: proposal.exerciseChanges.filter(change => change.id && (typeof change.completed === 'boolean' || change.note !== undefined)),
+    };
     setSaving(true);
     try {
-      const hasHealth = Object.keys(proposal.healthChanges || {}).length > 0;
-      const nextHealth = hasHealth ? { ...(currentHealth ?? {}), ...proposal.healthChanges } : null;
-      await onApply(proposal, currentHealth, nextHealth);
+      const hasHealth = Object.keys(cleanedProposal.healthChanges || {}).length > 0;
+      const nextHealth = hasHealth ? { ...(currentHealth ?? {}), ...cleanedProposal.healthChanges } : null;
+      await onApply(cleanedProposal, currentHealth, nextHealth);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -272,7 +329,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
 
   const clarificationOptions = proposal?.clarificationOptions ?? [];
   const hasOptions = clarificationOptions.length > 0;
-  const hasChanges = !!proposal && (proposal.exerciseChanges.length > 0 || proposal.newExercises.length > 0 || Object.keys(proposal.healthChanges || {}).length > 0);
+  const hasChanges = !!proposal && (proposal.exerciseChanges.length > 0 || proposal.newExercises.some(item => item.name.trim()) || Object.keys(proposal.healthChanges || {}).length > 0);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8" onClick={(e) => { e.stopPropagation(); onClose(); }}>
@@ -299,6 +356,18 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
               {loading ? 'Reading…' : proposal ? 'Review draft update' : 'Review changes'}
             </button>
+            <div className="mt-3 grid gap-2 rounded-xl border border-stone-100 bg-stone-50 p-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Skip AI when you already know what to add</p>
+              <div className="flex gap-1.5">
+                <select value={manualExerciseId} onChange={e => setManualExerciseId(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-2 text-xs" style={{ fontSize: 16, colorScheme: 'light' }}>
+                  <option value="">Choose exercise for note…</option>
+                  {visibleExercises.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                </select>
+                <button onClick={e => { e.preventDefault(); e.stopPropagation(); addManualNote(); }} disabled={!manualExerciseId || !manualNote.trim()} className="rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#5B9BD5' }}>Add note</button>
+              </div>
+              <textarea value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Manual note exactly as you want it saved…" rows={2} className="w-full resize-none rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); addManualExerciseDraft(); }} className="w-full rounded-xl border-2 border-dashed border-stone-300 py-2 text-xs font-bold text-stone-500 hover:border-stone-400 hover:text-stone-700">＋ Manual exercise (no database / no AI label)</button>
+            </div>
             {error && (
               <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2">
                 <p className="text-xs font-bold text-red-700 mb-1">AI add failed</p>
@@ -350,7 +419,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                     <div key={`${item.name}-${idx}`} className="bg-white rounded-2xl border-2 p-3" style={{ borderColor: '#cfded3' }}>
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
-                          <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: '#E4ECE6', color: '#476653' }}>AI added</span>
+                          <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: item.origin === 'patient_added' ? '#dbeafe' : '#E4ECE6', color: item.origin === 'patient_added' ? '#2f6f9f' : '#476653' }}>{item.origin === 'patient_added' ? 'Manual' : 'AI draft'}</span>
                           <input value={item.name} onChange={e => updateNewExercise(idx, { name: e.target.value })} className="block w-full text-sm font-bold text-stone-800 bg-transparent border-b border-stone-200 focus:outline-none" style={{ fontSize: 16 }} />
                         </div>
                         <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeNewExercise(idx); }} className="text-xs text-stone-400">Remove</button>

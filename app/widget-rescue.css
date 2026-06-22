@@ -1,4 +1,4 @@
-/* Bottom-right widget dock. The toggle adds these classes to the real widget toolbar. */
+/* Bottom-right widget dock. FloatingWidgetDockToggle adds these classes to the real toolbar. */
 .pt-floating-widget-row {
   position: fixed !important;
   right: max(1rem, calc(env(safe-area-inset-right) + 1rem)) !important;
@@ -15,28 +15,31 @@
   overflow: visible !important;
   padding: 0 !important;
   opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
-  transform: translateY(14px) scale(0.94) !important;
+  transform: translate3d(0, 14px, 0) scale(0.94) !important;
   transform-origin: bottom right !important;
-  transition: opacity 160ms ease, transform 180ms ease !important;
+  transition: opacity 160ms ease, transform 180ms ease, visibility 0s linear 180ms !important;
   -webkit-overflow-scrolling: auto !important;
 }
 
 .pt-floating-widget-row.pt-floating-widget-row-open {
   opacity: 1 !important;
+  visibility: visible !important;
   pointer-events: auto !important;
-  transform: translateY(0) scale(1) !important;
+  transform: translate3d(0, 0, 0) scale(1) !important;
+  transition: opacity 160ms ease, transform 180ms ease, visibility 0s !important;
 }
 
 .pt-floating-widget-row > * {
   opacity: 0 !important;
-  transform: translateY(10px) !important;
+  transform: translate3d(0, 10px, 0) !important;
   transition: opacity 160ms ease, transform 180ms ease !important;
 }
 
 .pt-floating-widget-row.pt-floating-widget-row-open > * {
   opacity: 1 !important;
-  transform: translateY(0) !important;
+  transform: translate3d(0, 0, 0) !important;
 }
 
 .pt-floating-widget-row button[title],

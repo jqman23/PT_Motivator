@@ -151,8 +151,8 @@ export default function SmartAddPortal() {
           videoTitles: [],
           imageSearch: item.name.trim(),
           tips: aiTips.length ? aiTips : ['AI added — review form and dosage with your PT.'],
-          origin: 'patient_added',
-          sourceId: 'ai-added',
+          origin: item.origin ?? 'patient_added',
+          sourceId: item.sourceId ?? (item.origin === 'patient_added' ? undefined : 'ai-added'),
         };
       });
       const nextLibrary = [...library, ...additions];
