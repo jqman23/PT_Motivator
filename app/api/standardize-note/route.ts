@@ -53,6 +53,9 @@ export async function POST(req: NextRequest) {
     const exerciseCue = cleanText(body.exerciseCue, 240);
     const exerciseTips = cleanStringList(body.exerciseTips, 6, 160);
     const recentNotes = cleanStringList(body.recentNotes, 8, 220);
+    const clarification = cleanText(body.clarification, 500);
+    const previousStandardizedNote = cleanText(body.previousStandardizedNote, 260);
+    const cleanupMode = !!body.cleanupMode;
 
     if (!rawNote) {
       return NextResponse.json({
@@ -61,6 +64,8 @@ export async function POST(req: NextRequest) {
         fields: {},
         changed: false,
         summary: [],
+        questions: [],
+        clarificationOptions: [],
       });
     }
 
@@ -72,25 +77,31 @@ export async function POST(req: NextRequest) {
         fields: {},
         changed: false,
         summary: ['AI standardization unavailable because GROQ_KEY_PTMOTIVATOR is missing.'],
+        questions: [],
+        clarificationOptions: [],
       });
     }
 
     const system = [
-      'You standardize manual physical therapy exercise notes for a tracking app. Return compact JSON only.',
-      'Goal: convert messy free text into a short standardized note, while preserving the user\'s meaning.',
-      'Do not add medical advice. Do not diagnose. Do not invent symptoms. Only normalize the note.',
+      'You standardize manual exercise notes for a tracking app. Return compact JSON only.',
+      'Goal: convert messy free text into a short standardized note, while preserving the user meaning.',
+      'Do not add advice. Do not invent symptoms. Only normalize the note.',
       'Use this grammar: dose, target/body part/side, variation/component, modifier, outcome/descriptor.',
-      'The standardizedNote should be one comma-separated line. Put dose first whenever a dose is stated or strongly implied.',
+      'The standardizedNote should be one comma-separated line. Put dose first whenever dose is stated or strongly implied.',
       'Examples: "2 × 60 sec, right + left leg, inversion + eversion, no band"; "1 × 60 sec, big toe + toe spread + arch lift"; "3 × 12, right ankle, slow controlled".',
       'Use × not x. Use sec not seconds. Use + for combined sides/components. Prefer right + left over both when sides matter.',
-      'If the exercise schema or recent notes make shorthand clear, use them. Example: "all 3" for Toe Yoga can become "big toe + small toes + toe spread".',
-      'If unsure about dose, do not invent one. Keep the note standardized with the known parts only.',
+      'If exercise schema, recent notes, or clarification make shorthand clear, use them.',
+      'If one or more fields are unclear in cleanupMode, still produce the best standardizedNote from known info, and ask at most one short question for the most important missing field.',
+      'Use clarificationOptions only for likely missing structure choices such as dose, side/target, variation, or modifier. Do not ask about outcome if it is not remembered.',
       'If the original is already clean, return it mostly unchanged, only normalizing punctuation/abbreviations.',
-      'JSON shape: {"standardizedNote":"","fields":{"dose":"","target":"","variation":"","modifier":"","outcome":""},"summary":[],"changed":true}.',
+      'JSON shape: {"standardizedNote":"","fields":{"dose":"","target":"","variation":"","modifier":"","outcome":""},"summary":[],"changed":true,"questions":[],"clarificationOptions":[{"label":"","value":""}]}.',
     ].join(' ');
 
     const userPayload = JSON.stringify({
       rawNote,
+      cleanupMode,
+      clarification,
+      previousStandardizedNote,
       exercise: {
         name: exerciseName,
         sets: exerciseSets,
@@ -112,8 +123,8 @@ export async function POST(req: NextRequest) {
           { role: 'system', content: system },
           { role: 'user', content: userPayload },
         ],
-        temperature: 0.12,
-        max_completion_tokens: 900,
+        temperature: cleanupMode ? 0.16 : 0.12,
+        max_completion_tokens: 1000,
         response_format: { type: 'json_object' },
       }),
     });
@@ -128,6 +139,8 @@ export async function POST(req: NextRequest) {
         model: MODEL,
         originalNote: rawNote,
         standardizedNote: localFallback(rawNote),
+        questions: [],
+        clarificationOptions: [],
       }, { status: 502 });
     }
 
@@ -142,12 +155,21 @@ export async function POST(req: NextRequest) {
       outcome: cleanText(parsed.fields.outcome, 120),
     } : {};
 
+    const clarificationOptions = Array.isArray(parsed.clarificationOptions)
+      ? parsed.clarificationOptions.map((option: { label?: unknown; value?: unknown } | string) => {
+          if (typeof option === 'string') return { label: cleanText(option, 80), value: cleanText(option, 120) };
+          return { label: cleanText(option?.label, 80), value: cleanText(option?.value ?? option?.label, 120) };
+        }).filter((option: { label: string; value: string }) => option.label).slice(0, 4)
+      : [];
+
     return NextResponse.json({
       originalNote: rawNote,
       standardizedNote,
       fields,
       summary: cleanStringList(parsed.summary, 5, 140),
       changed: typeof parsed.changed === 'boolean' ? parsed.changed : standardizedNote !== rawNote,
+      questions: cleanStringList(parsed.questions, 2, 180),
+      clarificationOptions,
       model: MODEL,
     });
   } catch (err) {
