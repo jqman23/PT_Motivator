@@ -184,6 +184,24 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > inpu
   }
 }
 
+/* Library create/edit forms can be taller than the phone viewport after source search results appear. */
+.fixed.inset-0[class*="z-[60]"] > div.flex.flex-col:has(> div.border-t.flex-shrink-0 > div.bg-white.rounded-xl.border) {
+  overflow: hidden;
+}
+
+.fixed.inset-0[class*="z-[60]"] > div.flex.flex-col:has(> div.border-t.flex-shrink-0 > div.bg-white.rounded-xl.border) > div.border-t.flex-shrink-0 {
+  flex: 1 1 auto !important;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(0.75rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+}
+
+.fixed.inset-0[class*="z-[60]"] > div.flex.flex-col:has(> div.border-t.flex-shrink-0 > div.bg-white.rounded-xl.border) > div.overflow-y-auto.flex-1 {
+  display: none;
+}
+
 input,
 textarea,
 select {
