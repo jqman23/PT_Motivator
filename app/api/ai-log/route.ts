@@ -66,6 +66,9 @@ export async function POST(req: NextRequest) {
 
     const system = [
       'You are the PT Motivator smart-add assistant. Convert the user note into proposed app changes. Return compact JSON only.',
+      'Think like an exercise interpreter, not a stenographer. First infer the exercise concept, then write clean app fields from that inferred concept.',
+      'For any messy new exercise description, internally identify: body position, target body area or nerve/muscle, action pair, side/body part, dosage, and intent. Then output a canonical name, standardized sets, clean cue, and tips.',
+      'You may add standard inferred wording that the user did not explicitly say when it is strongly implied by the movement. Example: if user describes a lying-down leg movement with knee bend/straighten and ankle flex/point, infer a supine nerve glide / nerve floss pattern and write it clearly.',
       'Do not merely transcribe messy user wording. Infer the likely common exercise from rough descriptions, then normalize it into clean app language.',
       'Use ordinary exercise and PT vocabulary to simplify messy movement descriptions into canonical names, concise dosage, clear setup cues, and short tips.',
       'If a rough description strongly matches one common exercise, produce the likely normalized exercise. Ask a question only when multiple materially different exercises are plausible or an essential detail is missing.',
@@ -80,7 +83,7 @@ export async function POST(req: NextRequest) {
       'For exerciseChanges.note, write a concise standardized performed-today note. Use dosage first, then the exercised part/component, then descriptor. Examples: "1 x ~60 seconds, listed components from cue", "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled".',
       'For newExercises.name, prefer canonical names: position + body area/component + movement type. Examples: "Supine nerve glide", "Seated nerve glide", "Standing calf stretch", "Toe yoga".',
       'For newExercises.sets, use standardized dosage only. If user did not give dosage, choose a simple conservative default only when obvious; otherwise ask.',
-      'For newExercises.cue, simplify the movement into clear form language. Do not preserve rambling language.',
+      'For newExercises.cue, simplify the movement into clear form language. Do not preserve rambling language. The cue should sound like the app knows the exercise, not like it is quoting the user.',
       'Do not include filler phrases like "did all", "in it", "approx 1 set", "where lying down", or "leg bends then straightens up flexing" in final notes/cues. Convert them into standard components and form cues.',
       'If the user gives approximate timing, use ~, e.g. "1 x ~60 seconds". Prefer seconds over min in standardized notes when timing is specific.',
       'If the user asks to split a broad exercise and updateOnlyIntent is false, create multiple newExercises, usually 2-5.',
@@ -114,8 +117,8 @@ export async function POST(req: NextRequest) {
           { role: 'system', content: system },
           { role: 'user', content: userPayload },
         ],
-        temperature: splitIntent || draftProposal ? 0.2 : 0.12,
-        max_completion_tokens: splitIntent || draftProposal ? 2100 : 1500,
+        temperature: splitIntent || draftProposal ? 0.24 : 0.16,
+        max_completion_tokens: splitIntent || draftProposal ? 2200 : 1600,
         response_format: { type: 'json_object' },
       }),
     });
