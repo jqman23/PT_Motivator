@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentNotes } from '@/lib/db';
+import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
 
 type ExerciseBrief = {
   id: string;
@@ -14,7 +15,7 @@ type ExerciseBrief = {
   recentNotes?: string[];
 };
 
-const MODEL = process.env.GROQ_MODEL_PTMOTIVATOR || 'llama-3.3-70b-versatile';
+const DEFAULT_MODEL = getGroqModelChain('log')[0];
 
 function cleanText(value: unknown, limit = 900) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -41,30 +42,21 @@ function makeSchemaText(ex: ExerciseBrief) {
   ].filter(Boolean).join('; '), 420);
 }
 
-function groqDetailFromText(text: string) {
-  try {
-    const parsed = JSON.parse(text);
-    const message = parsed?.error?.message || parsed?.message || parsed?.detail || text;
-    const type = parsed?.error?.type || parsed?.type;
-    const code = parsed?.error?.code || parsed?.code;
-    return [message, type ? `type: ${type}` : '', code ? `code: ${code}` : ''].filter(Boolean).join(' | ');
-  } catch {
-    return text;
-  }
-}
-
 function errorMessage(err: unknown) {
   return err instanceof Error ? err.message : String(err ?? 'Unknown error');
 }
 
 export async function POST(req: NextRequest) {
+  let activeModel = DEFAULT_MODEL;
+  let attemptedModels: string[] = [];
+
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) {
       return NextResponse.json({
         error: 'Missing GROQ_KEY_PTMOTIVATOR',
         detail: 'The server environment variable GROQ_KEY_PTMOTIVATOR is not set, so AI Add cannot call Groq.',
-        model: MODEL,
+        model: DEFAULT_MODEL,
       }, { status: 500 });
     }
 
@@ -90,7 +82,7 @@ export async function POST(req: NextRequest) {
       return safe;
     });
 
-    // Fetch recent note history for completed exercises to guide style consistency
+    // Fetch recent note history for completed exercises to guide style consistency.
     const completedExercises = safeExercises.filter(ex => ex.done && ex.id).slice(0, 8);
     if (completedExercises.length > 0) {
       const histories = await Promise.all(
@@ -103,6 +95,7 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
     const categories = Array.from(new Set(safeExercises.map(ex => ex.category).filter(Boolean))).slice(0, 12);
     const splitIntent = /\b(split|break\s*(it|this)?\s*(up|down)|separate|specific|variants?|versions?|make .*\b\d+\b|\b\d+\s+(specific|separate|different))\b/i.test(diaryText);
     const updateOnlyIntent = /\b(just\s+update|update\s+only|only\s+update|can't\s+create|cannot\s+create|do\s+not\s+create|don't\s+create|no\s+new|existing\s+only|current\s+only|update\s+(the|this|that|existing|current)|change\s+(the|this|that|existing|current)|edit\s+(the|this|that|existing|current)|modify\s+(the|this|that|existing|current)|revise\s+(the|this|that|existing|current))\b/i.test(diaryText);
@@ -151,43 +144,18 @@ export async function POST(req: NextRequest) {
       health,
     });
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userPayload },
-        ],
-        temperature: splitIntent || draftProposal ? 0.24 : 0.16,
-        max_completion_tokens: splitIntent || draftProposal ? 2200 : 1600,
-        response_format: { type: 'json_object' },
-      }),
+    const { data, model, attemptedModels: triedModels } = await callGroqChat(apiKey, 'log', {
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: userPayload },
+      ],
+      temperature: splitIntent || draftProposal ? 0.24 : 0.16,
+      max_completion_tokens: splitIntent || draftProposal ? 2200 : 1600,
+      response_format: { type: 'json_object' },
     });
+    activeModel = model;
+    attemptedModels = triedModels;
 
-    if (!res.ok) {
-      const rawDetail = await res.text();
-      const requestId = res.headers.get('x-request-id') || res.headers.get('cf-ray') || '';
-      const detail = groqDetailFromText(rawDetail);
-      return NextResponse.json({
-        error: 'Groq request failed',
-        detail: cleanText(detail, 1200),
-        groqStatus: res.status,
-        groqStatusText: res.statusText,
-        model: MODEL,
-        requestId,
-        hint: res.status === 401 ? 'Likely bad or missing Groq API key.'
-          : res.status === 429 ? 'Groq rate limit or quota issue.'
-          : res.status === 400 ? 'Groq rejected the request body, model, or response_format.'
-          : 'Groq returned a non-OK response.',
-      }, { status: 502 });
-    }
-
-    const data = await res.json();
     const content = data?.choices?.[0]?.message?.content ?? '{}';
     let parsed: any;
     try {
@@ -197,7 +165,8 @@ export async function POST(req: NextRequest) {
         error: 'AI returned invalid JSON',
         detail: errorMessage(parseErr),
         rawModelOutput: cleanText(content, 1200),
-        model: MODEL,
+        model: activeModel,
+        attemptedModels,
       }, { status: 502 });
     }
 
@@ -237,14 +206,20 @@ export async function POST(req: NextRequest) {
       healthChanges: parsed.healthChanges && typeof parsed.healthChanges === 'object' ? parsed.healthChanges : {},
       questions: questions.slice(0, 8),
       clarificationOptions: Array.isArray(parsed.clarificationOptions) ? parsed.clarificationOptions.slice(0, 3) : [],
-      model: MODEL,
+      model: activeModel,
+      attemptedModels,
     });
   } catch (err) {
     console.error(err);
+    const payload = groqErrorPayload(err);
+    if (payload.error === 'Groq request failed') {
+      return NextResponse.json({ ...payload, model: payload.model ?? activeModel }, { status: 502 });
+    }
     return NextResponse.json({
       error: 'AI parse failed',
       detail: errorMessage(err),
-      model: MODEL,
+      model: activeModel,
+      attemptedModels,
     }, { status: 500 });
   }
 }
