@@ -22,7 +22,12 @@ const STARTERS = [
 ];
 
 function trimHistory(history: { role: 'user' | 'assistant'; content: string }[]) {
-  return history.slice(-8);
+  return history.slice(-4);
+}
+
+function errorMessage(res: Response, data: { error?: string; detail?: string }) {
+  const detail = data.detail ? `: ${data.detail}` : '';
+  return data.error ? `${data.error}${detail}` : `AI coach failed (${res.status})${detail}`;
 }
 
 export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
@@ -31,7 +36,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
   const [reply, setReply] = useState<AiReply | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [clarificationCount, setClarificationCount] = useState(0);
+  const clarificationCountRef = useRef(0);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -55,15 +60,16 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
         body: JSON.stringify({
           question: clean,
           history: nextHistory,
-          clarificationCount,
+          clarificationCount: clarificationCountRef.current,
           exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI coach failed');
-      const nextReply: AiReply = data.reply;
+      if (!res.ok) throw new Error(errorMessage(res, data));
+      const nextReply: AiReply = { ...data.reply, options: (data.reply?.options ?? []).slice(0, 3) };
+      clarificationCountRef.current = nextReply.options.length ? Math.min(2, clarificationCountRef.current + 1) : 0;
       setReply(nextReply);
-      setClarificationCount(current => nextReply.confirmedExercise ? 0 : current + 1);
+      clarificationCountRef.current = nextReply.confirmedExercise ? 0 : clarificationCountRef.current + 1;
       setHistory(trimHistory([...nextHistory, { role: 'assistant', content: nextReply.answer }]));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI coach failed');
@@ -88,7 +94,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">AI exercise identifier</p>
             <h2 className="font-serif text-xl font-semibold text-stone-800">Ask about an exercise</h2>
-            <p className="text-xs text-stone-500 mt-1 leading-snug">Built for ankle PT: it asks clarifying questions until the exact variation is clear, then gives a clean draft you can use to edit or add an exercise.</p>
+            <p className="text-xs text-stone-500 mt-1 leading-snug">Built for ankle PT: it asks clarifying questions for up to two quick clarifications, then gives a clean draft you can use to edit or add an exercise.</p>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button>
         </div>
@@ -99,7 +105,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
           {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Thinking like a PT…</div>}
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>}
 
-          {!!reply?.options?.length && <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tap one</p>{reply.options.slice(0, 5).map(option => <button key={option} onClick={() => ask(option)} className="w-full text-left text-sm font-semibold rounded-2xl bg-white border border-stone-100 px-3 py-3 text-stone-700 hover:bg-[#FDF8EE]" style={{ touchAction: 'manipulation' }}>{option}</button>)}</div>}
+          {!!reply?.options?.length && <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tap one</p>{reply.options.slice(0, 3).map(option => <button key={option} onClick={() => ask(option)} className="w-full text-left text-sm font-semibold rounded-2xl bg-white border border-stone-100 px-3 py-3 text-stone-700 hover:bg-[#FDF8EE]" style={{ touchAction: 'manipulation' }}>{option}</button>)}</div>}
 
           {reply?.confirmedExercise && <div className="rounded-2xl border border-[#E4ECE6] bg-[#F8FBF8] p-3">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86]">Possible exercise draft</p>
