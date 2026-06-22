@@ -92,20 +92,22 @@ function displayForDate(ds: string) {
   return new Date(ds + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function IconButton({ title, onClick, children, active }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean }) {
+function IconButton({ title, onClick, children, active, label, accent }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean; label?: string; accent?: boolean }) {
+  const lblStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 };
   return (
     <button
       onClick={onClick}
-      className="w-9 h-9 rounded-xl border flex items-center justify-center shadow-sm flex-shrink-0 transition-all hover:bg-stone-50 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+      className="w-9 h-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm flex-shrink-0 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
       style={{
         touchAction: 'manipulation',
-        background: active ? '#FBF5E8' : 'white',
-        borderColor: active ? '#D9A94B' : '#e7e5e4',
-        color: active ? '#D9A94B' : '#78716c',
+        background: accent ? '#1F2F46' : active ? '#FBF5E8' : 'white',
+        borderColor: accent ? '#162233' : active ? '#D9A94B' : '#e7e5e4',
+        color: accent ? '#ffffff' : active ? '#D9A94B' : '#78716c',
       }}
       title={title}
     >
       {children}
+      {label && <span style={lblStyle}>{label}</span>}
     </button>
   );
 }
@@ -154,6 +156,15 @@ export default function Home() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
+  const layoutExercises = useMemo(() =>
+    layout.flatMap(cat => cat.exerciseIds.map(id => exerciseMap[id]).filter((ex): ex is Exercise => Boolean(ex))),
+    [layout, exerciseMap]
+  );
+  const handleTimerNoteSave = useCallback(async (exerciseId: string, note: string) => {
+    setNotes(prev => ({ ...prev, [exerciseId]: note }));
+    try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today, exerciseId, note }) }); }
+    catch (err) { console.error(err); }
+  }, [today]);
 
   useEffect(() => {
     const stored = localStorage.getItem('pt-selected-date');
@@ -391,17 +402,17 @@ export default function Home() {
           <div className="flex items-center justify-between gap-2">
             <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
-              {widgetPrefs.timer && <TimerWidget />}
-              <IconButton title="Exercise library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
-              {widgetPrefs.info && <IconButton title="Exercise guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}
-              <IconButton title="Reorder & edit" onClick={() => setShowManage(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></IconButton>
-              {widgetPrefs.calendar && <IconButton title="Calendar" onClick={() => setShowCalendar(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></IconButton>}
-              {widgetPrefs.treatments && <IconButton title="Meds / treatments" onClick={() => setShowTreatments(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 3h6v4H7z"/><path d="M6 7h8l1 10H5z"/><path d="M8 12h4M10 10v4"/></svg></IconButton>}
-              {widgetPrefs.ptSessions && <IconButton title="PT sessions" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="8.5" cy="5.5" r="2.5"/><path d="M2 18v-1.5a6 6 0 0 1 11.5-1"/><path d="M16 11v5M13.5 13.5h5"/></svg></IconButton>}
-              {widgetPrefs.reporting && <IconButton title="Progress report" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
-              {widgetPrefs.ptReport && <IconButton title="PT PDF report" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
-              {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
-              <IconButton title="Widget settings" onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
+              {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} onSaveNote={handleTimerNoteSave} />}
+              <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
+              {widgetPrefs.info && <IconButton title="Exercise guide" label="guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}
+              <IconButton title="Reorder & edit" label="edit" onClick={() => setShowManage(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></IconButton>
+              {widgetPrefs.calendar && <IconButton title="Calendar" label="cal" onClick={() => setShowCalendar(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></IconButton>}
+              {widgetPrefs.treatments && <IconButton title="Meds / treatments" label="meds" onClick={() => setShowTreatments(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 3h6v4H7z"/><path d="M6 7h8l1 10H5z"/><path d="M8 12h4M10 10v4"/></svg></IconButton>}
+              {widgetPrefs.ptSessions && <IconButton title="PT sessions" label="PT" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="3.5" r="2"/><path d="M10 5.5v5"/><path d="M10 8L6.5 5.5"/><path d="M10 8L13.5 5.5"/><path d="M10 10.5L7.5 15"/><path d="M10 10.5L12.5 15"/></svg></IconButton>}
+              {widgetPrefs.reporting && <IconButton title="Progress report" label="stats" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
+              {widgetPrefs.ptReport && <IconButton title="PT PDF report" label="PDF" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
+              {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" label="DB" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
+              <IconButton title="Widget settings" label="settings" accent onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
             </div>
           </div>
 

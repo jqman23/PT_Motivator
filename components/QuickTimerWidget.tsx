@@ -99,6 +99,11 @@ function setLabelParts(label: SequenceOption['label']) {
   return { count, noun: count === '1' ? 'set' : 'sets' };
 }
 
+function noteForSequence(seq: SequenceOption) {
+  const count = seq.label.split(' ')[0];
+  return `${count}×${seq.holdSeconds}s ea side`;
+}
+
 function getFriendlyVoice() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
@@ -109,7 +114,12 @@ function getFriendlyVoice() {
     ?? null;
 }
 
-export default function QuickTimerWidget() {
+interface QuickTimerWidgetProps {
+  exercises?: Array<{ id: string; name: string }>;
+  onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
+}
+
+export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWidgetProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('timer');
@@ -124,6 +134,10 @@ export default function QuickTimerWidget() {
   const [sequenceActive, setSequenceActive] = useState(false);
   const [sequenceIndex, setSequenceIndex] = useState(0);
   const [sequenceKey, setSequenceKey] = useState<SequenceKey | null>(null);
+
+  const [logExerciseId, setLogExerciseId] = useState('');
+  const [logNoteText, setLogNoteText] = useState('');
+  const [logSaved, setLogSaved] = useState(false);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -147,6 +161,21 @@ export default function QuickTimerWidget() {
       ? 'Start in 10'
       : `${activeSequence.label} · ${activeSequence.holdSeconds}s · ${segmentLabel(currentStep)}`
     : '';
+
+  // Pre-fill log note when a sequence completes
+  useEffect(() => {
+    if (!done || sequenceActive || !sequenceKey) return;
+    setLogNoteText(noteForSequence(getSequence(sequenceKey)));
+    setLogSaved(false);
+  }, [done, sequenceActive, sequenceKey]);
+
+  // Reset log state when timer resets
+  useEffect(() => {
+    if (!done) {
+      setLogSaved(false);
+      setLogExerciseId('');
+    }
+  }, [done]);
 
   const persistTimer = (patch: Partial<StoredTimerState> = {}) => {
     if (typeof window === 'undefined') return;
@@ -413,15 +442,14 @@ export default function QuickTimerWidget() {
     persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} · ${option.holdSeconds}s ready` });
   };
 
-  const testSound = async () => {
-    await unlockAudio();
-    void playTone(1040, 0.13, 0.09);
-    window.setTimeout(() => void playTone(1320, 0.2, 0.09), 160);
-    speakCue('Voice test');
-  };
-
   const start = () => mode === 'timer' ? void startCountdown() : void startStopwatch();
   const reset = () => mode === 'timer' ? resetTimer() : resetStopwatch();
+
+  const handleLogNote = async () => {
+    if (!logExerciseId || !logNoteText || !onSaveNote) return;
+    await onSaveNote(logExerciseId, logNoteText);
+    setLogSaved(true);
+  };
 
   const restoreStoredTimer = () => {
     if (typeof window === 'undefined') return;
@@ -559,6 +587,8 @@ export default function QuickTimerWidget() {
     { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '30 sec holds') },
   ];
 
+  const showLogSection = done && !sequenceActive && !!sequenceKey && !!onSaveNote && !!(exercises?.length);
+
   const panel = open ? (
     <div
       ref={panelRef}
@@ -619,7 +649,6 @@ export default function QuickTimerWidget() {
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
             <button onClick={event => { event.stopPropagation(); void applyCustomMinutes(); }} className="rounded-lg px-2.5 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>min</button>
             <button onClick={event => { event.stopPropagation(); void unlockAudio(); setBellOn(value => !value); }} className="rounded-lg px-2.5 text-xs font-bold" style={{ background: bellOn ? '#E4ECE6' : '#f5f5f4', color: bellOn ? '#476653' : '#a8a29e' }} title="Sound on/off">{bellOn ? '🔔' : '🔕'}</button>
-            <button onClick={event => { event.stopPropagation(); void testSound(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }} title="Test sound">Test</button>
           </div>
         </>
       )}
@@ -643,7 +672,47 @@ export default function QuickTimerWidget() {
           {running && isCountdownToStretch() && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Stretch starts in {remaining}</p>}
         </div>
       )}
-      {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-3" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
+
+      {done && mode === 'timer' && <p className="text-center text-xs font-bold mb-2" style={{ color: '#7E9B86' }}>Done! ✓ {bellOn ? '🔔' : '🔕'}</p>}
+
+      {showLogSection && (
+        <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
+          {!logSaved ? (
+            <>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-stone-400 mb-2">Log to exercise</p>
+              <select
+                value={logExerciseId}
+                onChange={e => setLogExerciseId(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                className="w-full rounded-lg border border-stone-200 bg-white px-2 mb-1.5"
+                style={{ padding: '5px 8px', fontSize: 14, colorScheme: 'light' }}
+              >
+                <option value="">Choose exercise…</option>
+                {exercises!.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+              </select>
+              <div className="flex gap-1.5">
+                <input
+                  value={logNoteText}
+                  onChange={e => setLogNoteText(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2"
+                  style={{ padding: '5px 8px', fontSize: 14, colorScheme: 'light' }}
+                />
+                <button
+                  onClick={e => { e.stopPropagation(); void handleLogNote(); }}
+                  disabled={!logExerciseId || !logNoteText}
+                  className="rounded-lg px-3 text-xs font-bold text-white flex-shrink-0 disabled:opacity-40"
+                  style={{ background: '#7E9B86' }}
+                >
+                  Log
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-center text-xs font-bold py-0.5" style={{ color: '#7E9B86' }}>✓ Note logged</p>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button onClick={event => { event.stopPropagation(); running ? pauseTimer() : start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
@@ -652,10 +721,13 @@ export default function QuickTimerWidget() {
     </div>
   ) : null;
 
+  const labelStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.9 };
+
   return (
     <>
-      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
+      <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className={`w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0 ${running ? 'bg-[#D9A94B] border-[#D9A94B] text-white' : done ? 'bg-[#7E9B86] border-[#7E9B86] text-white' : 'bg-[#E4ECE6] border-[#cfded3] text-[#476653]'}`} title="Quick timer" style={{ touchAction: 'manipulation' }}>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="11" r="7"/><path d="M10 7v4l2.5 2.5"/><path d="M7.5 2.5h5"/><path d="M10 2.5v2"/></svg>
+        <span style={labelStyle}>timer</span>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
     </>
