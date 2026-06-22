@@ -7,6 +7,17 @@ type Attempt = {
   detail: string;
 };
 
+type GroqErrorPayload = {
+  error: string;
+  detail: string;
+  groqStatus?: number;
+  groqStatusText?: string;
+  model: string;
+  attemptedModels: string[];
+  attempts?: Attempt[];
+  hint?: string;
+};
+
 export class GroqRouteError extends Error {
   attempts: Attempt[];
   status: number;
@@ -126,7 +137,7 @@ export async function callGroqChat(apiKey: string, task: GroqTask, body: Record<
   throw new GroqRouteError('All Groq model attempts failed', attempts);
 }
 
-export function groqErrorPayload(error: unknown) {
+export function groqErrorPayload(error: unknown): GroqErrorPayload {
   if (error instanceof GroqRouteError) {
     return {
       error: 'Groq request failed',
@@ -147,5 +158,7 @@ export function groqErrorPayload(error: unknown) {
   return {
     error: 'Groq request failed',
     detail: error instanceof Error ? error.message : String(error ?? 'Unknown error'),
+    model: '',
+    attemptedModels: [],
   };
 }
