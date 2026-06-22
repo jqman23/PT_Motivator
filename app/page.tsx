@@ -139,6 +139,7 @@ export default function Home() {
   const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
 
   const [dailySummary, setDailySummary] = useState<string | null>(null);
+  const [summaryVisible, setSummaryVisible] = useState(false);
 
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -225,7 +226,7 @@ export default function Home() {
       fetch('/api/daily-summary', { method: 'POST' })
         .then(r => r.json())
         .then(data => {
-          if (typeof data.summary === 'string' && data.summary.trim()) setDailySummary(data.summary.trim());
+          if (typeof data.summary === 'string' && data.summary.trim()) { setDailySummary(data.summary.trim()); setSummaryVisible(true); }
         })
         .catch(() => {})
         .finally(() => {
@@ -448,11 +449,11 @@ export default function Home() {
           </div>
 
           <h1 className="sm:hidden text-center font-serif text-3xl font-semibold text-stone-800 mt-3">{appTitle}</h1>
-          {dailySummary && (
+          {dailySummary && summaryVisible && (
             <div className="mt-3 rounded-2xl px-4 py-3 flex items-start gap-3" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4' }}>
               <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }}>☀️</span>
               <p className="flex-1 text-sm text-stone-700 leading-snug">{dailySummary}</p>
-              <button onClick={() => setDailySummary(null)} className="text-stone-400 hover:text-stone-600 text-base leading-none flex-shrink-0" style={{ touchAction: 'manipulation' }}>×</button>
+              <button onClick={() => setSummaryVisible(false)} className="text-stone-400 hover:text-stone-600 text-base leading-none flex-shrink-0" style={{ touchAction: 'manipulation' }}>×</button>
             </div>
           )}
           <DayControls />
@@ -461,6 +462,7 @@ export default function Home() {
             {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
             <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
             {!confirmClearDay && <button onClick={() => setConfirmClearDay(true)} className="text-xs font-medium px-3 py-1 rounded-full" style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>{clearing ? 'Clearing…' : '× Clear'}</button>}
+            {dailySummary && !summaryVisible && <button onClick={() => setSummaryVisible(true)} className="text-sm px-2 py-1 rounded-full leading-none" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation' }} title="Show yesterday's summary">☀️</button>}
           </div>
           {confirmClearDay && <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Are you sure? Clear ALL data for {displayForDate(selectedDate)}?</span><button onClick={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onClick={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>}
         </div>
