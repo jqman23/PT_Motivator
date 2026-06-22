@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
 
-const MODEL = process.env.GROQ_MODEL_PTMOTIVATOR || 'llama-3.3-70b-versatile';
+const DEFAULT_MODEL = getGroqModelChain('ask')[0];
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -14,18 +15,6 @@ function optionText(value: unknown) {
 
 function cleanOptions(value: unknown) {
   return Array.isArray(value) ? value.map(optionText).filter(Boolean).slice(0, 3) : [];
-}
-
-function groqDetailFromText(text: string) {
-  const fallback = cleanText(text, 300);
-  try {
-    const parsed = JSON.parse(text);
-    const message = parsed?.error?.message || parsed?.message || fallback;
-    const code = parsed?.error?.code || parsed?.error?.type || parsed?.code;
-    return [code, message].filter(Boolean).join(': ') || fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 function jsonFromText(text: string) {
@@ -83,31 +72,21 @@ export async function POST(req: NextRequest) {
       'Return compact JSON only: {"answer":"","options":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"mobility","imageSearch":"","confidence":"","nextStep":"","tips":[]}}. Omit confirmedExercise if not confident.',
     ].join(' ');
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext }) },
-        ],
-        temperature: 0.22,
-        max_completion_tokens: 520,
-        response_format: { type: 'json_object' },
-      }),
+    const { data, model, attemptedModels } = await callGroqChat(apiKey, 'ask', {
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext }) },
+      ],
+      temperature: 0.22,
+      max_completion_tokens: 520,
+      response_format: { type: 'json_object' },
     });
 
-    if (!res.ok) {
-      const detail = groqDetailFromText(await res.text());
-      return NextResponse.json({ error: `Groq ${res.status} ${res.statusText || 'request failed'}`.trim(), detail }, { status: 502 });
-    }
-
-    const data = await res.json();
     const content = data?.choices?.[0]?.message?.content ?? '{}';
-    return NextResponse.json({ reply: normalizeReply(jsonFromText(content), cleanClarificationCount < 2), model: MODEL });
+    return NextResponse.json({ reply: normalizeReply(jsonFromText(content), cleanClarificationCount < 2), model, attemptedModels });
   } catch (err) {
     console.error('[ai-exercise-question]', err);
-    return NextResponse.json({ error: 'AI exercise question failed' }, { status: 500 });
+    const payload = groqErrorPayload(err);
+    return NextResponse.json({ ...payload, model: payload.model ?? DEFAULT_MODEL }, { status: payload.error === 'Groq request failed' ? 502 : 500 });
   }
 }
