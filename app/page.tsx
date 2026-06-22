@@ -17,6 +17,7 @@ import ExerciseInfoModal from '@/components/ExerciseInfoModal';
 import MasterDatabaseModal from '@/components/MasterDatabaseModal';
 import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
+import NotesModal from '@/components/NotesModal';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -149,6 +150,7 @@ export default function Home() {
   const [newCatColor, setNewCatColor] = useState('blue');
   const [appTitle, setAppTitle] = useState('Ankle PT');
 
+  const [noteModalId, setNoteModalId] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -434,7 +436,7 @@ export default function Home() {
           <div className="flex items-center justify-between gap-2">
             <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
-              {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} onSaveNote={handleTimerNoteSave} />}
+              {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} onSaveNote={handleTimerNoteSave} onOpenNote={setNoteModalId} />}
               <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
               {widgetPrefs.info && <IconButton title="Exercise guide" label="guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}
               <IconButton title="Reorder & edit" label="edit" onClick={() => setShowManage(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></IconButton>
@@ -477,6 +479,19 @@ export default function Home() {
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
+        {noteModalId && exerciseMap[noteModalId] && (
+          <NotesModal
+            exerciseName={exerciseMap[noteModalId].name}
+            exerciseId={noteModalId}
+            date={today}
+            initialNote={notes[noteModalId] ?? ''}
+            exerciseSets={exerciseMap[noteModalId].sets ?? ''}
+            exerciseCue={exerciseMap[noteModalId].cue ?? ''}
+            exerciseTips={exerciseMap[noteModalId].tips ?? []}
+            onSave={note => handleNoteSave(noteModalId, note)}
+            onClose={() => setNoteModalId(null)}
+          />
+        )}
 
         {loading || layoutLoading ? (
           <div className="flex items-center justify-center h-40"><div className="w-6 h-6 border-2 border-[#7E9B86] border-t-transparent rounded-full animate-spin" /></div>

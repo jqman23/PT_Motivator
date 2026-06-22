@@ -117,9 +117,10 @@ function getFriendlyVoice() {
 interface QuickTimerWidgetProps {
   exercises?: Array<{ id: string; name: string }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
+  onOpenNote?: (exerciseId: string) => void;
 }
 
-export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWidgetProps = {}) {
+export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: QuickTimerWidgetProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('timer');
@@ -716,7 +717,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
               </div>
             </>
           ) : (
-            <button onClick={e => { e.stopPropagation(); setLogSaved(false); }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
+            <button onClick={e => { e.stopPropagation(); if (onOpenNote && logExerciseId) { onOpenNote(logExerciseId); } else { setLogSaved(false); } }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
           )}
         </div>
       )}
