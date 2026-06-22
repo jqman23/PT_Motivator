@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import SmartAddPortal from "@/components/SmartAddPortal";
 import SavingStatusPortal from "@/components/SavingStatusPortal";
 import ExerciseCardMobileEnhancer from "@/components/ExerciseCardMobileEnhancer";
+import FloatingWidgetDockToggle from "@/components/FloatingWidgetDockToggle";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
         <SmartAddPortal />
         <SavingStatusPortal />
         <ExerciseCardMobileEnhancer />
+        <FloatingWidgetDockToggle />
       </body>
     </html>
   );
