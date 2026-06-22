@@ -58,27 +58,6 @@ body {
   }
 }
 
-/* Compact quick timer set presets: show simple 1/2/3 set choices, not debug sequences. */
-.fixed.right-3.bottom-3 .space-y-1\.5 {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.375rem !important;
-}
-
-.fixed.right-3.bottom-3 .space-y-1\.5 > p {
-  grid-column: 1 / -1;
-  margin: 0 !important;
-}
-
-.fixed.right-3.bottom-3 button.w-full.rounded-lg.text-left {
-  text-align: center !important;
-  padding: 0.45rem 0.35rem !important;
-}
-
-.fixed.right-3.bottom-3 button.w-full.rounded-lg.text-left span.opacity-75 {
-  display: none !important;
-}
-
 /* Desktop: keep widgets on their own horizontally scrollable row, title centered below. */
 @media (min-width: 640px) {
   main > div > div.mb-6 > div.flex.items-center.justify-between:first-child {
