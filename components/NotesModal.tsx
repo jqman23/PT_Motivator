@@ -76,13 +76,15 @@ export default function NotesModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={(e) => { e.stopPropagation(); onClose(); }}
-      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
     >
       <div
         className="bg-white rounded-2xl w-full max-w-md shadow-2xl"
         onClick={(e) => e.stopPropagation()}
-        onTouchEnd={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
         style={{ maxHeight: '90dvh', overflowY: 'auto' }}
       >
         {/* Header */}
@@ -94,7 +96,8 @@ export default function NotesModal({
             </p>
           </div>
           <button
-            onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
             className="w-8 h-8 rounded-lg bg-stone-100 text-stone-400 flex items-center justify-center text-xl leading-none"
             style={{ touchAction: 'manipulation' }}
           >×</button>
@@ -114,7 +117,8 @@ export default function NotesModal({
                 {suggestions.map((s, i) => (
                   <button
                     key={i}
-                    onPointerDown={(e) => { e.stopPropagation(); setNote(s); }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNote(s); }}
                     className="flex-shrink-0 text-xs px-3 py-2 rounded-full border transition-colors text-left"
                     style={{
                       borderColor: note === s ? '#7E9B86' : '#e7e5e4',
@@ -152,14 +156,16 @@ export default function NotesModal({
 
         <div className="px-4 pb-4 flex gap-2 justify-end">
           <button
-            onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
             className="px-4 py-2 text-sm text-stone-500"
             style={{ touchAction: 'manipulation' }}
           >
             Cancel
           </button>
           <button
-            onPointerDown={(e) => { e.stopPropagation(); handleSave(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSave(); }}
             className="px-5 py-2 text-sm font-medium text-white rounded-xl"
             style={{ background: '#7E9B86', touchAction: 'manipulation' }}
           >
