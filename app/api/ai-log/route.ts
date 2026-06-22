@@ -67,6 +67,8 @@ export async function POST(req: NextRequest) {
     const system = [
       'You are the PT Motivator smart-add assistant. Convert the user note into proposed app changes. Return compact JSON only.',
       'Think like an exercise interpreter, not a stenographer. First infer the exercise concept, then write clean app fields from that inferred concept.',
+      'Important: interpretation never overrides note structure. After interpreting, every exercise note must still follow: dosage first, then body part/side/component, then descriptor or context. Use comma-separated fragments, not long sentences.',
+      'General note structure examples: "1 x ~60 seconds, big toe, toe spread, and arch lift"; "1 x 60 seconds, both legs, straight and bent"; "3 x 12, right ankle, slow controlled"; "2 x 10 each side, hips, banded".',
       'For any messy new exercise description, internally identify: body position, target body area or nerve/muscle, action pair, side/body part, dosage, and intent. Then output a canonical name, standardized sets, clean cue, and tips.',
       'You may add standard inferred wording that the user did not explicitly say when it is strongly implied by the movement. Example: if user describes a lying-down leg movement with knee bend/straighten and ankle flex/point, infer a supine nerve glide / nerve floss pattern and write it clearly.',
       'Do not merely transcribe messy user wording. Infer the likely common exercise from rough descriptions, then normalize it into clean app language.',
