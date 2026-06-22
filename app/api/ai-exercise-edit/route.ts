@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Exercise } from '@/lib/exercises';
-
-const MODEL = process.env.GROQ_MODEL_PTMOTIVATOR || 'llama-3.3-70b-versatile';
+import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
 
 function cleanText(value: unknown, limit = 1400) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -55,6 +54,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 }
 
 export async function POST(req: NextRequest) {
+  let task: 'edit' | 'enhance' = 'edit';
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
     const { instruction, exercise, mode } = await req.json();
     const cleanInstruction = cleanText(instruction, 1600);
     const isEnhance = mode === 'enhance';
+    task = isEnhance ? 'enhance' : 'edit';
 
     if (!cleanInstruction && !isEnhance) return NextResponse.json({ error: 'Instruction required' }, { status: 400 });
 
@@ -105,37 +106,24 @@ export async function POST(req: NextRequest) {
       'Do not add a diagnosis or medical certainty. Do not make it sound like emergency or clinician-only advice. The user reviews before saving.',
     ].join(' ');
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify({ instruction: isEnhance ? enhanceInstruction : cleanInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
-        ],
-        temperature: isEnhance ? 0.34 : 0.1,
-        max_completion_tokens: isEnhance ? 2600 : 1000,
-        response_format: { type: 'json_object' },
-      }),
+    const { data, model, attemptedModels } = await callGroqChat(apiKey, task, {
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: JSON.stringify({ instruction: isEnhance ? enhanceInstruction : cleanInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
+      ],
+      temperature: isEnhance ? 0.34 : 0.1,
+      max_completion_tokens: isEnhance ? 2600 : 1000,
+      response_format: { type: 'json_object' },
     });
 
-    if (!res.ok) {
-      const detail = await res.text();
-      return NextResponse.json({ error: 'Groq request failed', detail: detail.slice(0, 500) }, { status: 502 });
-    }
-
-    const data = await res.json();
     const content = data?.choices?.[0]?.message?.content ?? '{}';
     const parsed = jsonFromText(content);
     const proposal = normalizeExercisePatch(parsed);
 
-    return NextResponse.json({ proposal, model: MODEL });
+    return NextResponse.json({ proposal, model, attemptedModels });
   } catch (err) {
     console.error('[ai-exercise-edit]', err);
-    return NextResponse.json({ error: 'AI edit failed' }, { status: 500 });
+    const payload = groqErrorPayload(err);
+    return NextResponse.json({ ...payload, model: payload.model ?? getGroqModelChain(task)[0] }, { status: payload.error === 'Groq request failed' ? 502 : 500 });
   }
 }
