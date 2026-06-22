@@ -1,0 +1,32 @@
+/* Safety override: keep the widget toolbar visible if the experimental floating dock CSS is present. */
+main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto {
+  position: static !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: none !important;
+  transform-origin: center !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.375rem !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  padding-bottom: 0.25rem !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto > * {
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > div.overflow-x-auto button[title] {
+  width: 2.25rem !important;
+  height: 2.25rem !important;
+  min-width: 2.25rem !important;
+  border-radius: 0.75rem !important;
+}
