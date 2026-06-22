@@ -165,12 +165,12 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
       : `${activeSequence.label} · ${activeSequence.holdSeconds}s · ${segmentLabel(currentStep)}`
     : '';
 
-  // Pre-fill log note when a sequence completes
+  // Pre-fill log note when timer completes
   useEffect(() => {
-    if (!done || sequenceActive || !sequenceKey) return;
-    setLogNoteText(noteForSequence(getSequence(sequenceKey)));
+    if (!done || sequenceActive) return;
+    setLogNoteText(sequenceKey ? noteForSequence(getSequence(sequenceKey)) : `1×${duration}s`);
     setLogSaved(false);
-  }, [done, sequenceActive, sequenceKey]);
+  }, [done, sequenceActive, sequenceKey, duration]);
 
   // Reset log state when timer resets
   useEffect(() => {
@@ -460,6 +460,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
     if (!raw) return;
     try {
       const stored = JSON.parse(raw) as StoredTimerState;
+      // Only restore if the timer was actively running — otherwise start blank
+      if (!stored.running) {
+        localStorage.removeItem(TIMER_STORAGE_KEY);
+        return;
+      }
       const option = getSequence(stored.sequenceKey);
       activeSequenceRef.current = option.steps;
       sequenceKeyRef.current = option.key;
@@ -591,7 +596,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
     { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '30 sec holds') },
   ];
 
-  const showLogSection = done && !sequenceActive && !!sequenceKey && !!onSaveNote && !!(exercises?.length);
+  const showLogSection = done && !sequenceActive && mode === 'timer' && !!onSaveNote && !!(exercises?.length);
 
   const panel = open ? (
     <div
