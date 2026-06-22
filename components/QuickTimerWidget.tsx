@@ -519,8 +519,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote }: QuickTimerWi
   useEffect(() => {
     if (!open) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
-      const target = event.target as Node | null;
+      const target = event.target as Element | null;
       if (target && panelRef.current?.contains(target)) return;
+      if (target?.closest('[data-widget-dock-toggle]')) return;
       setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
