@@ -10,6 +10,17 @@ type NotesMap = Record<string, string>;
 type ClarificationOption = { label?: string; value?: string } | string;
 type DraftProposal = SmartProposal & { clarificationOptions?: ClarificationOption[] };
 
+type ApiErrorBody = {
+  error?: string;
+  detail?: string;
+  hint?: string;
+  groqStatus?: number;
+  groqStatusText?: string;
+  model?: string;
+  requestId?: string;
+  rawModelOutput?: string;
+};
+
 interface Props {
   date: string;
   layout: CategoryConfig[];
@@ -73,6 +84,29 @@ function optionLabel(option: ClarificationOption) {
 
 function optionValue(option: ClarificationOption) {
   return typeof option === 'string' ? option : String(option.value ?? option.label ?? '').trim();
+}
+
+async function readResponseJson(res: Response) {
+  const raw = await res.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { error: 'Server returned non-JSON response', detail: raw.slice(0, 1200) };
+  }
+}
+
+function formatApiError(data: ApiErrorBody, res: Response) {
+  const lines = [data.error || `Request failed (${res.status})`];
+  const status = data.groqStatus || res.status;
+  const statusText = data.groqStatusText || res.statusText;
+  if (status) lines.push(`Status: ${status}${statusText ? ` ${statusText}` : ''}`);
+  if (data.model) lines.push(`Model: ${data.model}`);
+  if (data.hint) lines.push(`Hint: ${data.hint}`);
+  if (data.detail) lines.push(`Detail: ${data.detail}`);
+  if (data.rawModelOutput) lines.push(`Raw model output: ${data.rawModelOutput}`);
+  if (data.requestId) lines.push(`Request ID: ${data.requestId}`);
+  return lines.filter(Boolean).join('\n');
 }
 
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
@@ -173,8 +207,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI failed');
+      const data = await readResponseJson(res);
+      if (!res.ok) throw new Error(formatApiError(data, res));
       setProposal(compactProposal(data, health));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI failed');
@@ -265,7 +299,12 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
               {loading ? 'Reading…' : proposal ? 'Review draft update' : 'Review changes'}
             </button>
-            {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
+            {error && (
+              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2">
+                <p className="text-xs font-bold text-red-700 mb-1">AI add failed</p>
+                <pre className="text-[11px] leading-snug text-red-700 whitespace-pre-wrap font-sans">{error}</pre>
+              </div>
+            )}
           </div>
 
           {proposal && (
