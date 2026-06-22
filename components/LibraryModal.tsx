@@ -102,7 +102,7 @@ export default function LibraryModal({
   const sourceMessageIsError = /failed|could not|unavailable|missing key/i.test(sourceMessage);
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
-    if (e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
+    if (e.sourceId === 'ai-added' || e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
     if (e.origin === 'exercisedb') return { text: 'ExerciseDB', color: '#7C3AED', bg: '#ede9fe' };
     if (e.origin === 'api_ninjas') return { text: 'API Ninjas', color: '#5B9BD5', bg: '#dbeafe' };
     if (e.origin === 'patient_added') return { text: 'Added', color: '#5B9BD5', bg: '#dbeafe' };
@@ -281,7 +281,7 @@ export default function LibraryModal({
         imageSearch: imageSearch.trim() || name.trim(),
         tips,
         origin: importedMeta?.source ?? origin,
-        sourceId: importedMeta?.sourceId ?? sourceId ?? 'ai_added',
+        sourceId: importedMeta?.sourceId ?? sourceId,
         gifUrl: importedMeta?.gifUrl ?? gifUrl,
       }),
     };

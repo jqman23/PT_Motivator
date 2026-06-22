@@ -149,11 +149,21 @@ export default function Home() {
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
+  const [widgetDockOpen, setWidgetDockOpen] = useState(false);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
+
+  useEffect(() => {
+    const handleWidgetDockChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      setWidgetDockOpen(!!detail?.open);
+    };
+    window.addEventListener('pt-widget-dock-change', handleWidgetDockChange);
+    return () => window.removeEventListener('pt-widget-dock-change', handleWidgetDockChange);
+  }, []);
 
   useEffect(() => {
     const stored = localStorage.getItem('pt-selected-date');
@@ -390,7 +400,7 @@ export default function Home() {
         <div className="mb-6">
           <div className="flex items-center justify-between gap-2">
             <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
-            <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className={`flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none] pt-floating-widget-row ${widgetDockOpen ? 'pt-floating-widget-row-open' : ''}`} data-widget-toolbar="true">
               {widgetPrefs.timer && <TimerWidget />}
               <IconButton title="Exercise library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
               {widgetPrefs.info && <IconButton title="Exercise guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}

@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 function findWidgetToolbar() {
+  const explicitToolbar = document.querySelector('[data-widget-toolbar="true"]');
+  if (explicitToolbar instanceof HTMLElement) return explicitToolbar;
+
   const settingsButton = document.querySelector('button[title="Widget settings"]');
   const libraryButton = document.querySelector('button[title="Exercise library"]');
   const anchor = settingsButton ?? libraryButton;
@@ -11,38 +14,12 @@ function findWidgetToolbar() {
 
 export default function FloatingWidgetDockToggle() {
   const [open, setOpen] = useState(false);
-  const toolbarRef = useRef<HTMLElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    let stopped = false;
-
-    const attachToolbar = () => {
-      if (stopped) return;
-      const toolbar = findWidgetToolbar();
-      if (!toolbar) return;
-      toolbarRef.current = toolbar;
-      toolbar.classList.add('pt-floating-widget-row');
-      toolbar.classList.toggle('pt-floating-widget-row-open', open);
-    };
-
-    attachToolbar();
-    const observer = new MutationObserver(attachToolbar);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      stopped = true;
-      observer.disconnect();
-      toolbarRef.current?.classList.remove('pt-floating-widget-row', 'pt-floating-widget-row-open');
-    };
-  }, [open]);
-
-  useEffect(() => {
-    const toolbar = toolbarRef.current ?? findWidgetToolbar();
-    if (!toolbar) return;
-    toolbarRef.current = toolbar;
-    toolbar.classList.add('pt-floating-widget-row');
-    toolbar.classList.toggle('pt-floating-widget-row-open', open);
+    document.body.classList.toggle('pt-widget-dock-open', open);
+    window.dispatchEvent(new CustomEvent('pt-widget-dock-change', { detail: { open } }));
+    return () => document.body.classList.remove('pt-widget-dock-open');
   }, [open]);
 
   useEffect(() => {
@@ -53,7 +30,7 @@ export default function FloatingWidgetDockToggle() {
     const closeAfterToolClick = (event: MouseEvent) => {
       if (!open) return;
       const target = event.target as Node | null;
-      const toolbar = toolbarRef.current;
+      const toolbar = findWidgetToolbar();
       if (!target || buttonRef.current?.contains(target)) return;
       if (toolbar?.contains(target)) window.setTimeout(() => setOpen(false), 90);
     };
