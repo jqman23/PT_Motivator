@@ -90,6 +90,25 @@ function formatTime(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function groupDisplayLabel(group: SequenceOption['group']) {
+  return group === '60 sec holds' ? '60s holds' : '30s holds';
+}
+
+function setLabelParts(label: SequenceOption['label']) {
+  const count = label.split(' ')[0];
+  return { count, noun: count === '1' ? 'set' : 'sets' };
+}
+
+function getFriendlyVoice() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = ['samantha', 'ava', 'allison', 'susan', 'victoria', 'karen', 'moira', 'tessa', 'daniel', 'google us english', 'microsoft aria', 'jenny', 'libby', 'zira'];
+  return voices.find(voice => preferred.some(name => voice.name.toLowerCase().includes(name)))
+    ?? voices.find(voice => voice.lang.toLowerCase().startsWith('en') && voice.localService)
+    ?? voices.find(voice => voice.lang.toLowerCase().startsWith('en'))
+    ?? null;
+}
+
 export default function QuickTimerWidget() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -176,28 +195,32 @@ export default function QuickTimerWidget() {
     oscillator.stop(now + length + 0.02);
   };
 
+  const speakCue = (message: string) => {
+    if (!bellOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    const voice = getFriendlyVoice();
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.92;
+    utterance.pitch = 1.04;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const playDoneDing = () => {
+    void playTone(880, 0.16);
+    window.setTimeout(() => void playTone(988, 0.16), 170);
+    window.setTimeout(() => void playTone(1175, 0.16), 340);
+  };
+
   const playCue = (message: string) => {
     lastCountdownSecondRef.current = null;
     setCue(message);
     if (!bellOn) return;
     const lower = message.toLowerCase();
-    if (lower.includes('end') || lower.includes('done')) {
-      void playTone(880, 0.16);
-      window.setTimeout(() => void playTone(988, 0.16), 170);
-      window.setTimeout(() => void playTone(1175, 0.16), 340);
-    } else if (lower.includes('break')) {
-      void playTone(660, 0.14);
-      window.setTimeout(() => void playTone(520, 0.14), 170);
-    } else {
-      void playTone(880, 0.14);
-    }
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(lower.includes('end') ? [120, 60, 120] : 120);
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(message);
-      utterance.rate = 1;
-      window.speechSynthesis.speak(utterance);
-    }
+    if (lower.includes('end') || lower.includes('done')) playDoneDing();
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(lower.includes('end') ? [120, 60, 120] : 80);
+    speakCue(message);
   };
 
   const isCountdownToStretch = () => {
@@ -392,7 +415,9 @@ export default function QuickTimerWidget() {
 
   const testSound = async () => {
     await unlockAudio();
-    playCue('Sound test');
+    void playTone(1040, 0.13, 0.09);
+    window.setTimeout(() => void playTone(1320, 0.2, 0.09), 160);
+    speakCue('Voice test');
   };
 
   const start = () => mode === 'timer' ? void startCountdown() : void startStopwatch();
@@ -431,6 +456,9 @@ export default function QuickTimerWidget() {
 
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+    }
     restoreStoredTimer();
   }, []);
 
@@ -535,7 +563,7 @@ export default function QuickTimerWidget() {
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 280, touchAction: 'manipulation' }}
+      style={{ width: 292, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -559,24 +587,28 @@ export default function QuickTimerWidget() {
           <div className="space-y-2 mb-2">
             {groupedSequenceOptions.map(group => (
               <div key={group.label} className="space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{group.label}</p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {group.options.map(option => (
-                    <button
-                      key={option.key}
-                      onClick={event => { event.stopPropagation(); void startSequencePreset(option); }}
-                      className="rounded-lg text-center text-xs font-bold transition-colors"
-                      style={{
-                        minHeight: 36,
-                        padding: '8px 4px',
-                        background: sequenceActive && sequenceKey === option.key ? '#E4ECE6' : '#f5f5f4',
-                        color: sequenceActive && sequenceKey === option.key ? '#476653' : '#57534e',
-                        border: sequenceActive && sequenceKey === option.key ? '1px solid #cfded3' : '1px solid transparent',
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{groupDisplayLabel(group.label as SequenceOption['group'])}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {group.options.map(option => {
+                    const label = setLabelParts(option.label);
+                    return (
+                      <button
+                        key={option.key}
+                        onClick={event => { event.stopPropagation(); void startSequencePreset(option); }}
+                        className="rounded-xl text-center font-bold transition-colors flex flex-col items-center justify-center"
+                        style={{
+                          minHeight: 46,
+                          padding: '7px 4px 6px',
+                          background: sequenceActive && sequenceKey === option.key ? '#E4ECE6' : '#f5f5f4',
+                          color: sequenceActive && sequenceKey === option.key ? '#476653' : '#57534e',
+                          border: sequenceActive && sequenceKey === option.key ? '1px solid #cfded3' : '1px solid transparent',
+                        }}
+                      >
+                        <span className="text-sm leading-none">{label.count}</span>
+                        <span className="text-[10px] leading-none mt-1 font-semibold opacity-80">{label.noun}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}
