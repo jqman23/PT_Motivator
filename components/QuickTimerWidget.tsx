@@ -5,7 +5,28 @@ import { createPortal } from 'react-dom';
 
 const PRESETS = [30, 45, 60];
 const LEAD_IN_SECONDS = 10;
-const PT_SEQUENCE = [
+
+type TimerStep = { seconds: number; cueAfter: string };
+
+const SINGLE_SET_SEQUENCE: TimerStep[] = [
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: '30 second break' },
+  { seconds: 30, cueAfter: 'One minute starting' },
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: 'End' },
+];
+
+const THREE_SET_SEQUENCE: TimerStep[] = [
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: '30 second break' },
+  { seconds: 30, cueAfter: 'One minute starting' },
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: 'Set 2 starting' },
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: '30 second break' },
+  { seconds: 30, cueAfter: 'One minute starting' },
+  { seconds: 60, cueAfter: 'Switch' },
+  { seconds: 60, cueAfter: 'Set 3 starting' },
   { seconds: 60, cueAfter: 'Switch' },
   { seconds: 60, cueAfter: '30 second break' },
   { seconds: 30, cueAfter: 'One minute starting' },
@@ -28,10 +49,13 @@ export default function QuickTimerWidget() {
   const [bellOn, setBellOn] = useState(true);
   const [sequenceActive, setSequenceActive] = useState(false);
   const [sequenceIndex, setSequenceIndex] = useState(0);
+  const [sequenceName, setSequenceName] = useState('1 set');
+  const [activeSequence, setActiveSequence] = useState<TimerStep[]>(SINGLE_SET_SEQUENCE);
   const [cue, setCue] = useState('');
   const panelRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<number | null>(null);
   const sequenceIndexRef = useRef(0);
+  const activeSequenceRef = useRef<TimerStep[]>(SINGLE_SET_SEQUENCE);
   const audioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => setMounted(true), []);
@@ -124,21 +148,22 @@ export default function QuickTimerWidget() {
   };
 
   const advanceSequence = () => {
+    const steps = activeSequenceRef.current;
     const currentIndex = sequenceIndexRef.current;
 
     if (currentIndex < 0) {
       playCue('Start');
       sequenceIndexRef.current = 0;
       setSequenceIndex(0);
-      setDuration(PT_SEQUENCE[0].seconds);
-      return PT_SEQUENCE[0].seconds;
+      setDuration(steps[0].seconds);
+      return steps[0].seconds;
     }
 
-    const currentStep = PT_SEQUENCE[currentIndex];
+    const currentStep = steps[currentIndex];
     playCue(currentStep.cueAfter);
 
     const nextIndex = currentIndex + 1;
-    if (nextIndex >= PT_SEQUENCE.length) {
+    if (nextIndex >= steps.length) {
       stopTimer();
       setDone(true);
       setSequenceActive(false);
@@ -147,8 +172,8 @@ export default function QuickTimerWidget() {
 
     sequenceIndexRef.current = nextIndex;
     setSequenceIndex(nextIndex);
-    setDuration(PT_SEQUENCE[nextIndex].seconds);
-    return PT_SEQUENCE[nextIndex].seconds;
+    setDuration(steps[nextIndex].seconds);
+    return steps[nextIndex].seconds;
   };
 
   const startCountdown = () => {
@@ -184,9 +209,12 @@ export default function QuickTimerWidget() {
     }, 1000);
   };
 
-  const startSequencePreset = () => {
+  const startSequencePreset = (steps: TimerStep[], name: string) => {
     void unlockAudio();
     stopTimer();
+    activeSequenceRef.current = steps;
+    setActiveSequence(steps);
+    setSequenceName(name);
     setMode('timer');
     setDone(false);
     setSequenceActive(true);
@@ -194,7 +222,7 @@ export default function QuickTimerWidget() {
     sequenceIndexRef.current = -1;
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
-    setCue('Ready · press Start');
+    setCue(`${name} ready · press Start`);
   };
 
   const testSound = () => {
@@ -258,7 +286,7 @@ export default function QuickTimerWidget() {
   const pct = mode === 'timer' ? (duration ? remaining / duration : 0) : ((elapsed % 60) / 60);
   const circumference = 2 * Math.PI * 22;
   const dashOffset = circumference * (1 - pct);
-  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `Step ${sequenceIndex + 1}/${PT_SEQUENCE.length}`) : '';
+  const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `${sequenceName} · Step ${sequenceIndex + 1}/${activeSequence.length}`) : '';
 
   const panel = open ? (
     <div
@@ -285,13 +313,22 @@ export default function QuickTimerWidget() {
             ))}
           </div>
 
-          <button
-            onClick={event => { event.stopPropagation(); startSequencePreset(); }}
-            className="mb-3 w-full rounded-lg text-xs font-bold transition-colors"
-            style={{ padding: '8px 0', background: sequenceActive ? '#E4ECE6' : '#f5f5f4', color: sequenceActive ? '#476653' : '#57534e', border: sequenceActive ? '1px solid #cfded3' : '1px solid transparent' }}
-          >
-            10s start + switch preset
-          </button>
+          <div className="grid grid-cols-2 gap-1.5 mb-3">
+            <button
+              onClick={event => { event.stopPropagation(); startSequencePreset(SINGLE_SET_SEQUENCE, '1 set'); }}
+              className="rounded-lg text-xs font-bold transition-colors"
+              style={{ padding: '8px 0', background: sequenceActive && sequenceName === '1 set' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '1 set' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '1 set' ? '1px solid #cfded3' : '1px solid transparent' }}
+            >
+              1 set
+            </button>
+            <button
+              onClick={event => { event.stopPropagation(); startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }}
+              className="rounded-lg text-xs font-bold transition-colors"
+              style={{ padding: '8px 0', background: sequenceActive && sequenceName === '3 sets' ? '#E4ECE6' : '#f5f5f4', color: sequenceActive && sequenceName === '3 sets' ? '#476653' : '#57534e', border: sequenceActive && sequenceName === '3 sets' ? '1px solid #cfded3' : '1px solid transparent' }}
+            >
+              3 sets
+            </button>
+          </div>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
