@@ -36,6 +36,13 @@ type StoredTimerState = {
   savedAt: number;
 };
 
+type SequenceOption = {
+  name: '1 set' | '2 sets' | '3 sets';
+  key: Exclude<SequenceKey, 'single'>;
+  steps: TimerStep[];
+  pattern: string;
+};
+
 function buildSetSequence(setCount: number): TimerStep[] {
   const steps: TimerStep[] = [];
   for (let set = 1; set <= setCount; set += 1) {
@@ -51,6 +58,12 @@ const ONE_SET_SEQUENCE = buildSetSequence(1);
 const TWO_SET_SEQUENCE = buildSetSequence(2);
 const THREE_SET_SEQUENCE = buildSetSequence(3);
 
+const SEQUENCE_OPTIONS: SequenceOption[] = [
+  { name: '1 set', key: 'one', steps: ONE_SET_SEQUENCE, pattern: '10, 60, 15, 60' },
+  { name: '2 sets', key: 'two', steps: TWO_SET_SEQUENCE, pattern: '10, 60, 15, 60, 30, 60, 15, 60' },
+  { name: '3 sets', key: 'three', steps: THREE_SET_SEQUENCE, pattern: '10, 60, 15, 60, 30, 60, 15, 60, 30, 60, 15, 60' },
+];
+
 function sequenceForKey(key: SequenceKey) {
   if (key === 'one') return ONE_SET_SEQUENCE;
   if (key === 'three') return THREE_SET_SEQUENCE;
@@ -61,6 +74,12 @@ function keyForSequenceName(name: string): Exclude<SequenceKey, 'single'> {
   if (name === '1 set') return 'one';
   if (name === '3 sets') return 'three';
   return 'two';
+}
+
+function normalizeStoredSequenceName(name?: string, key?: SequenceKey) {
+  if (name === '1 set' && key === 'single') return '2 sets';
+  if (name === '1 set' || name === '2 sets' || name === '3 sets') return name;
+  return '2 sets';
 }
 
 function segmentLabel(step?: TimerStep) {
@@ -128,9 +147,7 @@ export default function QuickTimerWidget() {
   const showNotification = (message: string) => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
-    try {
-      new Notification('PT timer', { body: message, silent: false });
-    } catch { /* ignore */ }
+    try { new Notification('PT timer', { body: message, silent: false }); } catch { /* ignore */ }
   };
 
   const unlockAudio = async () => {
@@ -376,15 +393,15 @@ export default function QuickTimerWidget() {
     persistTimer({ mode: 'stopwatch', running: true, done: false, sequenceActive: false, endAt: null });
   };
 
-  const startSequencePreset = async (steps: TimerStep[], name: string) => {
+  const startSequencePreset = async (option: SequenceOption) => {
     await unlockAudio();
     await requestNotificationAccess();
     stopTimer();
     endAtRef.current = null;
     lastCountdownSecondRef.current = null;
-    activeSequenceRef.current = steps;
-    setActiveSequence(steps);
-    setSequenceName(name);
+    activeSequenceRef.current = option.steps;
+    setActiveSequence(option.steps);
+    setSequenceName(option.name);
     setMode('timer');
     modeRef.current = 'timer';
     setDone(false);
@@ -394,8 +411,8 @@ export default function QuickTimerWidget() {
     sequenceIndexRef.current = -1;
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
-    setCue(`${name} ready · press Start`);
-    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceName: name, sequenceKey: keyForSequenceName(name), endAt: null, cue: `${name} ready · press Start` });
+    setCue(`${option.name} ready · ${option.pattern}`);
+    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceName: option.name, sequenceKey: option.key, endAt: null, cue: `${option.name} ready · ${option.pattern}` });
   };
 
   const testSound = async () => {
@@ -413,7 +430,9 @@ export default function QuickTimerWidget() {
     if (!raw) return;
     try {
       const stored = JSON.parse(raw) as StoredTimerState;
-      const steps = sequenceForKey(stored.sequenceKey || 'two');
+      const storedName = normalizeStoredSequenceName(stored.sequenceName, stored.sequenceKey);
+      const storedKey = keyForSequenceName(storedName);
+      const steps = sequenceForKey(storedKey);
       activeSequenceRef.current = steps;
       endAtRef.current = stored.endAt ?? null;
       sequenceIndexRef.current = stored.sequenceIndex ?? 0;
@@ -430,7 +449,7 @@ export default function QuickTimerWidget() {
       setBellOn(stored.bellOn !== false);
       setSequenceActive(!!stored.sequenceActive);
       setSequenceIndex(stored.sequenceIndex ?? 0);
-      setSequenceName(stored.sequenceName === '1 set' && stored.sequenceKey === 'single' ? '2 sets' : stored.sequenceName || '2 sets');
+      setSequenceName(storedName);
       setCue(stored.cue || '');
       window.setTimeout(() => syncTimerFromClock(true), 0);
     } catch {
@@ -543,7 +562,7 @@ export default function QuickTimerWidget() {
   const sequenceLabel = sequenceActive ? (sequenceIndex < 0 ? 'Start in 10' : `${sequenceName} · ${segmentLabel(currentSegment)}`) : '';
 
   const sequenceButtonStyle = (name: string) => ({
-    padding: '8px 0',
+    padding: '9px 10px',
     background: sequenceActive && sequenceName === name ? '#E4ECE6' : '#f5f5f4',
     color: sequenceActive && sequenceName === name ? '#476653' : '#57534e',
     border: sequenceActive && sequenceName === name ? '1px solid #cfded3' : '1px solid transparent',
@@ -553,7 +572,7 @@ export default function QuickTimerWidget() {
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 260, touchAction: 'manipulation' }}
+      style={{ width: 280, touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -574,12 +593,20 @@ export default function QuickTimerWidget() {
             ))}
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5 mb-1.5">
-            <button onClick={event => { event.stopPropagation(); void startSequencePreset(ONE_SET_SEQUENCE, '1 set'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('1 set')}>1 set</button>
-            <button onClick={event => { event.stopPropagation(); void startSequencePreset(TWO_SET_SEQUENCE, '2 sets'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('2 sets')}>2 sets</button>
-            <button onClick={event => { event.stopPropagation(); void startSequencePreset(THREE_SET_SEQUENCE, '3 sets'); }} className="rounded-lg text-xs font-bold transition-colors" style={sequenceButtonStyle('3 sets')}>3 sets</button>
+          <div className="space-y-1.5 mb-2">
+            {SEQUENCE_OPTIONS.map(option => (
+              <button
+                key={option.name}
+                onClick={event => { event.stopPropagation(); void startSequencePreset(option); }}
+                className="w-full rounded-lg text-left transition-colors"
+                style={sequenceButtonStyle(option.name)}
+              >
+                <span className="block text-xs font-bold">{option.name}</span>
+                <span className="block text-[10px] leading-snug opacity-75">{option.pattern}</span>
+              </button>
+            ))}
           </div>
-          <p className="mb-3 text-[10px] text-center text-stone-400">Each set: 1 min · 15s switch · 1 min</p>
+          <p className="mb-3 text-[10px] text-center text-stone-400">1 set = 10 sec lead-in, 1 min side A, 15 sec switch, 1 min side B</p>
 
           <div className="flex gap-1.5 mb-3">
             <input value={customMinutes} onChange={event => setCustomMinutes(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void applyCustomMinutes(); }} type="number" min="0.1" step="0.5" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Custom minutes" />
