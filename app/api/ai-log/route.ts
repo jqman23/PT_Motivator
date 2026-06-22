@@ -7,6 +7,7 @@ type ExerciseBrief = {
   sets?: string;
   cue?: string;
   tips?: string[];
+  schemaText?: string;
   done?: boolean;
   note?: string;
 };
@@ -30,6 +31,14 @@ function jsonFromText(text: string) {
   return JSON.parse(match[0]);
 }
 
+function makeSchemaText(ex: ExerciseBrief) {
+  return cleanText([
+    ex.sets ? `sets: ${ex.sets}` : '',
+    ex.cue ? `cue: ${ex.cue}` : '',
+    ...(Array.isArray(ex.tips) ? ex.tips.map(tip => `tip: ${tip}`) : []),
+  ].filter(Boolean).join('; '), 420);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
@@ -37,16 +46,20 @@ export async function POST(req: NextRequest) {
 
     const { text, exercises = [], health = {}, draftProposal = null } = await req.json();
     const diaryText = cleanText(text, 1800);
-    const safeExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises.slice(0, 100).map((ex: ExerciseBrief) => ({
-      id: cleanText(ex.id, 60),
-      name: cleanText(ex.name, 90),
-      category: cleanText(ex.category, 60),
-      sets: cleanText(ex.sets, 120),
-      cue: cleanText(ex.cue, 220),
-      tips: cleanList(ex.tips, 5, 120),
-      done: !!ex.done,
-      note: cleanText(ex.note, 160),
-    })) : [];
+    const safeExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises.slice(0, 100).map((ex: ExerciseBrief) => {
+      const safe: ExerciseBrief = {
+        id: cleanText(ex.id, 60),
+        name: cleanText(ex.name, 90),
+        category: cleanText(ex.category, 60),
+        sets: cleanText(ex.sets, 120),
+        cue: cleanText(ex.cue, 220),
+        tips: cleanList(ex.tips, 5, 120),
+        done: !!ex.done,
+        note: cleanText(ex.note, 160),
+      };
+      safe.schemaText = makeSchemaText(safe);
+      return safe;
+    }) : [];
     const categories = Array.from(new Set(safeExercises.map(ex => ex.category).filter(Boolean))).slice(0, 12);
     const splitIntent = /\b(split|break\s*(it|this)?\s*(up|down)|separate|specific|variants?|versions?|make .*\b\d+\b|\b\d+\s+(specific|separate|different))\b/i.test(diaryText);
     const updateOnlyIntent = /\b(just\s+update|update\s+only|only\s+update|can't\s+create|cannot\s+create|do\s+not\s+create|don't\s+create|no\s+new|existing\s+only|current\s+only|update\s+(the|this|that|existing|current)|change\s+(the|this|that|existing|current)|edit\s+(the|this|that|existing|current)|modify\s+(the|this|that|existing|current)|revise\s+(the|this|that|existing|current))\b/i.test(diaryText);
@@ -58,8 +71,10 @@ export async function POST(req: NextRequest) {
       'Use existing exercise ids in exerciseChanges when the note clearly refers to an existing exercise. Never invent ids in exerciseChanges.',
       'Use newExercises only when the user clearly wants a new exercise/library item or a split into new specific exercises. Choose categoryName from the provided categories exactly.',
       'UPDATE-ONLY RULE: if updateOnlyIntent is true, or the user says update/change/edit/modify/revise an existing/current exercise, just update, update only, no new, do not create, cannot create, or can\'t create, return zero newExercises. Use exerciseChanges only. If you cannot confidently match the existing exercise, ask a clarification question instead of creating a new exercise.',
-      'When updating an existing exercise note, use that exercise\'s saved schema: name, sets, cue, and tips. If the user says "all", "all 3", "both", "straight and bent", or similar shorthand, expand it using the existing exercise cue/tips instead of copying vague user wording.',
-      'For exerciseChanges.note, write a concise standardized performed-today note. Use dosage first, then the exercised part/component, then descriptor. Examples: "1 x ~60 seconds, big toe, toe spread, and arch lift", "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled".',
+      'When updating an existing exercise note, use that exercise\'s saved schemaText first, then name/sets/cue/tips. schemaText is the compact source of truth for what the exercise contains.',
+      'If the user says "all", "all 3", "both", "straight and bent", "each", or similar shorthand, expand it from schemaText/cue/tips instead of copying vague user wording.',
+      'For exerciseChanges.note, write a concise standardized performed-today note. Use dosage first, then the exercised part/component, then descriptor. Examples: "1 x ~60 seconds, listed components from cue", "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled".',
+      'Do not include filler phrases like "did all", "in it", "approx 1 set", or "for the exercise" in notes. Convert them into standardized dosage and components.',
       'If the user gives approximate timing, use ~, e.g. "1 x ~60 seconds". Prefer seconds over min in standardized notes when timing is specific.',
       'If the user asks to split a broad exercise and updateOnlyIntent is false, create multiple newExercises, usually 2-5.',
       'Default: did exercise means completed true; skipped/not done means false. For newly proposed library exercises that were not performed today, completed should be null.',
