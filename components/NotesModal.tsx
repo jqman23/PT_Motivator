@@ -36,6 +36,10 @@ function cleanLines(value?: string[]) {
   return Array.isArray(value) ? value.filter(Boolean).slice(0, 6) : [];
 }
 
+function preserveTypedNote(value: string) {
+  return value.replace(/\r\n/g, '\n').trim();
+}
+
 async function readJson(res: Response) {
   const raw = await res.text();
   if (!raw) return {};
@@ -62,8 +66,6 @@ export default function NotesModal({
   const [review, setReview] = useState<StandardizeResult | null>(null);
   const [standardizedNote, setStandardizedNote] = useState('');
 
-  // Always re-check the stored note when the modal opens. The parent notes map can
-  // be stale after adding exercises or switching dates, so the modal should trust DB.
   useEffect(() => {
     let cancelled = false;
     setNote(initialNote ?? '');
@@ -88,7 +90,6 @@ export default function NotesModal({
     return () => { cancelled = true; };
   }, [exerciseId, date, initialNote]);
 
-  // Fetch recent notes from the past few days so they can be reused as templates.
   useEffect(() => {
     fetch(`/api/recent-notes?exerciseId=${encodeURIComponent(exerciseId)}&beforeDate=${date}`)
       .then(r => r.json())
@@ -105,12 +106,12 @@ export default function NotesModal({
   }, [onClose]);
 
   const saveAndClose = (value: string) => {
-    onSave(value.trim());
+    onSave(preserveTypedNote(value));
     onClose();
   };
 
   const handleReview = async () => {
-    const rawNote = note.trim();
+    const rawNote = preserveTypedNote(note);
     if (!rawNote) {
       saveAndClose('');
       return;
@@ -236,13 +237,13 @@ export default function NotesModal({
                 autoFocus
                 value={note}
                 onChange={(e) => { setNote(e.target.value); setStandardizeError(''); }}
-                placeholder="Messy is fine — AI will standardize on save. Example: both sides inversion eversion 60 no band"
+                placeholder="Type anything. Use Save as-is to preserve it, or Review note for a one-line standardized version."
                 className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 onFocus={(e) => e.currentTarget.style.outlineColor = '#7E9B86'}
               />
               <p className="mt-2 text-[11px] text-stone-400 leading-snug">
-                Save will preview a standardized note: dose, side/body part, variation, modifier, outcome.
+                Save as-is preserves your exact note and line breaks. Review note creates the one-line structured format.
               </p>
             </>
           ) : (
@@ -255,7 +256,7 @@ export default function NotesModal({
 
               <div className="rounded-2xl border border-stone-100 bg-stone-50 p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Original</p>
-                <p className="text-xs text-stone-600 leading-snug">{review.originalNote}</p>
+                <p className="text-xs text-stone-600 leading-snug" style={{ whiteSpace: 'pre-wrap' }}>{review.originalNote}</p>
               </div>
 
               <div className="rounded-2xl border p-3" style={{ borderColor: '#cfded3', background: '#F8FBF8' }}>
@@ -289,6 +290,15 @@ export default function NotesModal({
                 style={{ touchAction: 'manipulation' }}
               >
                 Cancel
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(note); }}
+                disabled={loadingStoredNote}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50"
+                style={{ touchAction: 'manipulation' }}
+              >
+                Save as-is
               </button>
               <button
                 onPointerDown={(e) => e.stopPropagation()}
