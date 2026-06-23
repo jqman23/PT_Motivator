@@ -10,7 +10,7 @@ function cleanText(value: unknown, limit = 1200) {
 }
 
 function optionText(value: unknown) {
-  return cleanText(value, 96).replace(/[?？]+$/g, '').trim();
+  return cleanText(value, 110).replace(/[?？]+$/g, '').trim();
 }
 
 function cleanOptions(value: unknown) {
@@ -30,16 +30,16 @@ function normalizeReply(raw: Record<string, unknown>, allowOptions = true) {
     : null;
 
   return {
-    answer: cleanText(raw.answer, 360) || 'I can help narrow it down. Which version sounds closest?',
+    answer: cleanText(raw.answer, 520) || 'I can help narrow it down. Which version sounds closest?',
     options: allowOptions ? cleanOptions(raw.options) : [],
     confirmedExercise: confirmed ? {
       name: cleanText(confirmed.name, 120),
-      cue: cleanText(confirmed.cue, 420),
+      cue: cleanText(confirmed.cue, 520),
       sets: cleanText(confirmed.sets, 180),
       cat: cleanText(confirmed.cat, 20) === 'strength' ? 'strength' : 'mobility',
       imageSearch: cleanText(confirmed.imageSearch, 180),
-      confidence: cleanText(confirmed.confidence, 60),
-      nextStep: cleanText(confirmed.nextStep, 160),
+      confidence: cleanText(confirmed.confidence, 80),
+      nextStep: cleanText(confirmed.nextStep, 220),
       tips: cleanOptions(confirmed.tips),
     } : undefined,
   };
@@ -51,34 +51,42 @@ export async function POST(req: NextRequest) {
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
 
     const { question, history, exercises, clarificationCount } = await req.json();
-    const cleanQuestion = cleanText(question, 900);
+    const cleanQuestion = cleanText(question, 1200);
     if (!cleanQuestion) return NextResponse.json({ error: 'Question required' }, { status: 400 });
 
     const cleanHistory: ChatMessage[] = Array.isArray(history)
-      ? history.slice(-4).map((msg: ChatMessage): ChatMessage => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: cleanText(msg.content, 280) })).filter((msg: ChatMessage) => msg.content)
+      ? history.slice(-6).map((msg: ChatMessage): ChatMessage => ({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: cleanText(msg.content, 420) })).filter((msg: ChatMessage) => msg.content)
       : [];
 
-    const exerciseContext = Array.isArray(exercises) ? exercises.slice(0, 40) : [];
+    const exerciseContext = Array.isArray(exercises) ? exercises.slice(0, 80) : [];
     const cleanClarificationCount = Math.max(0, Math.min(2, Number(clarificationCount) || 0));
 
     const system = [
-      'You are a world-class physical therapist and exercise coach helping identify exactly which ankle/foot/lower-body exercise variation the user means.',
-      'Be concise: answer in 1 short sentence unless a confirmed draft is needed.',
-      'Your main job is disambiguation. Ask at most one clarifying question. Provide 2-3 selectable options as short answer choices, not questions; no question marks in options.',
-      'Assume the user is currently focused on ankle rehab, but consider hip, calf, foot intrinsic, balance, and lower-body strength links when relevant.',
-      'Do not diagnose or replace clinician advice. Use conservative safety language only when useful.',
+      'You are a world-class physical therapist and exercise coach helping identify exactly which exercise, drill, stretch, nerve glide, mobility move, or strength variation the user is trying to remember.',
+      'Think outside the app library first. Use broad PT, rehab, sports medicine, orthopedic, and exercise-coaching knowledge. The app exerciseLibrary is optional context only, not the boundary of what you can consider.',
+      'The user is often describing a movement from memory with messy language. Reconstruct likely setup, body position, moving joints, target tissue/nerve/muscle, and intent before answering.',
+      'Be especially strong at lower-body rehab: ankle/foot, toes, plantar fascia, calf/Achilles, peroneals, tibialis, sciatic/tibial/sural/peroneal nerve glides, slump variations, hip/knee mechanics, balance, and gait-related drills.',
+      'When multiple common exercises are plausible, do not force a single answer. Ask one concise clarifying question and provide 2-3 selectable options as short answer choices, not questions; no question marks in options.',
+      'Options should be meaningfully different hypotheses, not tiny wording variants. Example option labels: "Seated slump nerve glide", "Long-sitting sciatic nerve glide", "Ankle pump / calf floss".',
+      'If the likely exercise is not already in exerciseLibrary, still name it and create an app-ready confirmedExercise from general PT knowledge. Do not say it is unavailable just because it is not in the app.',
+      'If exerciseLibrary contains a close match, mention or use that match. If no match exists, reason from outside knowledge and make a new clean draft.',
+      'Be concise but useful: one clear sentence for uncertain answers; a compact draft when confident.',
+      'Do not diagnose, prescribe, or replace clinician advice. Avoid medical alarm language unless the user mentions red flags. Phrase as exercise identification, not medical treatment.',
       'After 2 clarification rounds, stop asking and give the best likely confirmedExercise or a brief answer with options: [].',
-      'When confident, include confirmedExercise with app-ready name, cue, sets, category, imageSearch, and 2-3 tips. Then use options: [].',
+      'When confident, include confirmedExercise with app-ready name, cue, sets, category, imageSearch, and 2-3 practical tips. Then use options: [].',
+      'For confirmedExercise.name, prefer canonical PT names with position + target/pattern, e.g. "Seated slump nerve glide", "Long-sitting sciatic nerve glide", "Standing calf stretch".',
+      'For confirmedExercise.cue, give clear setup and movement sequence in normal app language. Include what moves and what stays relaxed. Do not quote the user\'s messy wording.',
+      'For confirmedExercise.sets, if dosage is missing, use a cautious placeholder like "2 x 10 gentle reps" for nerve glides/mobility rather than inventing intense dosage. Keep it editable.',
       'Return compact JSON only: {"answer":"","options":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"mobility","imageSearch":"","confidence":"","nextStep":"","tips":[]}}. Omit confirmedExercise if not confident.',
     ].join(' ');
 
     const { data, model, attemptedModels } = await callGroqChat(apiKey, 'ask', {
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext }) },
+        { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext, libraryIsOnlyOptionalContext: true }) },
       ],
-      temperature: 0.22,
-      max_completion_tokens: 520,
+      temperature: 0.32,
+      max_completion_tokens: 820,
       response_format: { type: 'json_object' },
     });
 
