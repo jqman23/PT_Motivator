@@ -28,7 +28,7 @@ function cleanOptions(value: unknown) {
   return Array.isArray(value) ? value.map(optionText).filter(Boolean).slice(0, 3) : [];
 }
 
-function cleanSourceMatches(value: unknown): SourceMatch[] {
+function normalizeSourceMatches(value: unknown): SourceMatch[] {
   return Array.isArray(value)
     ? value.slice(0, 8).map((match: SourceMatch) => ({
         source: cleanText(match?.source, 24),
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       : [];
 
     const exerciseContext = Array.isArray(exercises) ? exercises.slice(0, 80) : [];
-    const cleanSourceMatches = cleanSourceMatches(sourceMatches);
+    const cleanSourceMatches = normalizeSourceMatches(sourceMatches);
     const cleanClarificationCount = Math.max(0, Math.min(2, Number(clarificationCount) || 0));
 
     const system = [
