@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import VideoModal from './VideoModal';
@@ -87,6 +87,16 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     clearLongPress();
     e.stopPropagation();
   };
+
+  useEffect(() => {
+    const handleTimerNoteSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ exerciseId?: string }>).detail;
+      if (detail?.exerciseId === exercise.id && !done) onToggle();
+    };
+
+    window.addEventListener('pt-timer-note-saved', handleTimerNoteSaved);
+    return () => window.removeEventListener('pt-timer-note-saved', handleTimerNoteSaved);
+  }, [done, exercise.id, onToggle]);
 
   const moveWithinSection = async (direction: -1 | 1) => {
     if (moveBusy) return;
