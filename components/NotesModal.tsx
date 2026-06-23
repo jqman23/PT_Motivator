@@ -68,7 +68,8 @@ export default function NotesModal({
 
   useEffect(() => {
     let cancelled = false;
-    setNote(initialNote ?? '');
+    const fallbackNote = initialNote ?? '';
+    setNote(fallbackNote);
     setReview(null);
     setStandardizedNote('');
     setStandardizeError('');
@@ -80,9 +81,17 @@ export default function NotesModal({
         if (cancelled) return;
         const rows = Array.isArray(data.rows) ? data.rows : [];
         const stored = rows.find((row: { exercise_id?: string }) => row.exercise_id === exerciseId);
-        setNote(typeof stored?.note === 'string' ? stored.note : '');
+        if (typeof stored?.note === 'string') {
+          setNote(stored.note);
+          return;
+        }
+
+        // Do not let a stale/missed server fetch erase a note the Home Screen already has.
+        setNote(current => current || fallbackNote);
       })
-      .catch(() => {/* silent */})
+      .catch(() => {
+        if (!cancelled) setNote(current => current || fallbackNote);
+      })
       .finally(() => {
         if (!cancelled) setLoadingStoredNote(false);
       });
