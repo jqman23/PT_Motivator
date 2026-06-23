@@ -148,5 +148,10 @@ export default function TimerWidget(props: TimerWidgetProps) {
     };
   }, []);
 
-  return <QuickTimerWidget {...props} />;
+  const handleSaveNote: TimerWidgetProps['onSaveNote'] = (exerciseId, note) => {
+    props.onSaveNote(exerciseId, note);
+    window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId } }));
+  };
+
+  return <QuickTimerWidget {...props} onSaveNote={handleSaveNote} />;
 }
