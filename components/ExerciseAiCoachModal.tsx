@@ -2,11 +2,34 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
+import { SmartDbMatch } from '@/components/SmartAddTypes';
 
 type AiReply = {
   answer: string;
   options: string[];
   confirmedExercise?: Partial<Exercise> & { confidence?: string; nextStep?: string };
+};
+
+type ExerciseDbResult = {
+  source?: 'exercisedb';
+  exerciseId: string;
+  name: string;
+  gifUrl?: string;
+  targetMuscles?: string[];
+  bodyParts?: string[];
+  equipments?: string[];
+  instructions?: string[];
+};
+
+type ApiNinjasResult = {
+  source?: 'api_ninjas';
+  id?: string;
+  name: string;
+  type?: string;
+  muscle?: string;
+  difficulty?: string;
+  instructions?: string;
+  equipments?: string[];
 };
 
 interface Props {
@@ -30,12 +53,70 @@ function errorMessage(res: Response, data: { error?: string; detail?: string }) 
   return data.error ? `${data.error}${detail}` : `AI coach failed (${res.status})${detail}`;
 }
 
+function toTitleCase(value: string) {
+  return value.replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function normalizeExerciseDbMatch(item: ExerciseDbResult): SmartDbMatch {
+  const target = item.targetMuscles?.join(', ') ?? '';
+  const equipment = item.equipments?.join(', ') ?? '';
+  return {
+    source: 'exercisedb',
+    sourceId: item.exerciseId,
+    name: toTitleCase(item.name),
+    cue: [target, equipment].filter(Boolean).join(' · '),
+    tips: item.instructions?.slice(0, 5),
+    gifUrl: item.gifUrl,
+    label: 'ExerciseDB',
+  };
+}
+
+function normalizeApiNinjasMatch(item: ApiNinjasResult, index: number): SmartDbMatch {
+  return {
+    source: 'api_ninjas',
+    sourceId: item.name || item.id || `api-ninjas-${index}`,
+    name: toTitleCase(item.name),
+    cue: [item.type, item.muscle, item.difficulty].filter(Boolean).join(' · '),
+    tips: item.instructions ? [item.instructions] : [],
+    label: 'API Ninjas',
+  };
+}
+
+async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
+  if (search.trim().length < 2) return [];
+  const [exerciseDbRes, apiNinjasRes] = await Promise.all([
+    fetch(`/api/exercisedb/search?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+  ]);
+
+  const exerciseDbMatches: SmartDbMatch[] = Array.isArray(exerciseDbRes.data)
+    ? exerciseDbRes.data.slice(0, 5).map((item: ExerciseDbResult) => normalizeExerciseDbMatch(item))
+    : [];
+  const apiNinjasMatches: SmartDbMatch[] = Array.isArray(apiNinjasRes.data)
+    ? apiNinjasRes.data.slice(0, 5).map((item: ApiNinjasResult, index: number) => normalizeApiNinjasMatch(item, index))
+    : [];
+
+  return [...exerciseDbMatches, ...apiNinjasMatches].slice(0, 8);
+}
+
+function fallbackCopy(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try { document.execCommand('copy'); } finally { textarea.remove(); }
+}
+
 export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [reply, setReply] = useState<AiReply | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
   const clarificationCountRef = useRef(0);
 
   useEffect(() => {
@@ -49,11 +130,13 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
     if (!clean || loading) return;
     setLoading(true);
     setError('');
+    setCopyStatus('');
     setInput('');
     const nextHistory = trimHistory([...history, { role: 'user', content: clean }]);
     setHistory(nextHistory);
 
     try {
+      const sourceMatches = await searchExternalSources(clean);
       const res = await fetch('/api/ai-exercise-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -61,6 +144,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
           question: clean,
           history: nextHistory,
           clarificationCount: clarificationCountRef.current,
+          sourceMatches,
           exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
         }),
       });
@@ -87,6 +171,23 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
       ].filter(Boolean).join('\n')
     : '';
 
+  const copyDraft = async () => {
+    if (!draftText) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(draftText);
+      else fallbackCopy(draftText);
+      setCopyStatus('Copied ✓');
+    } catch {
+      try {
+        fallbackCopy(draftText);
+        setCopyStatus('Copied ✓');
+      } catch {
+        setCopyStatus('Copy failed — long-press draft text');
+      }
+    }
+    window.setTimeout(() => setCopyStatus(''), 1600);
+  };
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-6" onClick={onClose}>
       <div className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col" style={{ maxHeight: '88dvh' }} onClick={e => e.stopPropagation()}>
@@ -94,7 +195,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">AI exercise identifier</p>
             <h2 className="font-serif text-xl font-semibold text-stone-800">Ask about an exercise</h2>
-            <p className="text-xs text-stone-500 mt-1 leading-snug">Built for ankle PT: it asks clarifying questions for up to two quick clarifications, then gives a clean draft you can use to edit or add an exercise.</p>
+            <p className="text-xs text-stone-500 mt-1 leading-snug">Built for ankle PT: it searches your app plus external exercise databases, asks quick clarifying questions, then gives a clean draft you can copy for edit/add.</p>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button>
         </div>
@@ -102,7 +203,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
         <div className="overflow-y-auto px-5 py-4 flex-1 space-y-3">
           {!history.length && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{STARTERS.map(item => <button key={item} onClick={() => ask(item)} className="text-left text-xs font-semibold leading-snug rounded-2xl bg-white border border-stone-100 px-3 py-3 text-stone-600 hover:bg-stone-50" style={{ touchAction: 'manipulation' }}>{item}</button>)}</div>}
           {history.map((msg, idx) => <div key={idx} className={`rounded-2xl px-3 py-2.5 text-sm leading-snug ${msg.role === 'user' ? 'ml-8 bg-[#1F2F46] text-white' : 'mr-8 bg-white border border-stone-100 text-stone-700'}`}>{msg.content}</div>)}
-          {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Thinking like a PT…</div>}
+          {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Searching databases and thinking like a PT…</div>}
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p>}
 
           {!!reply?.options?.length && <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tap one</p>{reply.options.slice(0, 3).map(option => <button key={option} onClick={() => ask(option)} className="w-full text-left text-sm font-semibold rounded-2xl bg-white border border-stone-100 px-3 py-3 text-stone-700 hover:bg-[#FDF8EE]" style={{ touchAction: 'manipulation' }}>{option}</button>)}</div>}
@@ -113,7 +214,7 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
             <p className="text-sm text-stone-600 mt-1 leading-snug">{reply.confirmedExercise.cue}</p>
             {reply.confirmedExercise.sets && <p className="text-xs font-semibold text-stone-500 mt-2">{reply.confirmedExercise.sets}</p>}
             {!!reply.confirmedExercise.tips?.length && <ul className="mt-2 space-y-1">{reply.confirmedExercise.tips.slice(0, 5).map((tip, idx) => <li key={idx} className="text-xs text-stone-600 leading-snug">• {tip}</li>)}</ul>}
-            <button onClick={() => navigator.clipboard?.writeText(draftText)} className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold" style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}>Copy draft for edit/add</button>
+            <button onClick={copyDraft} className="mt-3 w-full py-2.5 rounded-xl text-xs font-bold" style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}>{copyStatus || 'Copy draft for edit/add'}</button>
           </div>}
         </div>
 
