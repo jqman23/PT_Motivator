@@ -314,8 +314,8 @@ export default function NotesModal({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(note); }}
                 disabled={loadingStoredNote}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50"
-                style={{ touchAction: 'manipulation' }}
+                className="px-4 py-2 text-sm font-bold text-white rounded-xl disabled:opacity-50"
+                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
               >
                 Save as-is
               </button>
@@ -323,8 +323,8 @@ export default function NotesModal({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleReview(); }}
                 disabled={standardizing || loadingStoredNote}
-                className="px-5 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50"
-                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
+                className="px-5 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50"
+                style={{ touchAction: 'manipulation' }}
               >
                 {standardizing ? 'Standardizing…' : 'Review note'}
               </button>
