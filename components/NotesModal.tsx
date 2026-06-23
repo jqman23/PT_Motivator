@@ -289,13 +289,13 @@ export default function NotesModal({
           )}
         </div>
 
-        <div className="px-4 pb-4 flex flex-wrap gap-2 justify-end">
+        <div className="px-3 pb-4 flex flex-nowrap gap-1.5 justify-end overflow-x-auto">
           {!review ? (
             <>
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
-                className="px-4 py-2 text-sm text-stone-500"
+                className="px-2 py-2 text-xs text-stone-500 whitespace-nowrap flex-shrink-0"
                 style={{ touchAction: 'manipulation' }}
               >
                 Cancel
@@ -304,7 +304,7 @@ export default function NotesModal({
                 <button
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNote(''); setStandardizeError(''); setReview(null); }}
-                  className="px-4 py-2 text-sm font-semibold rounded-xl text-red-500 bg-red-50"
+                  className="px-2 py-2 text-xs font-semibold rounded-xl text-red-500 bg-red-50 whitespace-nowrap flex-shrink-0"
                   style={{ touchAction: 'manipulation' }}
                 >
                   Clear
@@ -314,7 +314,7 @@ export default function NotesModal({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(note); }}
                 disabled={loadingStoredNote}
-                className="px-4 py-2 text-sm font-bold text-white rounded-xl disabled:opacity-50"
+                className="px-2.5 py-2 text-xs font-bold text-white rounded-xl disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                 style={{ background: '#7E9B86', touchAction: 'manipulation' }}
               >
                 Save as-is
@@ -323,7 +323,7 @@ export default function NotesModal({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleReview(); }}
                 disabled={standardizing || loadingStoredNote}
-                className="px-5 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50"
+                className="px-2.5 py-2 text-xs font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                 style={{ touchAction: 'manipulation' }}
               >
                 {standardizing ? 'Standardizing…' : 'Review note'}
@@ -334,7 +334,7 @@ export default function NotesModal({
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); editOriginal(); }}
-                className="px-3 py-2 text-sm text-stone-500"
+                className="px-2 py-2 text-xs text-stone-500 whitespace-nowrap flex-shrink-0"
                 style={{ touchAction: 'manipulation' }}
               >
                 Edit original
@@ -342,7 +342,7 @@ export default function NotesModal({
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(review.originalNote); }}
-                className="px-3 py-2 text-sm font-semibold rounded-xl bg-stone-100 text-stone-500"
+                className="px-2.5 py-2 text-xs font-semibold rounded-xl bg-stone-100 text-stone-500 whitespace-nowrap flex-shrink-0"
                 style={{ touchAction: 'manipulation' }}
               >
                 Keep original
@@ -350,7 +350,7 @@ export default function NotesModal({
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveAndClose(standardizedNote); }}
-                className="px-4 py-2 text-sm font-bold text-white rounded-xl"
+                className="px-2.5 py-2 text-xs font-bold text-white rounded-xl whitespace-nowrap flex-shrink-0"
                 style={{ background: '#7E9B86', touchAction: 'manipulation' }}
               >
                 Save standardized
