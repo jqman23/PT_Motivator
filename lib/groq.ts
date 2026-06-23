@@ -1,4 +1,4 @@
-export type GroqTask = 'ask' | 'log' | 'edit' | 'enhance';
+export type GroqTask = 'ask' | 'log' | 'edit' | 'enhance' | 'summary';
 
 type Attempt = {
   model: string;
@@ -49,6 +49,9 @@ const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
 
   // Enhance is lower volume and benefits from richer output, but still has fallbacks.
   enhance: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
+
+  // Tiny daily recap: keep it cheap and avoid competing with heavier routes.
+  summary: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
 };
 
 function cleanText(value: unknown, limit = 900) {
