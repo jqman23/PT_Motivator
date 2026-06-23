@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
-import { SmartExerciseChange, SmartHealthChanges, SmartNewExercise, SmartProposal } from '@/components/SmartAddTypes';
+import { SmartDbMatch, SmartExerciseChange, SmartHealthChanges, SmartNewExercise, SmartProposal } from '@/components/SmartAddTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -20,6 +20,28 @@ type ApiErrorBody = {
   model?: string;
   requestId?: string;
   rawModelOutput?: string;
+};
+
+type ExerciseDbResult = {
+  source?: 'exercisedb';
+  exerciseId: string;
+  name: string;
+  gifUrl?: string;
+  targetMuscles?: string[];
+  bodyParts?: string[];
+  equipments?: string[];
+  instructions?: string[];
+};
+
+type ApiNinjasResult = {
+  source?: 'api_ninjas';
+  id?: string;
+  name: string;
+  type?: string;
+  muscle?: string;
+  difficulty?: string;
+  instructions?: string;
+  equipments?: string[];
 };
 
 interface Props {
@@ -110,6 +132,52 @@ function formatApiError(data: ApiErrorBody, res: Response) {
   return lines.filter(Boolean).join('\n');
 }
 
+function toTitleCase(value: string) {
+  return value.replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function normalizeExerciseDbMatch(item: ExerciseDbResult): SmartDbMatch {
+  const target = item.targetMuscles?.join(', ') ?? '';
+  const equipment = item.equipments?.join(', ') ?? '';
+  return {
+    source: 'exercisedb',
+    sourceId: item.exerciseId,
+    name: toTitleCase(item.name),
+    cue: [target, equipment].filter(Boolean).join(' · '),
+    tips: item.instructions?.slice(0, 5),
+    gifUrl: item.gifUrl,
+    label: 'ExerciseDB',
+  };
+}
+
+function normalizeApiNinjasMatch(item: ApiNinjasResult, index: number): SmartDbMatch {
+  return {
+    source: 'api_ninjas',
+    sourceId: item.name || item.id || `api-ninjas-${index}`,
+    name: toTitleCase(item.name),
+    cue: [item.type, item.muscle, item.difficulty].filter(Boolean).join(' · '),
+    tips: item.instructions ? [item.instructions] : [],
+    label: 'API Ninjas',
+  };
+}
+
+async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
+  if (search.trim().length < 2) return [];
+  const [exerciseDbRes, apiNinjasRes] = await Promise.all([
+    fetch(`/api/exercisedb/search?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+  ]);
+
+  const exerciseDbMatches: SmartDbMatch[] = Array.isArray(exerciseDbRes.data)
+    ? exerciseDbRes.data.slice(0, 5).map((item: ExerciseDbResult) => normalizeExerciseDbMatch(item))
+    : [];
+  const apiNinjasMatches: SmartDbMatch[] = Array.isArray(apiNinjasRes.data)
+    ? apiNinjasRes.data.slice(0, 5).map((item: ApiNinjasResult, index: number) => normalizeApiNinjasMatch(item, index))
+    : [];
+
+  return [...exerciseDbMatches, ...apiNinjasMatches].slice(0, 8);
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -173,6 +241,10 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         note: String(item.note ?? '').trim(),
         completed: typeof item.completed === 'boolean' ? item.completed : null,
         reason: String(item.reason ?? '').trim(),
+        origin: item.origin,
+        sourceId: item.sourceId,
+        gifUrl: item.gifUrl,
+        dbMatches: Array.isArray(item.dbMatches) ? item.dbMatches.slice(0, 3) : [],
       }))
       .filter((item: SmartNewExercise) => item.name);
 
@@ -203,12 +275,15 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     setError('');
     setLoading(true);
     try {
-      const health = await loadHealth();
+      const [health, sourceMatches] = await Promise.all([
+        loadHealth(),
+        searchExternalSources(textToAnalyze),
+      ]);
       const draftForRevision = overrideDraft ?? proposal;
       const res = await fetch('/api/ai-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision, date }),
+        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision, sourceMatches, date }),
       });
       const data = await readResponseJson(res);
       if (!res.ok) throw new Error(formatApiError(data, res));
@@ -352,9 +427,9 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
               className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
-            <p className="mt-1 text-[11px] text-stone-400">Tip: after a draft appears, type a tweak and Review Changes will revise the pending draft without saving.</p>
+            <p className="mt-1 text-[11px] text-stone-400">Tip: AI Add now checks ExerciseDB + API Ninjas first, then drafts changes you can review.</p>
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
-              {loading ? 'Reading…' : proposal ? 'Review draft update' : 'Review changes'}
+              {loading ? 'Searching + reading…' : proposal ? 'Review draft update' : 'Review changes'}
             </button>
             <div className="mt-3 grid gap-2 rounded-xl border border-stone-100 bg-stone-50 p-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Skip AI when you already know what to add</p>
@@ -422,7 +497,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                     <div key={`${item.name}-${idx}`} className="bg-white rounded-2xl border-2 p-3" style={{ borderColor: '#cfded3' }}>
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
-                          <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: item.origin === 'patient_added' ? '#dbeafe' : '#E4ECE6', color: item.origin === 'patient_added' ? '#2f6f9f' : '#476653' }}>{item.origin === 'patient_added' ? 'Manual' : 'AI draft'}</span>
+                          <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: item.origin === 'exercisedb' ? '#ede9fe' : item.origin === 'api_ninjas' || item.origin === 'patient_added' ? '#dbeafe' : '#E4ECE6', color: item.origin === 'exercisedb' ? '#7C3AED' : item.origin === 'api_ninjas' || item.origin === 'patient_added' ? '#2f6f9f' : '#476653' }}>{item.origin === 'exercisedb' ? 'ExerciseDB' : item.origin === 'api_ninjas' ? 'API Ninjas' : item.origin === 'patient_added' ? 'Manual' : 'AI draft'}</span>
                           <input value={item.name} onChange={e => updateNewExercise(idx, { name: e.target.value })} className="block w-full text-sm font-bold text-stone-800 bg-transparent border-b border-stone-200 focus:outline-none" style={{ fontSize: 16 }} />
                         </div>
                         <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeNewExercise(idx); }} className="text-xs text-stone-400">Remove</button>
