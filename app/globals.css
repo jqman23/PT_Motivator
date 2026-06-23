@@ -192,6 +192,32 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > inpu
   .fixed.inset-0 {
     overscroll-behavior: contain;
   }
+
+  /* Keep the AI add manual-note row contained on narrow phones. */
+  .fixed.inset-0[class*="z-[70]"] > div.flex.flex-col {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .fixed.inset-0[class*="z-[70]"] div.mt-3.grid.gap-2.rounded-xl.border.border-stone-100.bg-stone-50.p-2 {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .fixed.inset-0[class*="z-[70]"] div.mt-3.grid.gap-2.rounded-xl.border.border-stone-100.bg-stone-50.p-2 > div.flex.gap-1\.5 {
+    flex-direction: column !important;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .fixed.inset-0[class*="z-[70]"] div.mt-3.grid.gap-2.rounded-xl.border.border-stone-100.bg-stone-50.p-2 select,
+  .fixed.inset-0[class*="z-[70]"] div.mt-3.grid.gap-2.rounded-xl.border.border-stone-100.bg-stone-50.p-2 textarea,
+  .fixed.inset-0[class*="z-[70]"] div.mt-3.grid.gap-2.rounded-xl.border.border-stone-100.bg-stone-50.p-2 button {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+  }
 }
 
 /* Library create/edit forms can be taller than the phone viewport after source search results appear. */
