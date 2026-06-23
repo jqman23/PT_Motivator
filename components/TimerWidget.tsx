@@ -9,16 +9,23 @@ type TimerWidgetProps = ComponentProps<typeof QuickTimerWidget>;
 export default function TimerWidget(props: TimerWidgetProps) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const pendingTimeoutsRef = useRef<number[]>([]);
+  const lastObservedSecondRef = useRef<number | null>(null);
 
   useEffect(() => {
+    const getTimerPanel = () => {
+      const soundButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[title="Sound on/off"]'));
+      const soundButton = soundButtons[soundButtons.length - 1];
+      return soundButton?.closest('div.fixed') as HTMLElement | null;
+    };
+
     const clearPendingCountdown = () => {
       pendingTimeoutsRef.current.forEach(timeoutId => window.clearTimeout(timeoutId));
       pendingTimeoutsRef.current = [];
     };
 
     const soundIsOn = () => {
-      const soundButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[title="Sound on/off"]'));
-      const soundButton = soundButtons[soundButtons.length - 1];
+      const panel = getTimerPanel();
+      const soundButton = panel?.querySelector<HTMLButtonElement>('button[title="Sound on/off"]');
       return !soundButton?.textContent?.includes('🔕');
     };
 
@@ -50,13 +57,15 @@ export default function TimerWidget(props: TimerWidgetProps) {
     };
 
     const clickStartButton = () => {
-      const startButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      const panel = getTimerPanel();
+      const startButton = Array.from(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])
         .find(button => button.textContent?.trim() === 'Start');
       startButton?.click();
     };
 
     const queuePresetCountdown = () => {
       clearPendingCountdown();
+      lastObservedSecondRef.current = null;
       for (let secondsLeft = 5; secondsLeft >= 1; secondsLeft -= 1) {
         const delay = (5 - secondsLeft) * 1000;
         pendingTimeoutsRef.current.push(window.setTimeout(() => { void playCountdownTone(secondsLeft); }, delay));
@@ -80,9 +89,47 @@ export default function TimerWidget(props: TimerWidgetProps) {
       if (label === 'Pause' || label === 'Reset') clearPendingCountdown();
     };
 
+    const readRemainingSeconds = (panel: HTMLElement) => {
+      const timeText = Array.from(panel.querySelectorAll('span'))
+        .map(span => span.textContent?.trim() ?? '')
+        .find(text => /^\d+:\d{2}$/.test(text));
+      if (!timeText) return null;
+      const [minutes, seconds] = timeText.split(':').map(Number);
+      if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+      return minutes * 60 + seconds;
+    };
+
+    const panelHasButton = (panel: HTMLElement, label: string) => (
+      Array.from(panel.querySelectorAll<HTMLButtonElement>('button')).some(button => button.textContent?.trim() === label)
+    );
+
+    const syncEndingBeeps = () => {
+      const panel = getTimerPanel();
+      if (!panel || !panelHasButton(panel, 'Pause') || !panelHasButton(panel, 'min')) {
+        lastObservedSecondRef.current = null;
+        return;
+      }
+
+      const secondsLeft = readRemainingSeconds(panel);
+      if (!secondsLeft || secondsLeft < 1 || secondsLeft > 5) {
+        lastObservedSecondRef.current = null;
+        return;
+      }
+
+      // QuickTimerWidget already owns the sequence lead-in / switch / break beeps.
+      // This fills the missing ending beeps for regular timers and stretch segments.
+      if (panel.textContent?.includes(`Stretch starts in ${secondsLeft}`)) return;
+      if (lastObservedSecondRef.current === secondsLeft) return;
+      lastObservedSecondRef.current = secondsLeft;
+      void playCountdownTone(secondsLeft);
+    };
+
     document.addEventListener('click', handlePresetClick, true);
+    const endingBeepInterval = window.setInterval(syncEndingBeeps, 250);
+
     return () => {
       clearPendingCountdown();
+      window.clearInterval(endingBeepInterval);
       document.removeEventListener('click', handlePresetClick, true);
     };
   }, []);
