@@ -103,9 +103,25 @@ export default function TimerWidget(props: TimerWidgetProps) {
       Array.from(panel.querySelectorAll<HTMLButtonElement>('button')).some(button => button.textContent?.trim() === label)
     );
 
-    const syncEndingBeeps = () => {
+    const polishPanelText = (panel: HTMLElement) => {
+      Array.from(panel.querySelectorAll<HTMLParagraphElement>('p')).forEach(paragraph => {
+        const text = paragraph.textContent?.trim() ?? '';
+        if (text === 'Set = side A · switch · side B') paragraph.remove();
+        const startMatch = text.match(/^Stretch starts in ([1-5])$/);
+        if (startMatch) paragraph.textContent = `Exercise starts in ${startMatch[1]}`;
+      });
+    };
+
+    const syncCountdownBeeps = () => {
       const panel = getTimerPanel();
-      if (!panel || !panelHasButton(panel, 'Pause') || !panelHasButton(panel, 'min')) {
+      if (!panel) {
+        lastObservedSecondRef.current = null;
+        return;
+      }
+
+      polishPanelText(panel);
+
+      if (!panelHasButton(panel, 'Pause') || !panelHasButton(panel, 'min')) {
         lastObservedSecondRef.current = null;
         return;
       }
@@ -116,20 +132,18 @@ export default function TimerWidget(props: TimerWidgetProps) {
         return;
       }
 
-      // QuickTimerWidget already owns the sequence lead-in / switch / break beeps.
-      // This fills the missing ending beeps for regular timers and stretch segments.
-      if (panel.textContent?.includes(`Stretch starts in ${secondsLeft}`)) return;
+      // Fallback guarantee: last five seconds beep both before exercise starts and before timer segments end.
       if (lastObservedSecondRef.current === secondsLeft) return;
       lastObservedSecondRef.current = secondsLeft;
       void playCountdownTone(secondsLeft);
     };
 
     document.addEventListener('click', handlePresetClick, true);
-    const endingBeepInterval = window.setInterval(syncEndingBeeps, 250);
+    const countdownBeepInterval = window.setInterval(syncCountdownBeeps, 250);
 
     return () => {
       clearPendingCountdown();
-      window.clearInterval(endingBeepInterval);
+      window.clearInterval(countdownBeepInterval);
       document.removeEventListener('click', handlePresetClick, true);
     };
   }, []);
