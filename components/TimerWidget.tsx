@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { ComponentProps } from 'react';
 import QuickTimerWidget from './QuickTimerWidget';
 
-type TimerWidgetProps = ComponentProps<typeof QuickTimerWidget>;
+type TimerWidgetProps = NonNullable<ComponentProps<typeof QuickTimerWidget>>;
 
 export default function TimerWidget(props: TimerWidgetProps) {
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -148,8 +148,8 @@ export default function TimerWidget(props: TimerWidgetProps) {
     };
   }, []);
 
-  const handleSaveNote: TimerWidgetProps['onSaveNote'] = (exerciseId, note) => {
-    props.onSaveNote(exerciseId, note);
+  const handleSaveNote: TimerWidgetProps['onSaveNote'] = async (exerciseId, note) => {
+    await props.onSaveNote?.(exerciseId, note);
     window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId } }));
   };
 
