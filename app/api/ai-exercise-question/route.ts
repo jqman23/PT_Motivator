@@ -5,6 +5,17 @@ const DEFAULT_MODEL = getGroqModelChain('ask')[0];
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
+type SourceMatch = {
+  source?: string;
+  sourceId?: string;
+  name?: string;
+  sets?: string;
+  cue?: string;
+  tips?: string[];
+  gifUrl?: string;
+  label?: string;
+};
+
 function cleanText(value: unknown, limit = 1200) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
@@ -15,6 +26,21 @@ function optionText(value: unknown) {
 
 function cleanOptions(value: unknown) {
   return Array.isArray(value) ? value.map(optionText).filter(Boolean).slice(0, 3) : [];
+}
+
+function cleanSourceMatches(value: unknown): SourceMatch[] {
+  return Array.isArray(value)
+    ? value.slice(0, 8).map((match: SourceMatch) => ({
+        source: cleanText(match?.source, 24),
+        sourceId: cleanText(match?.sourceId, 90),
+        name: cleanText(match?.name, 120),
+        sets: cleanText(match?.sets, 120),
+        cue: cleanText(match?.cue, 260),
+        tips: Array.isArray(match?.tips) ? match.tips.map(tip => cleanText(tip, 140)).filter(Boolean).slice(0, 5) : [],
+        gifUrl: cleanText(match?.gifUrl, 220),
+        label: cleanText(match?.label, 40),
+      })).filter(match => match.name)
+    : [];
 }
 
 function jsonFromText(text: string) {
@@ -50,7 +76,7 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
 
-    const { question, history, exercises, clarificationCount } = await req.json();
+    const { question, history, exercises, clarificationCount, sourceMatches } = await req.json();
     const cleanQuestion = cleanText(question, 1200);
     if (!cleanQuestion) return NextResponse.json({ error: 'Question required' }, { status: 400 });
 
@@ -59,6 +85,7 @@ export async function POST(req: NextRequest) {
       : [];
 
     const exerciseContext = Array.isArray(exercises) ? exercises.slice(0, 80) : [];
+    const cleanSourceMatches = cleanSourceMatches(sourceMatches);
     const cleanClarificationCount = Math.max(0, Math.min(2, Number(clarificationCount) || 0));
 
     const system = [
@@ -66,9 +93,11 @@ export async function POST(req: NextRequest) {
       'Think outside the app library first. Use broad PT, rehab, sports medicine, orthopedic, and exercise-coaching knowledge. The app exerciseLibrary is optional context only, not the boundary of what you can consider.',
       'The user is often describing a movement from memory with messy language. Reconstruct likely setup, body position, moving joints, target tissue/nerve/muscle, and intent before answering.',
       'Be especially strong at lower-body rehab: ankle/foot, toes, plantar fascia, calf/Achilles, peroneals, tibialis, sciatic/tibial/sural/peroneal nerve glides, slump variations, hip/knee mechanics, balance, and gait-related drills.',
+      'You may receive sourceMatches from ExerciseDB and API Ninjas. Treat those as database search evidence. Use them when relevant, but do not blindly choose a database result if the user description points elsewhere.',
+      'When a sourceMatch is relevant, use its canonical name, source label, cue/instructions, and tips to make the draft more accurate. If a sourceMatch is close but not exact, say the likely family of movement and ask one clarifying question.',
       'When multiple common exercises are plausible, do not force a single answer. Ask one concise clarifying question and provide 2-3 selectable options as short answer choices, not questions; no question marks in options.',
       'Options should be meaningfully different hypotheses, not tiny wording variants. Example option labels: "Seated slump nerve glide", "Long-sitting sciatic nerve glide", "Ankle pump / calf floss".',
-      'If the likely exercise is not already in exerciseLibrary, still name it and create an app-ready confirmedExercise from general PT knowledge. Do not say it is unavailable just because it is not in the app.',
+      'If the likely exercise is not already in exerciseLibrary or sourceMatches, still name it and create an app-ready confirmedExercise from general PT knowledge. Do not say it is unavailable just because it is not in the app.',
       'If exerciseLibrary contains a close match, mention or use that match. If no match exists, reason from outside knowledge and make a new clean draft.',
       'Be concise but useful: one clear sentence for uncertain answers; a compact draft when confident.',
       'Do not diagnose, prescribe, or replace clinician advice. Avoid medical alarm language unless the user mentions red flags. Phrase as exercise identification, not medical treatment.',
@@ -83,10 +112,10 @@ export async function POST(req: NextRequest) {
     const { data, model, attemptedModels } = await callGroqChat(apiKey, 'ask', {
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext, libraryIsOnlyOptionalContext: true }) },
+        { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext, sourceMatches: cleanSourceMatches, libraryIsOnlyOptionalContext: true }) },
       ],
       temperature: 0.32,
-      max_completion_tokens: 820,
+      max_completion_tokens: 920,
       response_format: { type: 'json_object' },
     });
 
