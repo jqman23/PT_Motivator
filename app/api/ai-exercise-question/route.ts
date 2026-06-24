@@ -20,12 +20,33 @@ function cleanText(value: unknown, limit = 1200) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
+function stripGenericAiFiller(value: string) {
+  return value
+    .replace(/\bkeep\s+(your\s+)?back\s+straight\b[,. ]*/gi, '')
+    .replace(/\bmaintain\s+(a\s+)?(straight\s+back|neutral\s+spine)\b[,. ]*/gi, '')
+    .replace(/\b(engage|brace)\s+(your\s+)?core\b[,. ]*/gi, '')
+    .replace(/\bkeep\s+(your\s+)?core\s+engaged\b[,. ]*/gi, '')
+    .replace(/\bbreathe\s+naturally\b[,. ]*/gi, '')
+    .replace(/\bsit\s+(up\s+)?tall\b[,. ]*/gi, '')
+    .replace(/\bupright\s+posture\b[,. ]*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/^[,.;:]\s*/, '')
+    .trim();
+}
+
 function optionText(value: unknown) {
   return cleanText(value, 110).replace(/[?？]+$/g, '').trim();
 }
 
 function cleanOptions(value: unknown) {
   return Array.isArray(value) ? value.map(optionText).filter(Boolean).slice(0, 3) : [];
+}
+
+function cleanTips(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(tip => stripGenericAiFiller(cleanText(tip, 140))).filter(Boolean).slice(0, 3)
+    : [];
 }
 
 function normalizeSourceMatches(value: unknown): SourceMatch[] {
@@ -60,13 +81,13 @@ function normalizeReply(raw: Record<string, unknown>, allowOptions = true) {
     options: allowOptions ? cleanOptions(raw.options) : [],
     confirmedExercise: confirmed ? {
       name: cleanText(confirmed.name, 120),
-      cue: cleanText(confirmed.cue, 520),
+      cue: stripGenericAiFiller(cleanText(confirmed.cue, 520)),
       sets: cleanText(confirmed.sets, 180),
       cat: cleanText(confirmed.cat, 20) === 'strength' ? 'strength' : 'mobility',
       imageSearch: cleanText(confirmed.imageSearch, 180),
       confidence: cleanText(confirmed.confidence, 80),
       nextStep: cleanText(confirmed.nextStep, 220),
-      tips: cleanOptions(confirmed.tips),
+      tips: cleanTips(confirmed.tips),
     } : undefined,
   };
 }
@@ -93,6 +114,9 @@ export async function POST(req: NextRequest) {
       'Think outside the app library first. Use broad PT, rehab, sports medicine, orthopedic, and exercise-coaching knowledge. The app exerciseLibrary is optional context only, not the boundary of what you can consider.',
       'The user is often describing a movement from memory with messy language. Reconstruct likely setup, body position, moving joints, target tissue/nerve/muscle, and intent before answering.',
       'Be especially strong at lower-body rehab: ankle/foot, toes, plantar fascia, calf/Achilles, peroneals, tibialis, sciatic/tibial/sural/peroneal nerve glides, slump variations, hip/knee mechanics, balance, and gait-related drills.',
+      'If the user says slouch, slouched, slump, rounded back, or rounded spine, preserve that posture. For slump/nerve-glide patterns, slouched or rounded posture may be the point. Do not correct it to straight back, neutral spine, tall posture, or upright posture.',
+      'Never add generic filler tips like breathe naturally, engage your core, keep back straight, maintain neutral spine, sit tall, or upright posture unless the user explicitly asks for that exact cue and it does not conflict with the movement.',
+      'For nerve glides/flossing, prioritize gentle motion, symptom easing, and not forcing range. Do not add bracing or generic fitness cues.',
       'You may receive sourceMatches from ExerciseDB and API Ninjas. Treat those as database search evidence. Use them when relevant, but do not blindly choose a database result if the user description points elsewhere.',
       'When a sourceMatch is relevant, use its canonical name, source label, cue/instructions, and tips to make the draft more accurate. If a sourceMatch is close but not exact, say the likely family of movement and ask one clarifying question.',
       'When multiple common exercises are plausible, do not force a single answer. Ask one concise clarifying question and provide 2-3 selectable options as short answer choices, not questions; no question marks in options.',
@@ -114,7 +138,7 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: system },
         { role: 'user', content: JSON.stringify({ currentQuestion: cleanQuestion, clarificationRound: cleanClarificationCount, maxClarificationRounds: 2, history: cleanHistory, exerciseLibrary: exerciseContext, sourceMatches: cleanSourceMatches, libraryIsOnlyOptionalContext: true }) },
       ],
-      temperature: 0.32,
+      temperature: 0.26,
       max_completion_tokens: 920,
       response_format: { type: 'json_object' },
     });
