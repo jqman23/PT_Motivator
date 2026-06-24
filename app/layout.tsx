@@ -3,6 +3,7 @@ import SmartAddPortal from "@/components/SmartAddPortal";
 import SavingStatusPortal from "@/components/SavingStatusPortal";
 import ExerciseCardMobileEnhancer from "@/components/ExerciseCardMobileEnhancer";
 import FloatingWidgetDockToggle from "@/components/FloatingWidgetDockToggle";
+import TextareaSpacebarFix from "@/components/TextareaSpacebarFix";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -46,6 +47,7 @@ export default function RootLayout({
         <SavingStatusPortal />
         <ExerciseCardMobileEnhancer />
         <FloatingWidgetDockToggle />
+        <TextareaSpacebarFix />
       </body>
     </html>
   );
