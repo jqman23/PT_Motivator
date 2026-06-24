@@ -32,10 +32,32 @@ function cleanText(value: unknown, limit = 900) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
+function stripGenericAiFiller(value: string) {
+  return value
+    .replace(/\bkeep\s+(your\s+)?back\s+straight\b[,. ]*/gi, '')
+    .replace(/\bmaintain\s+(a\s+)?(straight\s+back|neutral\s+spine)\b[,. ]*/gi, '')
+    .replace(/\b(engage|brace)\s+(your\s+)?core\b[,. ]*/gi, '')
+    .replace(/\bkeep\s+(your\s+)?core\s+engaged\b[,. ]*/gi, '')
+    .replace(/\bbreathe\s+naturally\b[,. ]*/gi, '')
+    .replace(/\bsit\s+(up\s+)?tall\b[,. ]*/gi, '')
+    .replace(/\bupright\s+posture\b[,. ]*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/^[,.;:]\s*/, '')
+    .trim();
+}
+
 function cleanList(value: unknown, limit = 8, itemLimit = 180) {
   return Array.isArray(value)
     ? value.map(item => cleanText(item, itemLimit)).filter(Boolean).slice(0, limit)
     : [];
+}
+
+function cleanGeneratedTips(value: unknown, limit = 6, itemLimit = 180) {
+  return cleanList(value, limit, itemLimit)
+    .map(stripGenericAiFiller)
+    .filter(Boolean)
+    .slice(0, limit);
 }
 
 function cleanSourceMatches(value: unknown): SourceMatch[] {
@@ -139,6 +161,9 @@ export async function POST(req: NextRequest) {
       'You may add standard inferred wording that the user did not explicitly say when it is strongly implied by the movement. Example: if user describes a lying-down leg movement with knee bend/straighten and ankle flex/point, infer a supine nerve glide / nerve floss pattern and write it clearly.',
       'Do not merely transcribe messy user wording. Infer the likely common exercise from rough descriptions, then normalize it into clean app language.',
       'Use ordinary exercise and PT vocabulary to simplify messy movement descriptions into canonical names, concise dosage, clear setup cues, and short tips.',
+      'If the user says slouch, slouched, slump, rounded back, or rounded spine, preserve that posture. For slump/nerve-glide patterns, slouched or rounded posture may be the point. Do not correct it to straight back, neutral spine, tall posture, or upright posture.',
+      'Never add generic filler tips like breathe naturally, engage your core, keep back straight, maintain neutral spine, sit tall, or upright posture unless the user explicitly asks for that exact cue and it does not conflict with the movement.',
+      'For nerve glides/flossing, prioritize gentle motion, symptom easing, and not forcing range. Do not add bracing or generic fitness cues.',
       'You may receive sourceMatches from ExerciseDB and API Ninjas. These are external database search results from the user query. Consider them before inventing a brand-new exercise, but do not choose a database result if it is clearly unrelated.',
       'When a sourceMatch is a good fit for a new exercise, use its name/cue/tips, set origin to exercisedb or api_ninjas, set sourceId, include gifUrl if available, and include up to 3 dbMatches for review.',
       'If sourceMatches contain plausible alternatives but the user description is unclear, ask a clarification question with 2-3 clarificationOptions instead of creating the wrong exercise.',
@@ -153,16 +178,16 @@ export async function POST(req: NextRequest) {
       'When updating an existing exercise note, use that exercise\'s saved schemaText first, then name/sets/cue/tips. schemaText is the compact source of truth for what the exercise contains.',
       'If the user says "all", "all 3", "both", "straight and bent", "each", or similar shorthand, expand it from schemaText/cue/tips instead of copying vague user wording.',
       'For exerciseChanges.note, write a concise standardized performed-today note. Use dosage first, then the exercised part/component, then descriptor. Examples: "1 x ~60 seconds, listed components from cue", "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled".',
-      'For newExercises.name, prefer canonical names: position + body area/component + movement type. Examples: "Supine nerve glide", "Seated nerve glide", "Standing calf stretch", "Toe yoga".',
+      'For newExercises.name, prefer canonical names: position + body area/component + movement type. Examples: "Supine nerve glide", "Seated slump nerve glide", "Long-sitting sciatic nerve glide", "Standing calf stretch", "Toe yoga".',
       'For newExercises.sets, use standardized dosage only. If user did not give dosage, choose a simple conservative default only when obvious; otherwise ask.',
-      'For newExercises.cue, simplify the movement into clear form language. Do not preserve rambling language. The cue should sound like the app knows the exercise, not like it is quoting the user.',
-      'Do not include filler phrases like "did all", "in it", "approx 1 set", "where lying down", or "leg bends then straightens up flexing" in final notes/cues. Convert them into standard components and form cues.',
+      'For newExercises.cue, simplify the movement into clear form language. Do not preserve rambling language, but do preserve meaningful posture like slouched/slumped/rounded when the user said it. The cue should sound like the app knows the exercise, not like it is quoting the user.',
+      'Do not include filler phrases like "did all", "in it", "approx 1 set", "where lying down", "leg bends then straightens up flexing", "breathe naturally", "core engaged", or "keep back straight" in final notes/cues. Convert meaningful movement details into standard components and form cues.',
       'If the user gives approximate timing, use ~, e.g. "1 x ~60 seconds". Prefer seconds over min in standardized notes when timing is specific.',
       'If the user asks to split a broad exercise and updateOnlyIntent is false, create multiple newExercises, usually 2-5.',
       'Default: did exercise means completed true; skipped/not done means false. For newly proposed library exercises that were not performed today, completed should be null.',
       'Use standard PT nomenclature. Put new exercise dosage in sets as: sets x reps/time, body part/side, descriptor. Examples: "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled", "2 x 10 each side, hips, banded".',
       'Use cue for setup/form details and note for what happened today.',
-      'For newExercises, sets should be concise standardized dosage; cue should be user-facing form/setup; tips should be 2-5 short safety/form bullets.',
+      'For newExercises, sets should be concise standardized dosage; cue should be user-facing form/setup; tips should be 2-5 short, specific, non-generic safety/form bullets.',
       'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":"","origin":"patient_added|exercisedb|api_ninjas","sourceId":"","gifUrl":"","dbMatches":[{"source":"exercisedb|api_ninjas","sourceId":"","name":"","cue":"","tips":[],"gifUrl":"","label":""}]}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}.',
       'Only include fields you are adding/updating. Do not echo unchanged saved data.',
       'PATTERN MATCHING: If an exercise has recentNotes in its data, those are real past session notes the user logged. Match their exact style, structure, terminology, dosage format, and abbreviations exactly. Do not reformat or improve them — consistency is the priority. Only deviate if the user explicitly requests a different format in their message.',
@@ -184,7 +209,7 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: system },
         { role: 'user', content: userPayload },
       ],
-      temperature: splitIntent || draftProposal ? 0.24 : 0.16,
+      temperature: splitIntent || draftProposal ? 0.2 : 0.12,
       max_completion_tokens: splitIntent || draftProposal || sourceMatches.length ? 2400 : 1700,
       response_format: { type: 'json_object' },
     });
@@ -220,8 +245,8 @@ export async function POST(req: NextRequest) {
             name: cleanText(item.name, 90),
             categoryName: categorySet.has(cleanText(item.categoryName, 60)) ? cleanText(item.categoryName, 60) : categories[0],
             sets: cleanText(item.sets, 120),
-            cue: cleanText(item.cue, 240),
-            tips: cleanList(item.tips, 6, 180),
+            cue: stripGenericAiFiller(cleanText(item.cue, 240)),
+            tips: cleanGeneratedTips(item.tips, 6, 180),
             note: cleanText(item.note, 180),
             completed: typeof item.completed === 'boolean' ? item.completed : null,
             reason: cleanText(item.reason, 180),
