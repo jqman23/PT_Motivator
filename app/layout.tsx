@@ -4,6 +4,7 @@ import SavingStatusPortal from "@/components/SavingStatusPortal";
 import ExerciseCardMobileEnhancer from "@/components/ExerciseCardMobileEnhancer";
 import FloatingWidgetDockToggle from "@/components/FloatingWidgetDockToggle";
 import TextareaSpacebarFix from "@/components/TextareaSpacebarFix";
+import TimerBackgroundNotifications from "@/components/TimerBackgroundNotifications";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -48,6 +49,7 @@ export default function RootLayout({
         <ExerciseCardMobileEnhancer />
         <FloatingWidgetDockToggle />
         <TextareaSpacebarFix />
+        <TimerBackgroundNotifications />
       </body>
     </html>
   );
