@@ -12,28 +12,6 @@ function cleanList(value: unknown, limit = 16, itemLimit = 500) {
     : [];
 }
 
-function stripGenericAiFiller(value: string) {
-  return value
-    .replace(/\bkeep\s+(your\s+)?back\s+straight\b[,. ]*/gi, '')
-    .replace(/\bmaintain\s+(a\s+)?(straight\s+back|neutral\s+spine)\b[,. ]*/gi, '')
-    .replace(/\b(engage|brace)\s+(your\s+)?core\b[,. ]*/gi, '')
-    .replace(/\bkeep\s+(your\s+)?core\s+engaged\b[,. ]*/gi, '')
-    .replace(/\bbreathe\s+naturally\b[,. ]*/gi, '')
-    .replace(/\bsit\s+(up\s+)?tall\b[,. ]*/gi, '')
-    .replace(/\bupright\s+posture\b[,. ]*/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+([,.;:])/g, '$1')
-    .replace(/^[,.;:]\s*/, '')
-    .trim();
-}
-
-function cleanGeneratedTips(value: unknown, limit = 18, itemLimit = 520) {
-  return cleanList(value, limit, itemLimit)
-    .map(stripGenericAiFiller)
-    .filter(Boolean)
-    .slice(0, limit);
-}
-
 function jsonFromText(text: string) {
   try { return JSON.parse(text); } catch {}
   const match = text.match(/\{[\s\S]*\}/);
@@ -44,7 +22,7 @@ function jsonFromText(text: string) {
 function normalizeExercisePatch(raw: Record<string, unknown>) {
   const patch: Partial<Exercise> & { summary?: string[] } = {};
   const name = cleanText(raw.name, 140);
-  const cue = stripGenericAiFiller(cleanText(raw.cue, 700));
+  const cue = cleanText(raw.cue, 700);
   const sets = cleanText(raw.sets, 260);
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
@@ -64,8 +42,8 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 
   const videoIds = cleanList(raw.videoIds, 8, 80);
   const videoTitles = cleanList(raw.videoTitles, 8, 160);
-  const tips = cleanGeneratedTips(raw.tips, 18, 520);
-  const summary = cleanList(raw.summary, 8, 220);
+  const tips = cleanList(raw.tips, 12, 420);
+  const summary = cleanList(raw.summary, 6, 180);
 
   if (videoIds.length) patch.videoIds = videoIds;
   if (videoTitles.length) patch.videoTitles = videoTitles;
@@ -91,7 +69,7 @@ export async function POST(req: NextRequest) {
     const current = {
       id: cleanText(exercise?.id, 80),
       name: cleanText(exercise?.name, 140),
-      cue: cleanText(exercise?.cue, 700),
+      cue: cleanText(exercise?.cue, 900),
       sets: cleanText(exercise?.sets, 260),
       cat: cleanText(exercise?.cat, 20),
       optional: !!exercise?.optional,
@@ -105,41 +83,26 @@ export async function POST(req: NextRequest) {
     };
 
     const system = [
-      'You propose edits to one physical therapy / exercise record. Return JSON only.',
-      'Do not save anything. Only propose field values for the user to review before applying.',
-      'For normal custom edits, follow the user instruction closely.',
-      'For enhance mode, use the current exercise as a seed and integrate broad professional exercise, coaching, and physical-therapy-informed knowledge to make the exercise much more usable.',
-      'For enhance mode, do not be limited to the existing wording. You may substantially rewrite the cue, dosage, name, search terms, and tips if that makes the exercise easier to understand and perform.',
-      'Enhance mode should think like a careful PT/exercise coach writing phone-friendly instructions: setup, equipment, starting posture, exact movement, tempo, range, target sensation, common mistakes, regressions/progressions, stop/scale-down cues, and best-practice reminders.',
-      'Respect user-provided setup and posture details. Do not replace them with generic form advice or default posture corrections.',
-      'Never add generic filler tips like breathe naturally, engage your core, keep back straight, maintain neutral spine, sit tall, or upright posture unless the user explicitly requested that exact cue and it does not conflict with the exercise.',
-      'For nerve glides/flossing, prioritize gentle movement and not forcing range. Do not add bracing or generic fitness cues.',
-      'Do not diagnose, claim to treat/cure, prescribe aggressive progression, or override a clinician. Keep safety cues practical and conservative.',
-      'Use clear plain language. It is okay for enhance mode to be detailed; the user can edit the proposal before saving.',
-      'Valid cat values: mobility, strength. Valid origin values: hep, patient_added, exercisedb, api_ninjas.',
-      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.',
-      'Tips should be one specific instruction per item. Avoid filler reminders. YouTube videoIds should be IDs only, not full URLs.',
+      'Return JSON only.',
+      'Clean one item for review before saving.',
+      'Use the source text as truth.',
+      'Do not add facts that are not in the source.',
+      'Clean wording, split fields, remove hype, keep steps.',
+      'If unclear, leave blank instead of guessing.',
+      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
-    const enhanceInstruction = [
-      'Enhance this exercise record deeply.',
-      'Use broad professional knowledge about physical therapy, exercise coaching, biomechanics, motor control, safety, and practical home-exercise instruction.',
-      'Expand beyond what is already there when useful, but never contradict the named movement or user-provided setup.',
-      'Preserve user-provided setup and posture details instead of correcting them away.',
-      'Prefer useful detail over generic wellness filler. Do not add breathe naturally, core engaged, back straight, neutral spine, sit tall, or upright posture as default tips.',
-      'Add precise setup, body position, movement steps, tempo, dosage, target sensation, common mistakes, modifications, progression/regression ideas, and stop/scale-down cues.',
-      'Keep wording user-facing and app-friendly. Keep recommendations conservative and editable.',
-      'Return a complete proposed improved exercise record when beneficial, especially cue, sets, imageSearch, and high-quality non-generic tips.',
-      'Do not add a diagnosis or medical certainty. Do not make it sound like emergency or clinician-only advice. The user reviews before saving.',
-    ].join(' ');
+    const finalInstruction = isEnhance
+      ? 'Clean this item into app fields. Use only source details. Do not add new content.'
+      : cleanInstruction;
 
     const { data, model, attemptedModels } = await callGroqChat(apiKey, task, {
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify({ instruction: isEnhance ? enhanceInstruction : cleanInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
+        { role: 'user', content: JSON.stringify({ instruction: finalInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
       ],
-      temperature: isEnhance ? 0.28 : 0.1,
-      max_completion_tokens: isEnhance ? 2600 : 1000,
+      temperature: isEnhance ? 0.05 : 0.1,
+      max_completion_tokens: isEnhance ? 1200 : 1000,
       response_format: { type: 'json_object' },
     });
 
