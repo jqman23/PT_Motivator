@@ -22,7 +22,7 @@ function jsonFromText(text: string) {
 function normalizeExercisePatch(raw: Record<string, unknown>) {
   const patch: Partial<Exercise> & { summary?: string[] } = {};
   const name = cleanText(raw.name, 140);
-  const cue = cleanText(raw.cue, 700);
+  const cue = cleanText(raw.cue, 800);
   const sets = cleanText(raw.sets, 260);
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
@@ -42,7 +42,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 
   const videoIds = cleanList(raw.videoIds, 8, 80);
   const videoTitles = cleanList(raw.videoTitles, 8, 160);
-  const tips = cleanList(raw.tips, 12, 420);
+  const tips = cleanList(raw.tips, 8, 320);
   const summary = cleanList(raw.summary, 6, 180);
 
   if (videoIds.length) patch.videoIds = videoIds;
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const current = {
       id: cleanText(exercise?.id, 80),
       name: cleanText(exercise?.name, 140),
-      cue: cleanText(exercise?.cue, 900),
+      cue: cleanText(exercise?.cue, 1000),
       sets: cleanText(exercise?.sets, 260),
       cat: cleanText(exercise?.cat, 20),
       optional: !!exercise?.optional,
@@ -84,16 +84,20 @@ export async function POST(req: NextRequest) {
 
     const system = [
       'Return JSON only.',
-      'Clean one item for review before saving.',
-      'Use the source text as truth.',
-      'Do not add facts that are not in the source.',
-      'Clean wording, split fields, remove hype, keep steps.',
-      'If unclear, leave blank instead of guessing.',
+      'Build one app exercise record for review before saving.',
+      'First identify whether the source matches a known exercise or common variation.',
+      'Use the standard name and terminology when confident.',
+      'Correct obvious source mistakes only when confidence is high.',
+      'If the source describes an intentional variation, keep the useful variation details.',
+      'Fill every field you can confidently fill: name, cue, sets, cat, imageSearch, tips.',
+      'Cue should be clear steps. Tips should be short and useful.',
+      'Do not add unsupported benefits, claims, mechanics, or random tips.',
+      'If confidence is low for a field, leave that field blank.',
       'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance
-      ? 'Clean this item into app fields. Use only source details. Do not add new content.'
+      ? 'Identify the best known exercise or variation, correct obvious mistakes only if confident, and fill the app fields. Do not invent unsupported details.'
       : cleanInstruction;
 
     const { data, model, attemptedModels } = await callGroqChat(apiKey, task, {
@@ -101,8 +105,8 @@ export async function POST(req: NextRequest) {
         { role: 'system', content: system },
         { role: 'user', content: JSON.stringify({ instruction: finalInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },
       ],
-      temperature: isEnhance ? 0.05 : 0.1,
-      max_completion_tokens: isEnhance ? 1200 : 1000,
+      temperature: isEnhance ? 0.12 : 0.1,
+      max_completion_tokens: isEnhance ? 1500 : 1000,
       response_format: { type: 'json_object' },
     });
 
