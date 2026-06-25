@@ -162,7 +162,6 @@ export default function TimerBackgroundNotifications() {
       const note = new Notification('PT Timer', {
         body,
         tag: 'pt-timer-status',
-        renotify: true,
         silent: false,
       });
       window.setTimeout(() => note.close(), 8000);
