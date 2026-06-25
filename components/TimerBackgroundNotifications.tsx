@@ -32,6 +32,16 @@ type StoredTimerState = {
   endAt?: number | null;
 };
 
+type TimerSnapshot = {
+  running: boolean;
+  done: boolean;
+  cue: string;
+  endAt: number | null;
+  sequenceKey: SequenceKey | null;
+  sequenceIndex: number;
+  mode: 'timer' | 'stopwatch' | undefined;
+};
+
 function startCue(holdSeconds: 30 | 60) {
   return holdSeconds === 60 ? 'One minute starting' : '30 seconds starting';
 }
@@ -77,7 +87,7 @@ function saveNotifiedKeys(keys: Set<string>) {
   localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify(Array.from(keys).slice(-80)));
 }
 
-function notificationAllowed() {
+function canNotifyHidden() {
   return typeof window !== 'undefined'
     && typeof document !== 'undefined'
     && document.hidden
@@ -90,11 +100,27 @@ function normalizeCue(cue: string) {
   if (!cleaned) return '';
   if (/^end$/i.test(cleaned)) return 'Timer done';
   if (/^done$/i.test(cleaned)) return 'Timer done';
+  if (/^start$/i.test(cleaned)) return 'Start next exercise';
+  if (/^switch$/i.test(cleaned)) return 'Switch sides';
+  if (/break/i.test(cleaned)) return cleaned;
   return cleaned;
+}
+
+function snapshot(timer: StoredTimerState | null): TimerSnapshot {
+  return {
+    running: !!timer?.running,
+    done: !!timer?.done,
+    cue: timer?.cue ?? '',
+    endAt: timer?.endAt ?? null,
+    sequenceKey: timer?.sequenceKey ?? null,
+    sequenceIndex: timer?.sequenceIndex ?? 0,
+    mode: timer?.mode,
+  };
 }
 
 export default function TimerBackgroundNotifications() {
   const notifiedKeysRef = useRef<Set<string>>(new Set());
+  const lastSnapshotRef = useRef<TimerSnapshot | null>(null);
 
   useEffect(() => {
     notifiedKeysRef.current = loadNotifiedKeys();
@@ -115,6 +141,7 @@ export default function TimerBackgroundNotifications() {
       const isTimerButton = button.title === 'Quick timer'
         || button.title === 'Sound on/off'
         || label === 'Start'
+        || label === 'Restart'
         || label === 'Pause'
         || label === 'Reset'
         || /^\d+s$/.test(label)
@@ -128,35 +155,55 @@ export default function TimerBackgroundNotifications() {
 
   useEffect(() => {
     const notifyOnce = (key: string, body: string) => {
-      if (!notificationAllowed()) return;
+      if (!canNotifyHidden()) return;
       if (notifiedKeysRef.current.has(key)) return;
       notifiedKeysRef.current.add(key);
       saveNotifiedKeys(notifiedKeysRef.current);
-      new Notification('PT Timer', {
+      const note = new Notification('PT Timer', {
         body,
         tag: 'pt-timer-status',
         renotify: true,
         silent: false,
       });
+      window.setTimeout(() => note.close(), 8000);
     };
 
     const checkTimer = () => {
-      if (!document.hidden) return;
       const timer = readStoredTimer();
-      if (!timer?.running || timer.mode !== 'timer' || !timer.endAt) return;
-      if (timer.bellOn === false) return;
-      if (Date.now() < timer.endAt) return;
+      const current = snapshot(timer);
+      const previous = lastSnapshotRef.current;
+      lastSnapshotRef.current = current;
 
-      if (!timer.sequenceActive) {
-        notifyOnce(`simple-done-${timer.endAt}`, 'Timer done');
+      // Never notify while the app is foregrounded. In-app voice/beeps own that case.
+      if (!document.hidden) return;
+      if (timer?.bellOn === false) return;
+      if (current.mode !== 'timer') return;
+
+      if (previous && !previous.running && current.running) {
+        notifyOnce(`started-${current.endAt ?? Date.now()}`, 'Timer started');
+      }
+
+      if (previous && previous.running && !current.running && !current.done) {
+        notifyOnce(`paused-${previous.endAt ?? Date.now()}`, 'Timer paused');
+      }
+
+      if (current.done) {
+        notifyOnce(`done-${current.endAt ?? current.cue}`, normalizeCue(current.cue || 'Done'));
         return;
       }
 
-      const sequenceKey = timer.sequenceKey ?? 'one60';
+      if (!current.running || !current.endAt) return;
+      if (Date.now() < current.endAt) return;
+
+      if (!timer?.sequenceActive) {
+        notifyOnce(`simple-done-${current.endAt}`, 'Timer done');
+        return;
+      }
+
+      const sequenceKey = current.sequenceKey ?? 'one60';
       const steps = SEQUENCE_STEPS[sequenceKey] ?? SEQUENCE_STEPS.one60;
-      const index = timer.sequenceIndex ?? 0;
-      const cue = index < 0 ? 'Start' : (steps[index]?.cueAfter ?? timer.cue ?? 'Timer update');
-      notifyOnce(`sequence-${sequenceKey}-${index}-${timer.endAt}-${cue}`, normalizeCue(cue));
+      const cue = current.sequenceIndex < 0 ? 'Start' : (steps[current.sequenceIndex]?.cueAfter ?? current.cue ?? 'Timer update');
+      notifyOnce(`sequence-${sequenceKey}-${current.sequenceIndex}-${current.endAt}-${cue}`, normalizeCue(cue));
     };
 
     const interval = window.setInterval(checkTimer, 1000);
