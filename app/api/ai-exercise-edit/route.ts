@@ -22,7 +22,7 @@ function jsonFromText(text: string) {
 function normalizeExercisePatch(raw: Record<string, unknown>) {
   const patch: Partial<Exercise> & { summary?: string[] } = {};
   const name = cleanText(raw.name, 140);
-  const cue = cleanText(raw.cue, 800);
+  const cue = cleanText(raw.cue, 260);
   const sets = cleanText(raw.sets, 260);
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
@@ -42,7 +42,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 
   const videoIds = cleanList(raw.videoIds, 8, 80);
   const videoTitles = cleanList(raw.videoTitles, 8, 160);
-  const tips = cleanList(raw.tips, 8, 320);
+  const tips = cleanList(raw.tips, 10, 360);
   const summary = cleanList(raw.summary, 6, 180);
 
   if (videoIds.length) patch.videoIds = videoIds;
@@ -90,14 +90,16 @@ export async function POST(req: NextRequest) {
       'Correct obvious source mistakes only when confidence is high.',
       'If the source describes an intentional variation, keep the useful variation details.',
       'Fill every field you can confidently fill: name, cue, sets, cat, imageSearch, tips.',
-      'Cue should be clear steps. Tips should be short and useful.',
+      'Cue is the SHORT cue field: one compact sentence, max 180 characters, not full instructions.',
+      'Put detailed setup, sequence steps, control notes, and optional refinements in tips instead of cue.',
+      'Tips should be short, useful bullets with one idea per item.',
       'Do not add unsupported benefits, claims, mechanics, or random tips.',
       'If confidence is low for a field, leave that field blank.',
       'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance
-      ? 'Identify the best known exercise or variation, correct obvious mistakes only if confident, and fill the app fields. Do not invent unsupported details.'
+      ? 'Identify the best known exercise or variation, correct obvious mistakes only if confident, and fill the app fields. Keep cue very short; put full steps in tips. Do not invent unsupported details.'
       : cleanInstruction;
 
     const { data, model, attemptedModels } = await callGroqChat(apiKey, task, {
