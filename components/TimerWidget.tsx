@@ -4,6 +4,15 @@ import { useEffect, useRef } from 'react';
 import type { ComponentProps } from 'react';
 import QuickTimerWidget from './QuickTimerWidget';
 
+const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
+
+type StoredTimerSnapshot = {
+  mode?: 'timer' | 'stopwatch';
+  running?: boolean;
+  endAt?: number | null;
+  bellOn?: boolean;
+};
+
 type TimerWidgetProps = NonNullable<ComponentProps<typeof QuickTimerWidget>>;
 
 export default function TimerWidget(props: TimerWidgetProps) {
@@ -23,10 +32,22 @@ export default function TimerWidget(props: TimerWidgetProps) {
       pendingTimeoutsRef.current = [];
     };
 
+    const readStoredSoundIsOn = () => {
+      try {
+        const raw = window.localStorage.getItem(TIMER_STORAGE_KEY);
+        if (!raw) return true;
+        const stored = JSON.parse(raw) as StoredTimerSnapshot;
+        return stored.bellOn !== false;
+      } catch {
+        return true;
+      }
+    };
+
     const soundIsOn = () => {
       const panel = getTimerPanel();
       const soundButton = panel?.querySelector<HTMLButtonElement>('button[title="Sound on/off"]');
-      return !soundButton?.textContent?.includes('🔕');
+      if (soundButton) return !soundButton.textContent?.includes('🔕');
+      return readStoredSoundIsOn();
     };
 
     const unlockAudio = async () => {
@@ -80,6 +101,9 @@ export default function TimerWidget(props: TimerWidgetProps) {
       const button = (event.target as Element | null)?.closest('button');
       if (!(button instanceof HTMLButtonElement)) return;
 
+      const panel = getTimerPanel();
+      if (panel?.contains(button)) void unlockAudio();
+
       const label = button.textContent?.trim();
       if (/^(30|45|60)s$/.test(label ?? '')) {
         queuePresetCountdown();
@@ -99,6 +123,19 @@ export default function TimerWidget(props: TimerWidgetProps) {
       return minutes * 60 + seconds;
     };
 
+    const readStoredRemainingSeconds = () => {
+      try {
+        const raw = window.localStorage.getItem(TIMER_STORAGE_KEY);
+        if (!raw) return null;
+        const stored = JSON.parse(raw) as StoredTimerSnapshot;
+        if (stored.mode !== 'timer' || !stored.running || !stored.endAt) return null;
+        const secondsLeft = Math.ceil((stored.endAt - Date.now()) / 1000);
+        return secondsLeft > 0 ? secondsLeft : null;
+      } catch {
+        return null;
+      }
+    };
+
     const panelHasButton = (panel: HTMLElement, label: string) => (
       Array.from(panel.querySelectorAll<HTMLButtonElement>('button')).some(button => button.textContent?.trim() === label)
     );
@@ -114,25 +151,20 @@ export default function TimerWidget(props: TimerWidgetProps) {
 
     const syncCountdownBeeps = () => {
       const panel = getTimerPanel();
-      if (!panel) {
-        lastObservedSecondRef.current = null;
-        return;
-      }
+      if (panel) polishPanelText(panel);
 
-      polishPanelText(panel);
+      const panelSecondsLeft = panel && panelHasButton(panel, 'Pause') && panelHasButton(panel, 'min')
+        ? readRemainingSeconds(panel)
+        : null;
+      const secondsLeft = panelSecondsLeft ?? readStoredRemainingSeconds();
 
-      if (!panelHasButton(panel, 'Pause') || !panelHasButton(panel, 'min')) {
-        lastObservedSecondRef.current = null;
-        return;
-      }
-
-      const secondsLeft = readRemainingSeconds(panel);
       if (!secondsLeft || secondsLeft < 1 || secondsLeft > 5) {
         lastObservedSecondRef.current = null;
         return;
       }
 
-      // Fallback guarantee: last five seconds beep both before exercise starts and before timer segments end.
+      // Fallback guarantee: every active timer segment beeps through the last five seconds,
+      // including 60-second holds, regular presets, transitions, and final endings.
       if (lastObservedSecondRef.current === secondsLeft) return;
       lastObservedSecondRef.current = secondsLeft;
       void playCountdownTone(secondsLeft);
