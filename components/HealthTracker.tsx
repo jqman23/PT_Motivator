@@ -35,6 +35,9 @@ const EMPTY: HealthData = {
   treatment_notes: '',
 };
 
+const TREND_RANGE_DAYS = 41;
+const TREND_RANGE_LABEL = 'Last 6 weeks';
+
 const COLOR_MAP = {
   sage:  { track: '#7E9B86', text: '#7E9B86' },
   clay:  { track: '#C17B4F', text: '#C17B4F' },
@@ -117,7 +120,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
       onPointerLeave={cancelHold}
       onPointerCancel={cancelHold}
       onContextMenu={e => e.preventDefault()}
-      title="Hold for trend chart"
+      title="Hold for 6-week trend chart"
     >
       <div className="flex items-baseline justify-between mb-0.5">
         <span className="text-sm font-semibold" style={{ color: '#1c1917' }}>{label}</span>
@@ -127,6 +130,14 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
               {value}{max === 12 ? 'h' : '/10'}
             </span>
           )}
+          <button
+            onClick={() => onShowTrend(metric)}
+            className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-all hover:shadow-sm active:scale-95"
+            style={{ color: c.text, borderColor: `${c.track}66`, background: '#fff', touchAction: 'manipulation' }}
+            title={`View ${label.toLowerCase()} 6-week trend`}
+          >
+            6wk
+          </button>
           <button
             onClick={() => setShowNote(s => !s)}
             className="text-[10px] font-semibold text-stone-400 hover:text-stone-600 transition-colors"
@@ -216,7 +227,7 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
       <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl border border-stone-100 p-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Last 3 weeks</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{TREND_RANGE_LABEL}</p>
             <h3 className="font-serif text-lg font-semibold text-stone-800">{config.label}</h3>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 text-xl leading-none" style={{ touchAction: 'manipulation' }}>×</button>
@@ -319,7 +330,7 @@ export default function HealthTracker({ today }: Props) {
     if (!trendMetric) return;
     setTrendLoading(true);
     setTrendError('');
-    fetch(`/api/health?start=${offsetDate(today, -20)}&end=${today}`)
+    fetch(`/api/health?start=${offsetDate(today, -TREND_RANGE_DAYS)}&end=${today}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error('Could not load trend')))
       .then(({ rows }) => setTrendRows(Array.isArray(rows) ? rows : []))
       .catch(err => {
@@ -398,7 +409,7 @@ export default function HealthTracker({ today }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="font-serif text-lg font-semibold" style={{ color: '#1c1917' }}>How are you feeling?</h2>
-          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric to view its 3-week trend.</p>
+          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric or tap 6wk to view its 6-week trend.</p>
         </div>
         <div className="flex items-center gap-2">
           {saved && <span className="text-xs font-medium" style={{ color: '#7E9B86' }}>Saved ✓</span>}
