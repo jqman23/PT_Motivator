@@ -94,6 +94,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
   const pct = value !== null ? ((value - min) / (max - min)) * 100 : 0;
   const hasValue = value !== null;
   const [showNote, setShowNote] = useState(!!note);
+  const [showTrendAction, setShowTrendAction] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -109,7 +110,13 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, button')) return;
     cancelHold();
-    holdTimer.current = setTimeout(() => onShowTrend(metric), 450);
+    holdTimer.current = setTimeout(() => setShowTrendAction(true), 450);
+  };
+
+  const openTrend = () => {
+    cancelHold();
+    setShowTrendAction(false);
+    onShowTrend(metric);
   };
 
   return (
@@ -120,7 +127,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
       onPointerLeave={cancelHold}
       onPointerCancel={cancelHold}
       onContextMenu={e => e.preventDefault()}
-      title="Hold for 6-week trend chart"
+      title="Hold to reveal 6-week trend button"
     >
       <div className="flex items-baseline justify-between mb-0.5">
         <span className="text-sm font-semibold" style={{ color: '#1c1917' }}>{label}</span>
@@ -130,14 +137,16 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
               {value}{max === 12 ? 'h' : '/10'}
             </span>
           )}
-          <button
-            onClick={() => onShowTrend(metric)}
-            className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-all hover:shadow-sm active:scale-95"
-            style={{ color: c.text, borderColor: `${c.track}66`, background: '#fff', touchAction: 'manipulation' }}
-            title={`View ${label.toLowerCase()} 6-week trend`}
-          >
-            6wk
-          </button>
+          {showTrendAction && (
+            <button
+              onClick={openTrend}
+              className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-all hover:shadow-sm active:scale-95"
+              style={{ color: c.text, borderColor: `${c.track}66`, background: '#fff', touchAction: 'manipulation' }}
+              title={`View ${label.toLowerCase()} 6-week trend`}
+            >
+              6wk
+            </button>
+          )}
           <button
             onClick={() => setShowNote(s => !s)}
             className="text-[10px] font-semibold text-stone-400 hover:text-stone-600 transition-colors"
@@ -409,7 +418,7 @@ export default function HealthTracker({ today }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="font-serif text-lg font-semibold" style={{ color: '#1c1917' }}>How are you feeling?</h2>
-          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric or tap 6wk to view its 6-week trend.</p>
+          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric, then tap 6wk to view its 6-week trend.</p>
         </div>
         <div className="flex items-center gap-2">
           {saved && <span className="text-xs font-medium" style={{ color: '#7E9B86' }}>Saved ✓</span>}
