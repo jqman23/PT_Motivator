@@ -18,6 +18,7 @@ interface HealthData {
 }
 
 type MetricKey = 'sleep_hours' | 'sleep_quality' | 'energy' | 'mood' | 'pain';
+type TrendRangeKey = '3wk' | '6wk';
 type TrendRow = Partial<Record<MetricKey, number | string | null>> & { date: string };
 
 const EMPTY: HealthData = {
@@ -35,8 +36,10 @@ const EMPTY: HealthData = {
   treatment_notes: '',
 };
 
-const TREND_RANGE_DAYS = 41;
-const TREND_RANGE_LABEL = 'Last 6 weeks';
+const TREND_RANGES: Record<TrendRangeKey, { label: string; days: number }> = {
+  '3wk': { label: 'Last 3 weeks', days: 20 },
+  '6wk': { label: 'Last 6 weeks', days: 41 },
+};
 
 const COLOR_MAP = {
   sage:  { track: '#7E9B86', text: '#7E9B86' },
@@ -94,7 +97,6 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
   const pct = value !== null ? ((value - min) / (max - min)) * 100 : 0;
   const hasValue = value !== null;
   const [showNote, setShowNote] = useState(!!note);
-  const [showTrendAction, setShowTrendAction] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -110,13 +112,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, button')) return;
     cancelHold();
-    holdTimer.current = setTimeout(() => setShowTrendAction(true), 450);
-  };
-
-  const openTrend = () => {
-    cancelHold();
-    setShowTrendAction(false);
-    onShowTrend(metric);
+    holdTimer.current = setTimeout(() => onShowTrend(metric), 450);
   };
 
   return (
@@ -127,7 +123,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
       onPointerLeave={cancelHold}
       onPointerCancel={cancelHold}
       onContextMenu={e => e.preventDefault()}
-      title="Hold to reveal 6-week trend button"
+      title="Hold for trend chart"
     >
       <div className="flex items-baseline justify-between mb-0.5">
         <span className="text-sm font-semibold" style={{ color: '#1c1917' }}>{label}</span>
@@ -136,16 +132,6 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
             <span className="text-sm font-bold" style={{ color: c.text }}>
               {value}{max === 12 ? 'h' : '/10'}
             </span>
-          )}
-          {showTrendAction && (
-            <button
-              onClick={openTrend}
-              className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-all hover:shadow-sm active:scale-95"
-              style={{ color: c.text, borderColor: `${c.track}66`, background: '#fff', touchAction: 'manipulation' }}
-              title={`View ${label.toLowerCase()} 6-week trend`}
-            >
-              6wk
-            </button>
           )}
           <button
             onClick={() => setShowNote(s => !s)}
@@ -204,13 +190,17 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
   );
 }
 
-function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: MetricKey; rows: TrendRow[]; loading: boolean; error: string; onClose: () => void }) {
+function TrendOverlay({ metric, rows, range, loading, error, onClose, onRangeChange }: { metric: MetricKey; rows: TrendRow[]; range: TrendRangeKey; loading: boolean; error: string; onClose: () => void; onRangeChange: (range: TrendRangeKey) => void }) {
   const config = METRICS[metric];
   const color = COLOR_MAP[config.color];
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const values = rows
     .map(row => ({ date: String(row.date).split('T')[0], value: row[metric] === null || row[metric] === undefined || row[metric] === '' ? null : Number(row[metric]) }))
     .filter((row): row is { date: string; value: number } => Number.isFinite(row.value));
+
+  useEffect(() => {
+    setSelectedIndex(null);
+  }, [metric, range]);
 
   const width = 300;
   const height = 130;
@@ -236,10 +226,30 @@ function TrendOverlay({ metric, rows, loading, error, onClose }: { metric: Metri
       <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl border border-stone-100 p-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{TREND_RANGE_LABEL}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{TREND_RANGES[range].label}</p>
             <h3 className="font-serif text-lg font-semibold text-stone-800">{config.label}</h3>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 text-xl leading-none" style={{ touchAction: 'manipulation' }}>×</button>
+        </div>
+
+        <div className="mb-3 inline-flex rounded-full border bg-stone-50 p-0.5" style={{ borderColor: '#e7e5e4' }}>
+          {(Object.keys(TREND_RANGES) as TrendRangeKey[]).map(key => {
+            const selected = key === range;
+            return (
+              <button
+                key={key}
+                onClick={() => onRangeChange(key)}
+                className="rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide transition-all"
+                style={{
+                  color: selected ? '#ffffff' : '#78716c',
+                  background: selected ? color.track : 'transparent',
+                  touchAction: 'manipulation',
+                }}
+              >
+                {key}
+              </button>
+            );
+          })}
         </div>
 
         {loading ? (
@@ -301,6 +311,7 @@ export default function HealthTracker({ today }: Props) {
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [trendMetric, setTrendMetric] = useState<MetricKey | null>(null);
+  const [trendRange, setTrendRange] = useState<TrendRangeKey>('3wk');
   const [trendRows, setTrendRows] = useState<TrendRow[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState('');
@@ -339,7 +350,7 @@ export default function HealthTracker({ today }: Props) {
     if (!trendMetric) return;
     setTrendLoading(true);
     setTrendError('');
-    fetch(`/api/health?start=${offsetDate(today, -TREND_RANGE_DAYS)}&end=${today}`)
+    fetch(`/api/health?start=${offsetDate(today, -TREND_RANGES[trendRange].days)}&end=${today}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error('Could not load trend')))
       .then(({ rows }) => setTrendRows(Array.isArray(rows) ? rows : []))
       .catch(err => {
@@ -348,7 +359,7 @@ export default function HealthTracker({ today }: Props) {
         setTrendRows([]);
       })
       .finally(() => setTrendLoading(false));
-  }, [trendMetric, today]);
+  }, [trendMetric, trendRange, today]);
 
   const scheduleSave = (next: HealthData) => {
     setSaved(false);
@@ -418,7 +429,7 @@ export default function HealthTracker({ today }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="font-serif text-lg font-semibold" style={{ color: '#1c1917' }}>How are you feeling?</h2>
-          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric, then tap 6wk to view its 6-week trend.</p>
+          <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric to view its trend, then toggle 3wk or 6wk.</p>
         </div>
         <div className="flex items-center gap-2">
           {saved && <span className="text-xs font-medium" style={{ color: '#7E9B86' }}>Saved ✓</span>}
@@ -502,7 +513,7 @@ export default function HealthTracker({ today }: Props) {
         />
       </div>
 
-      {trendMetric && <TrendOverlay metric={trendMetric} rows={trendRows} loading={trendLoading} error={trendError} onClose={() => setTrendMetric(null)} />}
+      {trendMetric && <TrendOverlay metric={trendMetric} rows={trendRows} range={trendRange} loading={trendLoading} error={trendError} onClose={() => setTrendMetric(null)} onRangeChange={setTrendRange} />}
     </div>
   );
 }
