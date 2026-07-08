@@ -874,6 +874,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const addSavedExerciseToWorkout = (exerciseId = exerciseToAddId) => {
     const exercise = exercises?.find(item => item.id === exerciseId);
     if (!exercise) return;
+    if (workoutDraft.exercises.some(item => item.exerciseId === exerciseId)) {
+      setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.exerciseId !== exerciseId) }));
+      setExerciseToAddId('');
+      return;
+    }
     const parsed = parseExercisePrescription(exercise);
     setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, parsed] }));
     setExerciseToAddId('');
@@ -1140,7 +1145,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                           className="text-left rounded-xl border px-3 py-2 transition-colors"
                           style={{ borderColor: selected ? categoryAccent(group.color) : '#e7e5e4', background: selected ? `${categoryAccent(group.color)}12` : '#fff' }}
                         >
-                          <span className="block text-sm font-bold text-stone-800 leading-snug">{exercise.name}</span>
+                          <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-800 leading-snug">
+                            <span className="min-w-0 truncate">{exercise.name}</span>
+                            {selected && <span className="text-[10px] font-bold uppercase tracking-wide flex-shrink-0" style={{ color: categoryAccent(group.color) }}>Selected</span>}
+                          </span>
                           <span className="block text-[11px] text-stone-400 truncate">{exercise.sets || exercise.cue || 'Defaults to 2 x 60 sec'}</span>
                         </button>
                       );
