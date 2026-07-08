@@ -777,10 +777,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rawNote,
-          exerciseName: exercise?.name ?? '',
-          exerciseSets: exercise?.sets ?? '',
-          exerciseCue: exercise?.cue ?? '',
-          exerciseTips: exercise?.tips ?? [],
+          exerciseName: exercise?.name ? exercise.name.replace(/\b(with|without|no)\s+(bands?|weights?|support)\b/gi, '').replace(/\s+/g, ' ').trim() : '',
+          exerciseSets: '',
+          exerciseCue: '',
+          exerciseTips: [],
         }),
       });
       const data = await res.json().catch(() => ({})) as { standardizedNote?: string };
