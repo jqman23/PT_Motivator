@@ -319,6 +319,10 @@ export default function TimerBackgroundNotifications() {
       await clearScheduledTimerNotifications();
       return;
     }
+    if (!document.hidden) {
+      await clearScheduledTimerNotifications();
+      return;
+    }
     if (await scheduleNativeNotifications(timer)) return;
     const subscription = await ensurePushSubscription();
     const json = subscription?.toJSON() as PushSubscriptionJson | undefined;
@@ -408,7 +412,7 @@ export default function TimerBackgroundNotifications() {
         || label.includes('set');
       if (isTimerButton) {
         askPermissionFromTimerGesture();
-        window.setTimeout(() => { void schedulePushNotifications(); }, 300);
+        window.setTimeout(() => { void clearScheduledTimerNotifications(); }, 300);
       }
     };
     const handleTimerStateUpdated = (event: Event) => {
@@ -417,9 +421,11 @@ export default function TimerBackgroundNotifications() {
       window.setTimeout(() => { void schedulePushNotifications(force); }, 0);
     };
     const handleVisibilityChange = () => {
+      lastScheduledKeyRef.current = '';
       if (document.hidden) {
-        lastScheduledKeyRef.current = '';
         window.setTimeout(() => { void schedulePushNotifications(true); }, 0);
+      } else {
+        window.setTimeout(() => { void clearScheduledTimerNotifications(); }, 0);
       }
     };
 
@@ -459,7 +465,7 @@ export default function TimerBackgroundNotifications() {
 
       if (timer?.bellOn === false) return;
       if (current.mode !== 'timer') return;
-      if (current.running) void schedulePushNotifications();
+      if (current.running && document.hidden) void schedulePushNotifications();
 
       // Never show fallback browser notifications while the app is foregrounded.
       // In-app voice/beeps own that case, but scheduling above must still happen.
