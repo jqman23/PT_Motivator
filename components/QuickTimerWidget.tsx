@@ -1212,9 +1212,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   ) : null;
 
   const workoutMode = workoutModeOpen ? (
-    <div className="fixed inset-0 z-[10002] overflow-y-auto bg-[#101827] text-white" style={{ colorScheme: 'dark' }}>
-      <div className="min-h-dvh px-4 py-4 sm:px-6 sm:py-6 flex flex-col">
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+    <div className="fixed inset-0 z-[10002] box-border overflow-y-auto bg-[#101827] text-white" style={{ colorScheme: 'dark' }}>
+      <div className="box-border flex min-h-dvh w-full flex-col" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))', paddingRight: 'max(1rem, env(safe-area-inset-right))', paddingBottom: 'max(1rem, env(safe-area-inset-bottom))', paddingLeft: 'max(1rem, env(safe-area-inset-left))' }}>
+        <div className="mx-auto box-border flex w-full max-w-3xl flex-1 flex-col">
           <div className="flex items-center justify-between gap-3 pb-4">
             <div className="min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-widest text-white/45">{workoutStatus}</p>
@@ -1228,7 +1228,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           </div>
 
           <section className="grid flex-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-            <div className="rounded-[2rem] bg-white/[0.08] p-5 shadow-2xl ring-1 ring-white/10 sm:p-7">
+            <div className="box-border rounded-[2rem] bg-white/[0.08] p-5 shadow-2xl ring-1 ring-white/10 sm:p-7">
               <div className="flex items-start justify-between gap-3">
                 <button
                   type="button"
@@ -1249,7 +1249,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 </button>
               </div>
 
-              <div className="my-8 flex items-center justify-center">
+              <div className="my-8 flex w-full items-center justify-center">
                 <div className="relative h-64 w-64 sm:h-80 sm:w-80">
                   <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
                     <circle cx="60" cy="60" r="54" fill="none" stroke="rgb(255 255 255 / 0.12)" strokeWidth="8" />
