@@ -143,7 +143,7 @@ export default function TimerWidget(props: TimerWidgetProps) {
     const polishPanelText = (panel: HTMLElement) => {
       Array.from(panel.querySelectorAll<HTMLParagraphElement>('p')).forEach(paragraph => {
         const text = paragraph.textContent?.trim() ?? '';
-        if (text === 'Set = side A · switch · side B') paragraph.remove();
+        if (text === 'Set = side A · switch · side B' || text === 'Each-side sets start right leg, then left leg.') paragraph.remove();
         const startMatch = text.match(/^Stretch starts in ([1-5])$/);
         if (startMatch) paragraph.textContent = `Exercise starts in ${startMatch[1]}`;
       });

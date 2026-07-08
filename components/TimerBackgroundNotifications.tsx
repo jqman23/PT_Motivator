@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react';
 const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
 const NOTIFIED_STORAGE_KEY = 'pt-timer-hidden-notified-keys';
 const PERMISSION_STORAGE_KEY = 'pt-timer-notifications-permission-asked';
+const PUSH_ENDPOINT_STORAGE_KEY = 'pt-timer-push-endpoint';
 const SWITCH_SECONDS = 15;
 const BREAK_SECONDS = 30;
 
@@ -115,7 +116,7 @@ function normalizeCue(cue: string) {
   if (/^end$/i.test(cleaned)) return 'Timer done';
   if (/^done$/i.test(cleaned)) return 'Timer done';
   if (/^start$/i.test(cleaned)) return 'Start next exercise';
-  if (/^switch$/i.test(cleaned)) return 'Switch sides';
+  if (/^switch$/i.test(cleaned) || /^switch sides$/i.test(cleaned)) return 'Switch to left leg';
   if (/break/i.test(cleaned)) return cleaned;
   return cleaned;
 }
@@ -221,6 +222,7 @@ export default function TimerBackgroundNotifications() {
         await existing.unsubscribe();
       } else {
         pushEndpointRef.current = existing.endpoint;
+        localStorage.setItem(PUSH_ENDPOINT_STORAGE_KEY, existing.endpoint);
         return existing;
       }
     }
@@ -228,6 +230,7 @@ export default function TimerBackgroundNotifications() {
     const latestExisting = await registration.pushManager.getSubscription();
     if (latestExisting) {
       pushEndpointRef.current = latestExisting.endpoint;
+      localStorage.setItem(PUSH_ENDPOINT_STORAGE_KEY, latestExisting.endpoint);
       return latestExisting;
     }
 
@@ -241,6 +244,7 @@ export default function TimerBackgroundNotifications() {
       body: JSON.stringify(subscription.toJSON()),
     });
     pushEndpointRef.current = subscription.endpoint;
+    localStorage.setItem(PUSH_ENDPOINT_STORAGE_KEY, subscription.endpoint);
     return subscription;
   };
 
@@ -263,7 +267,7 @@ export default function TimerBackgroundNotifications() {
   };
 
   const clearServerTimerEvents = async () => {
-    let endpoint = pushEndpointRef.current;
+    let endpoint = pushEndpointRef.current ?? localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY);
     if (!endpoint && 'serviceWorker' in navigator && 'PushManager' in window) {
       const registration = await navigator.serviceWorker.getRegistration('/sw.js').catch(() => undefined);
       const subscription = await registration?.pushManager.getSubscription().catch(() => null);
@@ -284,6 +288,29 @@ export default function TimerBackgroundNotifications() {
       cancelNativeTimerNotifications(),
       clearServerTimerEvents(),
     ]);
+  };
+
+  const clearServerTimerEventsOnUnload = () => {
+    const endpoint = pushEndpointRef.current ?? localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY);
+    if (!endpoint) return;
+    const body = JSON.stringify({ endpoint, events: [] });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/timer-push/schedule', new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    fetch('/api/timer-push/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => undefined);
+  };
+
+  const resetTimerOnAppExit = () => {
+    lastScheduledKeyRef.current = '';
+    localStorage.removeItem(TIMER_STORAGE_KEY);
+    clearServerTimerEventsOnUnload();
+    void cancelNativeTimerNotifications();
   };
 
   const schedulePushNotifications = async (force = false) => {
@@ -351,6 +378,10 @@ export default function TimerBackgroundNotifications() {
 
   useEffect(() => {
     notifiedKeysRef.current = loadNotifiedKeys();
+    if (readStoredTimer()?.running) {
+      localStorage.removeItem(TIMER_STORAGE_KEY);
+      window.setTimeout(() => { void clearScheduledTimerNotifications(); }, 0);
+    }
 
     const askPermissionFromTimerGesture = () => {
       if (!('Notification' in window)) return;
@@ -394,10 +425,14 @@ export default function TimerBackgroundNotifications() {
 
     document.addEventListener('click', handleClick, true);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', resetTimerOnAppExit);
+    window.addEventListener('beforeunload', resetTimerOnAppExit);
     window.addEventListener('pt-timer-state-updated', handleTimerStateUpdated);
     return () => {
       document.removeEventListener('click', handleClick, true);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', resetTimerOnAppExit);
+      window.removeEventListener('beforeunload', resetTimerOnAppExit);
       window.removeEventListener('pt-timer-state-updated', handleTimerStateUpdated);
     };
   }, []);

@@ -150,7 +150,7 @@ function sanitizeWorkout(workout: CustomWorkout): CustomWorkout {
 }
 
 function workoutSummary(workout: CustomWorkout) {
-  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${ex.sides === 'each' ? 'each side' : 'both'}`).join(' · ');
+  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${ex.sides === 'each' ? 'right then left' : 'both'}`).join(' · ');
 }
 
 function categoryAccent(color?: string) {
@@ -168,14 +168,14 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
       const prefix = `${exercise.name} set ${set}/${exercise.sets}`;
       if (exercise.unit === 'seconds') {
         if (exercise.sides === 'each') {
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side A`, cueAfter: 'Switch sides', kind: 'stretch', label: `${prefix} · side A · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, side A, ${exercise.amount} seconds` });
-          steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch sides for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side B`, kind: 'switch', countdownToStretch: true, label: 'Switch sides' });
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side B`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · side B · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, side B, ${exercise.amount} seconds` });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, right leg`, cueAfter: 'Switch to left leg', kind: 'stretch', label: `${prefix} · right leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, right leg, ${exercise.amount} seconds` });
+          steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to left leg for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, kind: 'switch', countdownToStretch: true, label: 'Switch to left leg' });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · left leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, left leg, ${exercise.amount} seconds` });
         } else {
           steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds` });
         }
       } else {
-        const sideText = exercise.sides === 'each' ? 'each side' : 'both';
+        const sideText = exercise.sides === 'each' ? 'right then left' : 'both';
         steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps ${sideText}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps ${sideText}` });
       }
       if (set < exercise.sets) {
@@ -252,7 +252,7 @@ function stepTitle(step?: TimerStep, fallback = 'Ready') {
   if (step.exerciseName) return step.exerciseName;
   if (step.label) return step.label.split(' · ')[0];
   if (step.kind === 'break') return 'Break';
-  if (step.kind === 'switch') return 'Switch sides';
+  if (step.kind === 'switch') return 'Switch to left leg';
   if (step.kind === 'reps') return 'Reps';
   return 'Hold';
 }
@@ -278,7 +278,7 @@ function setLabelParts(label: SequenceOption['label']) {
 function noteForSequence(seq: SequenceOption) {
   if (seq.holdSeconds) {
     const count = seq.label.split(' ')[0];
-    return `${count} x ${seq.holdSeconds} seconds ea side`;
+    return `${count} x ${seq.holdSeconds} seconds right + left`;
   }
   return seq.steps.map(step => step.label).filter(Boolean).join('\n');
 }
@@ -755,34 +755,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     const raw = localStorage.getItem(TIMER_STORAGE_KEY);
     if (!raw) return;
     try {
-      const stored = JSON.parse(raw) as StoredTimerState;
-      // Only restore if the timer was actively running — otherwise start blank
-      if (!stored.running) {
-        localStorage.removeItem(TIMER_STORAGE_KEY);
-        return;
-      }
-      const option = stored.customSequence ?? getSequence(stored.sequenceKey);
-      activeSequenceRef.current = option.steps;
-      activeSequenceOptionRef.current = option;
-      setActiveSequenceOption(option);
-      sequenceKeyRef.current = option.key;
-      endAtRef.current = stored.endAt ?? null;
-      sequenceIndexRef.current = stored.sequenceIndex ?? 0;
-      sequenceActiveRef.current = !!stored.sequenceActive;
-      runningRef.current = !!stored.running;
-      modeRef.current = stored.mode ?? 'timer';
-      setSequenceKey(option.key);
-      setMode(stored.mode ?? 'timer');
-      setDuration(stored.duration || 30);
-      setRemaining(stored.remaining || stored.duration || 30);
-      setElapsed(stored.elapsed || 0);
-      setRunning(!!stored.running);
-      setDone(!!stored.done);
-      setBellOn(stored.bellOn !== false);
-      setSequenceActive(!!stored.sequenceActive);
-      setSequenceIndex(stored.sequenceIndex ?? 0);
-      setCue(stored.cue || '');
-      window.setTimeout(() => syncTimerFromClock(true), 0);
+      localStorage.removeItem(TIMER_STORAGE_KEY);
+      window.dispatchEvent(new CustomEvent('pt-timer-state-updated', { detail: { force: true } }));
     } catch {
       localStorage.removeItem(TIMER_STORAGE_KEY);
     }
@@ -1141,7 +1115,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
               </div>
             ))}
           </div>
-          <p className="mb-3 text-[10px] text-center text-stone-400">Set = side A · switch · side B</p>
+          <p className="mb-3 text-[10px] text-center text-stone-400">Each-side sets start right leg, then left leg.</p>
 
           <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
             <div className="flex items-center justify-between gap-2 mb-2">
