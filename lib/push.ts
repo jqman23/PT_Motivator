@@ -12,6 +12,7 @@ export type TimerPushEvent = {
   at: number;
   body: string;
   sent?: boolean;
+  qstashMessageId?: string;
 };
 
 const PUSH_SUBSCRIPTIONS_KEY = 'pushSubscriptions';
@@ -55,12 +56,64 @@ export async function getTimerPushEvents(): Promise<TimerPushEvent[]> {
 
 export async function replaceTimerPushEvents(endpoint: string, events: TimerPushEvent[]) {
   const existing = await getTimerPushEvents();
-  const next = [...existing.filter(event => event.endpoint !== endpoint), ...events].slice(-200);
+  const existingById = new Map(existing.map(event => [`${event.endpoint}:${event.id}`, event]));
+  const preserved = events.map(event => {
+    const current = existingById.get(`${event.endpoint}:${event.id}`);
+    return {
+      ...event,
+      sent: current?.sent ? true : event.sent,
+      qstashMessageId: current?.qstashMessageId,
+    };
+  });
+  const next = [...existing.filter(event => event.endpoint !== endpoint), ...preserved].slice(-200);
   await setConfig(TIMER_PUSH_EVENTS_KEY, next);
 }
 
 export async function saveTimerPushEvents(events: TimerPushEvent[]) {
   await setConfig(TIMER_PUSH_EVENTS_KEY, events.slice(-200));
+}
+
+function appBaseUrl() {
+  const explicit = process.env.QSTASH_TIMER_BASE_URL
+    || process.env.NEXT_PUBLIC_APP_URL
+    || process.env.VERCEL_PROJECT_PRODUCTION_URL
+    || process.env.VERCEL_URL
+    || '';
+  if (!explicit) return '';
+  return explicit.startsWith('http://') || explicit.startsWith('https://') ? explicit : `https://${explicit}`;
+}
+
+export function canScheduleTimerPushWithQStash() {
+  return !!(process.env.QSTASH_TOKEN && appBaseUrl() && (process.env.QSTASH_TIMER_SECRET || process.env.CRON_SECRET));
+}
+
+export async function scheduleTimerPushWithQStash(event: TimerPushEvent) {
+  const token = process.env.QSTASH_TOKEN;
+  const baseUrl = appBaseUrl();
+  const deliverySecret = process.env.QSTASH_TIMER_SECRET || process.env.CRON_SECRET || '';
+  if (!token || !baseUrl || !deliverySecret) return null;
+
+  const delaySeconds = Math.max(0, Math.ceil((event.at - Date.now()) / 1000));
+  const destination = `${baseUrl.replace(/\/$/, '')}/api/timer-push/deliver`;
+  const res = await fetch(`https://qstash.upstash.io/v2/publish/${destination}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Upstash-Delay': `${delaySeconds}s`,
+      'Upstash-Retries': '2',
+      'Upstash-Forward-Authorization': `Bearer ${deliverySecret}`,
+    },
+    body: JSON.stringify({ endpoint: event.endpoint, id: event.id }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`QStash schedule failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json().catch(() => ({})) as { messageId?: string };
+  return data.messageId ?? null;
 }
 
 export async function sendTimerPushNotification(subscription: PushSubscription, event: TimerPushEvent) {

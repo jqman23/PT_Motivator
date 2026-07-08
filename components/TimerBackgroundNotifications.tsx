@@ -244,14 +244,62 @@ export default function TimerBackgroundNotifications() {
     return subscription;
   };
 
+  const cancelNativeTimerNotifications = async () => {
+    try {
+      const [{ Capacitor }, { LocalNotifications }] = await Promise.all([
+        import('@capacitor/core'),
+        import('@capacitor/local-notifications'),
+      ]);
+      if (!Capacitor.isNativePlatform()) return false;
+      const pending = await LocalNotifications.getPending();
+      const timerPending = pending.notifications.filter(item => item.extra?.ptTimer === true);
+      if (timerPending.length) {
+        await LocalNotifications.cancel({ notifications: timerPending.map(item => ({ id: item.id })) });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const clearServerTimerEvents = async () => {
+    let endpoint = pushEndpointRef.current;
+    if (!endpoint && 'serviceWorker' in navigator && 'PushManager' in window) {
+      const registration = await navigator.serviceWorker.getRegistration('/sw.js').catch(() => undefined);
+      const subscription = await registration?.pushManager.getSubscription().catch(() => null);
+      endpoint = subscription?.endpoint ?? null;
+      if (endpoint) pushEndpointRef.current = endpoint;
+    }
+    if (!endpoint) return;
+    await fetch('/api/timer-push/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, events: [] }),
+    }).catch(() => undefined);
+  };
+
+  const clearScheduledTimerNotifications = async () => {
+    lastScheduledKeyRef.current = '';
+    await Promise.all([
+      cancelNativeTimerNotifications(),
+      clearServerTimerEvents(),
+    ]);
+  };
+
   const schedulePushNotifications = async (force = false) => {
     const timer = readStoredTimer();
-    if (!timer?.running || timer.mode !== 'timer') return;
+    if (!timer?.running || timer.mode !== 'timer' || timer.bellOn === false || timer.done) {
+      await clearScheduledTimerNotifications();
+      return;
+    }
     if (await scheduleNativeNotifications(timer)) return;
     const subscription = await ensurePushSubscription();
     const json = subscription?.toJSON() as PushSubscriptionJson | undefined;
     const endpoint = subscription?.endpoint ?? json?.endpoint ?? pushEndpointRef.current;
-    if (!endpoint) return;
+    if (!endpoint) {
+      await cancelNativeTimerNotifications();
+      return;
+    }
     if (json?.endpoint) {
       await fetch('/api/push/subscribe', {
         method: 'POST',

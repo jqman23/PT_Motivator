@@ -247,6 +247,25 @@ function formatTime(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function stepTitle(step?: TimerStep, fallback = 'Ready') {
+  if (!step) return fallback;
+  if (step.exerciseName) return step.exerciseName;
+  if (step.label) return step.label.split(' · ')[0];
+  if (step.kind === 'break') return 'Break';
+  if (step.kind === 'switch') return 'Switch sides';
+  if (step.kind === 'reps') return 'Reps';
+  return 'Hold';
+}
+
+function stepDetail(step?: TimerStep) {
+  if (!step) return '';
+  if (step.label) return step.label;
+  if (step.manual) return 'Manual rep set';
+  if (step.kind === 'break') return `${step.seconds}s recovery`;
+  if (step.kind === 'switch') return `${step.seconds}s transition`;
+  return `${step.seconds}s work`;
+}
+
 function groupDisplayLabel(group: SequenceOption['group']) {
   return group === '60 sec holds' ? '60s holds' : '30s holds';
 }
@@ -283,6 +302,7 @@ interface QuickTimerWidgetProps {
 export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: QuickTimerWidgetProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  const [workoutModeOpen, setWorkoutModeOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('timer');
   const [duration, setDuration] = useState(30);
   const [remaining, setRemaining] = useState(30);
@@ -673,6 +693,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
     setCue(`${option.label} ready`);
+    setWorkoutModeOpen(true);
     persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} ready` });
   };
 
@@ -1019,6 +1040,16 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   }, []);
 
   const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!onSaveNote && !!(exercises?.length);
+  const currentWorkoutStep = sequenceActive && sequenceIndex >= 0 ? activeSequence.steps[sequenceIndex] : undefined;
+  const nextWorkoutStep = sequenceActive ? activeSequence.steps[Math.max(0, sequenceIndex + 1)] : undefined;
+  const upcomingWorkoutSteps = sequenceActive
+    ? activeSequence.steps.slice(Math.max(0, sequenceIndex + 1), Math.max(0, sequenceIndex + 5))
+    : [];
+  const completedStepCount = sequenceActive ? Math.max(0, sequenceIndex) : done ? activeSequence.steps.length : 0;
+  const totalStepCount = activeSequence.steps.length || 1;
+  const workoutProgressPct = Math.min(100, Math.max(0, ((completedStepCount + (running ? 0.35 : 0)) / totalStepCount) * 100));
+  const workoutStatus = done ? 'Complete' : running ? 'In progress' : currentWorkoutStep?.manual ? 'Waiting for reps' : sequenceActive ? 'Ready' : mode === 'stopwatch' ? 'Stopwatch' : 'Timer';
+  const canShowWorkoutMode = mode === 'timer' && (sequenceActive || done || activeSequence.workout);
 
   const panel = open ? (
     <div
@@ -1031,6 +1062,18 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Timer</span>
         <button onClick={event => { event.stopPropagation(); setOpen(false); }} className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-base leading-none">×</button>
       </div>
+
+      {canShowWorkoutMode && (
+        <button
+          onClick={event => { event.stopPropagation(); setWorkoutModeOpen(true); }}
+          className="mb-3 w-full rounded-xl px-3 py-2.5 text-left transition-colors"
+          style={{ background: '#1F2F46', color: '#fff' }}
+        >
+          <span className="block text-[10px] font-bold uppercase tracking-widest opacity-70">Workout mode</span>
+          <span className="block text-sm font-bold leading-tight">{stepTitle(currentWorkoutStep, activeSequence.label)}</span>
+          <span className="block text-[11px] opacity-75">{workoutStatus} · {completedStepCount}/{totalStepCount} steps</span>
+        </button>
+      )}
 
       <div className="flex gap-1.5 mb-3 rounded-xl bg-stone-100 p-1">
         <button onClick={event => { event.stopPropagation(); switchMode('timer'); }} className="flex-1 rounded-lg py-1.5 text-xs font-bold" style={{ background: mode === 'timer' ? 'white' : 'transparent', color: mode === 'timer' ? '#57534e' : '#a8a29e' }}>Timer</button>
@@ -1170,6 +1213,118 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     </div>
   ) : null;
 
+  const workoutMode = workoutModeOpen ? (
+    <div className="fixed inset-0 z-[10002] overflow-y-auto bg-[#101827] text-white" style={{ colorScheme: 'dark' }}>
+      <div className="min-h-dvh px-4 py-4 sm:px-6 sm:py-6 flex flex-col">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+          <div className="flex items-center justify-between gap-3 pb-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-white/45">{workoutStatus}</p>
+              <h2 className="truncate text-lg font-extrabold tracking-tight sm:text-2xl">{activeSequence.label || 'Workout'}</h2>
+            </div>
+            <button onClick={() => setWorkoutModeOpen(false)} className="h-10 w-10 rounded-xl bg-white/10 text-2xl leading-none text-white/80">×</button>
+          </div>
+
+          <div className="mb-5 h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-[#D9A94B] transition-all duration-500" style={{ width: `${workoutProgressPct}%` }} />
+          </div>
+
+          <section className="grid flex-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="rounded-[2rem] bg-white/[0.08] p-5 shadow-2xl ring-1 ring-white/10 sm:p-7">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-[#D9A94B]">Now</p>
+                  <h1 className="mt-1 text-4xl font-black leading-none tracking-tight sm:text-6xl">{stepTitle(currentWorkoutStep, done ? 'Workout complete' : sequenceIndex < 0 ? 'Get ready' : 'Timer')}</h1>
+                </div>
+                <button
+                  onClick={() => { void unlockAudio(); setBellOn(value => !value); }}
+                  className="rounded-2xl px-3 py-2 text-xs font-bold"
+                  style={{ background: bellOn ? '#E4ECE6' : 'rgb(255 255 255 / 0.1)', color: bellOn ? '#476653' : 'rgb(255 255 255 / 0.6)' }}
+                >
+                  {bellOn ? 'Sound on' : 'Muted'}
+                </button>
+              </div>
+
+              <div className="my-8 flex items-center justify-center">
+                <div className="relative h-64 w-64 sm:h-80 sm:w-80">
+                  <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="rgb(255 255 255 / 0.12)" strokeWidth="8" />
+                    <circle cx="60" cy="60" r="54" fill="none" stroke={done ? '#7E9B86' : currentWorkoutStep?.kind === 'break' ? '#5B9BD5' : '#D9A94B'} strokeWidth="8" strokeLinecap="round" strokeDasharray={2 * Math.PI * 54} strokeDashoffset={(2 * Math.PI * 54) * (1 - pct)} style={{ transition: 'stroke-dashoffset 0.9s linear' }} />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <span className="text-6xl font-black tabular-nums tracking-tighter sm:text-7xl">{currentWorkoutStep?.manual ? 'REPS' : formatTime(shownSeconds)}</span>
+                    <span className="mt-2 max-w-48 text-sm font-bold uppercase tracking-widest text-white/45">{stepDetail(currentWorkoutStep) || (done ? 'Saved to your log' : sequenceLabel)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {(cue || sequenceLabel) && (
+                <div className="rounded-2xl bg-[#E4ECE6] px-4 py-3 text-center text-[#283F30]">
+                  {sequenceLabel && <p className="text-[11px] font-bold uppercase tracking-widest opacity-70">{sequenceLabel}</p>}
+                  {cue && <p className="text-lg font-extrabold leading-tight">{cue}</p>}
+                  {running && remaining <= 5 && <p className="mt-1 text-sm font-bold">Next cue in {remaining}</p>}
+                </div>
+              )}
+
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                <button onClick={() => { if (running) pauseTimer(); else start(); }} className="col-span-2 rounded-2xl py-4 text-base font-black text-white shadow-lg" style={{ background: running ? 'rgb(255 255 255 / 0.14)' : '#D9A94B' }}>
+                  {running ? 'Pause' : currentWorkoutStep?.manual ? 'Done, next' : done && mode === 'timer' ? 'Restart' : 'Start'}
+                </button>
+                <button onClick={() => reset()} className="rounded-2xl bg-white/10 py-4 text-sm font-bold text-white/75">Reset</button>
+                {sequenceActive && sequenceIndex >= 0 && !done && (
+                  <button onClick={() => skipSegment()} className="col-span-3 rounded-2xl bg-white/10 py-3 text-sm font-bold text-white/75">Skip this step</button>
+                )}
+              </div>
+            </div>
+
+            <aside className="flex flex-col gap-4">
+              <div className="rounded-3xl bg-white/[0.08] p-4 ring-1 ring-white/10">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-white/45">Up next</p>
+                <h3 className="mt-2 text-2xl font-black leading-tight">{stepTitle(nextWorkoutStep, done ? 'Finished' : 'Nothing queued')}</h3>
+                <p className="mt-1 text-sm font-semibold text-white/55">{stepDetail(nextWorkoutStep) || (done ? 'Workout complete' : 'Start a preset or custom workout')}</p>
+              </div>
+
+              <div className="rounded-3xl bg-white/[0.08] p-4 ring-1 ring-white/10">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-white/45">Remaining</p>
+                  <span className="text-xs font-bold text-white/45">{Math.min(completedStepCount + 1, totalStepCount)}/{totalStepCount}</span>
+                </div>
+                <div className="space-y-2">
+                  {upcomingWorkoutSteps.length ? upcomingWorkoutSteps.map((step, index) => (
+                    <div key={`${step.label ?? step.cueAfter}-${index}`} className="rounded-2xl bg-white/[0.07] px-3 py-2">
+                      <p className="truncate text-sm font-bold">{stepTitle(step)}</p>
+                      <p className="truncate text-xs font-semibold text-white/45">{stepDetail(step)}</p>
+                    </div>
+                  )) : (
+                    <p className="rounded-2xl bg-white/[0.07] px-3 py-4 text-center text-sm font-semibold text-white/45">{done ? 'All steps complete.' : 'Load a workout to see the queue.'}</p>
+                  )}
+                </div>
+              </div>
+
+              {showLogSection && (
+                <div className="rounded-3xl bg-white p-4 text-stone-800">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Log timer</p>
+                  {!logSaved ? (
+                    <div className="mt-2 space-y-2">
+                      <select value={logExerciseId} onChange={e => setLogExerciseId(e.target.value)} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm" style={{ colorScheme: 'light' }}>
+                        <option value="">Choose exercise...</option>
+                        {exercises!.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                      </select>
+                      <input value={logNoteText} onChange={e => setLogNoteText(e.target.value)} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm" style={{ colorScheme: 'light' }} />
+                      <button onClick={() => void handleLogNote()} disabled={!logExerciseId || !logNoteText} className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Save note</button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Note saved.</p>
+                  )}
+                </div>
+              )}
+            </aside>
+          </section>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const builderSheet = showWorkoutBuilder ? (
     <div className="fixed inset-0 z-[10000] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={() => setShowWorkoutBuilder(false)}>
       <div className="w-full sm:max-w-2xl bg-[#F6F1E7] rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 flex flex-col" style={{ maxHeight: '92dvh' }} onClick={event => event.stopPropagation()}>
@@ -1283,6 +1438,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <span style={labelStyle}>timer</span>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
+      {mounted && workoutMode ? createPortal(workoutMode, document.body) : null}
       {mounted && builderSheet ? createPortal(builderSheet, document.body) : null}
     </>
   );

@@ -9,6 +9,9 @@ import {
   shouldRemovePushSubscription,
 } from '@/lib/push';
 
+const SEND_AHEAD_MS = 5000;
+const MAX_LATE_MS = 60 * 1000;
+
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
@@ -21,7 +24,8 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
   const [events, subscriptions] = await Promise.all([getTimerPushEvents(), getPushSubscriptions()]);
   const subscriptionsByEndpoint = new Map(subscriptions.map(subscription => [subscription.endpoint, subscription]));
-  const due = events.filter(event => !event.sent && event.at <= now + 5000);
+  const due = events.filter(event => !event.sent && event.at <= now + SEND_AHEAD_MS && event.at >= now - MAX_LATE_MS);
+  const expiredIds = new Set(events.filter(event => !event.sent && event.at < now - MAX_LATE_MS).map(event => `${event.endpoint}:${event.id}`));
   let sent = 0;
 
   for (const event of due) {
@@ -37,6 +41,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  await saveTimerPushEvents(events.filter(event => !event.sent || event.at > now - 10 * 60 * 1000));
+  await saveTimerPushEvents(events.filter(event => {
+    if (expiredIds.has(`${event.endpoint}:${event.id}`)) return false;
+    return !event.sent || event.at > now - 10 * 60 * 1000;
+  }));
   return NextResponse.json({ ok: true, due: due.length, sent });
 }
