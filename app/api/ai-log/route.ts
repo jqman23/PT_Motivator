@@ -139,23 +139,23 @@ export async function POST(req: NextRequest) {
 
     const { text, exercises = [], health = {}, draftProposal = null, sourceMatches: rawSourceMatches = [], date: requestDate } = await req.json();
     const diaryText = cleanText(text, 1800);
-    const sourceMatches = cleanSourceMatches(rawSourceMatches);
+    const sourceMatches = cleanSourceMatches(rawSourceMatches).slice(0, 5);
     const inferredIntentHints = inferIntentHints(diaryText);
     const todayDate: string = typeof requestDate === 'string' && requestDate.match(/^\d{4}-\d{2}-\d{2}$/)
       ? requestDate
       : new Date().toISOString().split('T')[0];
 
     const rawExercises: ExerciseBrief[] = Array.isArray(exercises) ? exercises : [];
-    const safeExercises: ExerciseBrief[] = rawExercises.slice(0, 100).map((ex: ExerciseBrief) => {
+    const safeExercises: ExerciseBrief[] = rawExercises.slice(0, 45).map((ex: ExerciseBrief) => {
       const safe: ExerciseBrief = {
         id: cleanText(ex.id, 60),
-        name: cleanText(ex.name, 90),
+        name: cleanText(ex.name, 70),
         category: cleanText(ex.category, 60),
-        sets: cleanText(ex.sets, 120),
-        cue: cleanText(ex.cue, 220),
-        tips: cleanList(ex.tips, 5, 120),
+        sets: cleanText(ex.sets, 80),
+        cue: cleanText(ex.cue, 120),
+        tips: cleanList(ex.tips, 2, 80),
         done: !!ex.done,
-        note: cleanText(ex.note, 160),
+        note: cleanText(ex.note, 80),
       };
       safe.schemaText = makeSchemaText(safe);
       return safe;
@@ -178,49 +178,17 @@ export async function POST(req: NextRequest) {
     const updateOnlyIntent = /\b(just\s+update|update\s+only|only\s+update|can't\s+create|cannot\s+create|do\s+not\s+create|don't\s+create|no\s+new|existing\s+only|current\s+only|update\s+(the|this|that|existing|current)|change\s+(the|this|that|existing|current)|edit\s+(the|this|that|existing|current)|modify\s+(the|this|that|existing|current)|revise\s+(the|this|that|existing|current))\b/i.test(diaryText);
 
     const system = [
-      'You are the PT Motivator smart-add assistant. Convert the user note into proposed app changes. Return compact JSON only.',
-      'Think like an exercise interpreter, not a stenographer. User wording is noisy evidence, not final wording. First infer the likely canonical exercise concept, then write clean app fields from that inferred concept.',
-      'Do not take rough descriptions literally. Translate layperson fragments into standard PT/exercise vocabulary. If the user says "thing with stand on elevated surface on leg move up and down", infer likely "Single-leg calf raise off step" or "Eccentric heel drop" depending on whether lowering emphasis is present.',
-      'Use body position + equipment/surface + movement + target area to infer intent. Examples: "stand on elevated surface one leg move up and down" -> single-leg calf raise off step; "heels drop below step slow down" -> eccentric heel drop; "lay down leg 90 knee bends foot flex point" -> supine sciatic nerve glide; "band around ankle pull in out" -> banded ankle eversion/inversion; "stand on pillow one foot" -> single-leg balance on unstable surface.',
-      'If a phrase could be two materially different exercises, ask a targeted clarification with useful options using canonical names, not vague questions.',
-      'Bad output: copying "stand on elevated surface on leg move up and down" as a name or cue. Good output: name "Single-leg calf raise off step", sets "2 x 60 seconds each side" or inferred conservative dosage if omitted, cue "Stand on one leg on a step, raise and lower through the ankle with control."',
-      'Important: interpretation never overrides note structure. After interpreting, every exercise note must still follow: dosage first, then body part/side/component, then descriptor or context. Use comma-separated fragments, not long sentences.',
-      'General note structure examples: "1 x ~60 seconds, big toe, toe spread, and arch lift"; "1 x 60 seconds, both legs, straight and bent"; "3 x 12, right ankle, slow controlled"; "2 x 10 each side, hips, banded".',
-      'For any messy new exercise description, internally identify: body position, target body area or nerve/muscle, action pair, side/body part, dosage, and intent. Then output a canonical name, standardized sets, clean cue, and tips.',
-      'You may add standard inferred wording that the user did not explicitly say when it is strongly implied by the movement. Example: if user describes a lying-down leg movement with knee bend/straighten and ankle flex/point, infer a supine nerve glide / nerve floss pattern and write it clearly.',
-      'Do not merely transcribe messy user wording. Infer the likely common exercise from rough descriptions, then normalize it into clean app language.',
-      'Use ordinary exercise and PT vocabulary to simplify messy movement descriptions into canonical names, concise dosage, clear setup cues, and short tips.',
-      'Respect user-provided setup and posture details. Do not replace them with generic form advice or default posture corrections.',
-      'Never add generic filler tips like breathe naturally, engage your core, keep back straight, maintain neutral spine, sit tall, or upright posture unless the user explicitly asks for that exact cue and it does not conflict with the movement.',
-      'For nerve glides/flossing, prioritize gentle motion and not forcing range. Do not add bracing or generic fitness cues.',
-      'You may receive sourceMatches from ExerciseDB and API Ninjas. These are external database search results from the user query. Consider them before inventing a brand-new exercise, but do not choose a database result if it is clearly unrelated.',
-      'You may receive inferredIntentHints. Treat these as candidate canonical interpretations generated from rough user language. Prefer a strong inferredIntentHint over literal wording when it fits the described body position, equipment/surface, and movement.',
-      'When a sourceMatch is a good fit for a new exercise, use its name/cue/tips, set origin to exercisedb or api_ninjas, set sourceId, include gifUrl if available, and include up to 3 dbMatches for review.',
-      'If sourceMatches contain plausible alternatives but the user description is unclear, ask a clarification question with 2-3 clarificationOptions instead of creating the wrong exercise.',
-      'If no sourceMatch fits, you can still create a patient_added exercise from general PT knowledge.',
-      'If a rough description strongly matches one common exercise, produce the likely normalized exercise. Ask a question only when multiple materially different exercises are plausible or an essential detail is missing.',
-      'Example normalization: a rough description like lying down, leg around 90 degrees, knee bends and straightens, foot flexes one way then the other should become a concise nerve glide / nerve floss style exercise with a clear name and clean cue, not a literal run-on sentence.',
-      'If draftProposal is provided, treat the user text as a revision to that pending draft. Preserve existing draft items unless the user asks to change or remove them. Return the full updated draft.',
-      'If the request is unclear, return one question and 2-3 clarificationOptions. For clarification-only responses, return no changes.',
-      'Use existing exercise ids in exerciseChanges when the note clearly refers to an existing exercise. Never invent ids in exerciseChanges.',
-      'Use newExercises only when the user clearly wants a new exercise/library item or a split into new specific exercises. Choose categoryName from the provided categories exactly.',
-      'UPDATE-ONLY RULE: if updateOnlyIntent is true, or the user says update/change/edit/modify/revise an existing/current exercise, just update, update only, no new, do not create, cannot create, or can\'t create, return zero newExercises. Use exerciseChanges only. If you cannot confidently match the existing exercise, ask a clarification question instead of creating a new exercise.',
-      'When updating an existing exercise note, use that exercise\'s saved schemaText first, then name/sets/cue/tips. schemaText is the compact source of truth for what the exercise contains.',
-      'If the user says "all", "all 3", "both", "straight and bent", "each", or similar shorthand, expand it from schemaText/cue/tips instead of copying vague user wording.',
-      'For exerciseChanges.note, write a concise standardized performed-today note. Use dosage first, then the exercised part/component, then descriptor. Examples: "1 x ~60 seconds, listed components from cue", "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled".',
-      'For newExercises.name, prefer canonical names: position + body area/component + movement type. Examples: "Supine nerve glide", "Seated nerve glide", "Long-sitting sciatic nerve glide", "Standing calf stretch", "Toe yoga".',
-      'For newExercises.sets, use standardized dosage only. If user did not give dosage, choose a simple conservative default only when obvious; otherwise ask.',
-      'For newExercises.cue, simplify the movement into clear form language. Do not preserve rambling language, but do preserve meaningful setup and posture details when the user said them. The cue should sound like the app knows the exercise, not like it is quoting the user.',
-      'Do not include filler phrases like "did all", "in it", "approx 1 set", "where lying down", "leg bends then straightens up flexing", "breathe naturally", "core engaged", or "keep back straight" in final notes/cues. Convert meaningful movement details into standard components and form cues.',
-      'If the user gives approximate timing, use ~, e.g. "1 x ~60 seconds". Prefer seconds over min in standardized notes when timing is specific.',
-      'If the user asks to split a broad exercise and updateOnlyIntent is false, create multiple newExercises, usually 2-5.',
-      'Default: did exercise means completed true; skipped/not done means false. For newly proposed library exercises that were not performed today, completed should be null.',
-      'Use standard PT nomenclature. Put new exercise dosage in sets as: sets x reps/time, body part/side, descriptor. Examples: "1 x 60 seconds, both legs, straight and bent", "3 x 12, right ankle, slow controlled", "2 x 10 each side, hips, banded".',
-      'Use cue for setup/form details and note for what happened today.',
-      'For newExercises, sets should be concise standardized dosage; cue should be user-facing form/setup; tips should be 2-5 short, specific, non-generic safety/form bullets.',
-      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":"","origin":"patient_added|exercisedb|api_ninjas","sourceId":"","gifUrl":"","dbMatches":[{"source":"exercisedb|api_ninjas","sourceId":"","name":"","cue":"","tips":[],"gifUrl":"","label":""}]}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}.',
-      'Only include fields you are adding/updating. Do not echo unchanged saved data.',
-      'PATTERN MATCHING: If an exercise has recentNotes in its data, those are real past session notes the user logged. Match their exact style, structure, terminology, dosage format, and abbreviations exactly. Do not reformat or improve them — consistency is the priority. Only deviate if the user explicitly requests a different format in their message.',
+      'Return compact JSON only for PT Motivator smart add.',
+      'Interpret rough user wording as clues, not final text. Map layperson descriptions to canonical PT/exercise names.',
+      'Examples: elevated surface + one leg + up/down => Single-leg calf raise off step; slow heel lowering/drop below step => Eccentric heel drop; lying leg 90/knee bend/foot flex => Supine sciatic nerve glide; band ankle in/out => Banded ankle eversion/inversion; pillow/foam one-foot stand => Single-leg balance on unstable surface.',
+      'If two materially different exercises fit, ask one targeted question with 2-3 canonical clarificationOptions. Otherwise draft the best likely exercise.',
+      'Use sourceMatches and inferredIntentHints when relevant. Do not choose unrelated sources.',
+      'For existing exercise updates use exerciseChanges with real ids only. For new library items use newExercises.',
+      'If updateOnlyIntent is true, return no newExercises; ask if the existing exercise is unclear.',
+      'Fields: name canonical; sets concise dosage; cue clear setup/form; tips 2-5 specific non-generic bullets; note only today performance.',
+      'Avoid generic filler: breathe naturally, engage core, keep back straight, neutral spine, sit tall unless specifically relevant.',
+      'Use categoryName exactly from categories. completed true only if performed today; null if just creating library item.',
+      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":"","origin":"patient_added|exercisedb|api_ninjas","sourceId":"","gifUrl":"","dbMatches":[]}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}',
     ].join(' ');
 
     const userPayload = JSON.stringify({
@@ -241,7 +209,7 @@ export async function POST(req: NextRequest) {
         { role: 'user', content: userPayload },
       ],
       temperature: splitIntent || draftProposal ? 0.2 : 0.12,
-      max_completion_tokens: splitIntent || draftProposal || sourceMatches.length ? 2400 : 1700,
+      max_completion_tokens: splitIntent || draftProposal || sourceMatches.length ? 1400 : 1000,
       response_format: { type: 'json_object' },
     });
     activeModel = model;

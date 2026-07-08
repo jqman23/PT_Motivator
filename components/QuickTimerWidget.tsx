@@ -89,17 +89,6 @@ function buildSequence(setCount: number, holdSeconds: 30 | 60): TimerStep[] {
   return steps;
 }
 
-function makeWorkoutExercise(name = 'Exercise'): CustomWorkoutExercise {
-  return {
-    id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    name,
-    sets: 2,
-    unit: 'seconds',
-    amount: 60,
-    sides: 'each',
-  };
-}
-
 function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string }): CustomWorkoutExercise {
   const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
     .toLowerCase()
@@ -144,6 +133,15 @@ function makeDefaultWorkout(): CustomWorkout {
     name: 'Custom workout',
     breakSeconds: BREAK_SECONDS,
     exercises: [],
+  };
+}
+
+function sanitizeWorkout(workout: CustomWorkout): CustomWorkout {
+  return {
+    ...workout,
+    name: workout.name?.trim() || 'Custom workout',
+    breakSeconds: Number.isFinite(Number(workout.breakSeconds)) ? Number(workout.breakSeconds) : BREAK_SECONDS,
+    exercises: (workout.exercises ?? []).filter(exercise => !!exercise.exerciseId),
   };
 }
 
@@ -290,7 +288,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [selectedWorkoutId, setSelectedWorkoutId] = useState('');
   const [workoutDraft, setWorkoutDraft] = useState<CustomWorkout>(() => makeDefaultWorkout());
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
-  const [exerciseToAddId, setExerciseToAddId] = useState('');
 
   const [logExerciseId, setLogExerciseId] = useState('');
   const [logNoteText, setLogNoteText] = useState('');
@@ -737,11 +734,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     try {
       const raw = localStorage.getItem(CUSTOM_WORKOUTS_STORAGE_KEY);
       const stored = raw ? JSON.parse(raw) as CustomWorkout[] : [];
-      const usable = Array.isArray(stored) && stored.length > 0 ? stored : [makeDefaultWorkout()];
+      const usable = (Array.isArray(stored) && stored.length > 0 ? stored : [makeDefaultWorkout()]).map(sanitizeWorkout);
       setCustomWorkouts(usable);
       setSelectedWorkoutId(usable[0]?.id ?? '');
       setWorkoutDraft(usable[0] ?? makeDefaultWorkout());
-      if (!raw) localStorage.setItem(CUSTOM_WORKOUTS_STORAGE_KEY, JSON.stringify(usable));
+      localStorage.setItem(CUSTOM_WORKOUTS_STORAGE_KEY, JSON.stringify(usable));
     } catch {
       const fallback = makeDefaultWorkout();
       setCustomWorkouts([fallback]);
@@ -871,25 +868,15 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     });
   };
 
-  const addSavedExerciseToWorkout = (exerciseId = exerciseToAddId) => {
+  const addSavedExerciseToWorkout = (exerciseId: string) => {
     const exercise = exercises?.find(item => item.id === exerciseId);
     if (!exercise) return;
     if (workoutDraft.exercises.some(item => item.exerciseId === exerciseId)) {
       setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.exerciseId !== exerciseId) }));
-      setExerciseToAddId('');
       return;
     }
     const parsed = parseExercisePrescription(exercise);
     setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, parsed] }));
-    setExerciseToAddId('');
-  };
-
-  const smartAddAllSavedExercises = () => {
-    if (!exercises?.length) return;
-    setWorkoutDraft(prev => ({
-      ...prev,
-      exercises: exercises.map(exercise => parseExercisePrescription(exercise)),
-    }));
   };
 
   const saveWorkoutDraft = () => {
@@ -899,7 +886,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       name: workoutDraft.name.trim() || 'Custom workout',
       breakSeconds: Math.max(0, Math.round(Number(workoutDraft.breakSeconds) || 0)),
       exercises: workoutDraft.exercises
-        .filter(ex => ex.name.trim())
+        .filter(ex => ex.exerciseId && ex.name.trim())
         .map(ex => ({
           ...ex,
           name: ex.name.trim(),
@@ -907,7 +894,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           amount: Math.max(1, Math.round(Number(ex.amount) || 1)),
         })),
     };
-    if (cleaned.exercises.length === 0) cleaned.exercises = [makeWorkoutExercise()];
     const exists = customWorkouts.some(workout => workout.id === cleaned.id);
     const next = exists ? customWorkouts.map(workout => workout.id === cleaned.id ? cleaned : workout) : [...customWorkouts, cleaned];
     persistWorkouts(next, cleaned.id);
@@ -937,6 +923,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const startCustomWorkout = async () => {
     const workout = customWorkouts.find(item => item.id === selectedWorkoutId) ?? workoutDraft;
+    if (!workout.exercises.some(exercise => exercise.exerciseId)) return;
     const option = buildCustomSequence(workout);
     if (option.steps.length === 0) return;
     await startSequencePreset(option);

@@ -210,6 +210,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const [currentHealth, setCurrentHealth] = useState<SmartHealthChanges | null>(null);
   const [manualExerciseId, setManualExerciseId] = useState('');
   const [manualNote, setManualNote] = useState('');
+  const [importText, setImportText] = useState('');
 
   const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
 
@@ -292,6 +293,59 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     };
   };
 
+  const proposalFromImport = (raw: unknown): RawProposal => {
+    const parsed = raw as Record<string, unknown>;
+    const rawExercises = Array.isArray(raw)
+      ? raw
+      : Array.isArray(parsed.exercises)
+        ? parsed.exercises
+        : Array.isArray(parsed.newExercises)
+          ? parsed.newExercises
+          : parsed.name
+            ? [parsed]
+            : [];
+    return {
+      summary: Array.isArray(parsed.summary) ? parsed.summary as string[] : ['Imported from external ChatGPT output'],
+      exerciseChanges: Array.isArray(parsed.exerciseChanges) ? parsed.exerciseChanges as SmartExerciseChange[] : [],
+      newExercises: rawExercises.map(item => {
+        const ex = item as Record<string, unknown>;
+        return {
+          name: String(ex.name ?? ex.exerciseName ?? '').trim(),
+          categoryName: String(ex.categoryName ?? ex.category ?? categoryNames[0] ?? '').trim(),
+          sets: String(ex.sets ?? ex.dosage ?? ex.prescription ?? '').trim(),
+          cue: String(ex.cue ?? ex.instructions ?? ex.setup ?? '').trim(),
+          tips: Array.isArray(ex.tips) ? ex.tips.map(tip => String(tip).trim()).filter(Boolean) : [],
+          note: String(ex.note ?? '').trim(),
+          completed: typeof ex.completed === 'boolean' ? ex.completed : null,
+          reason: String(ex.reason ?? 'Imported from ChatGPT').trim(),
+          origin: 'patient_added' as const,
+        };
+      }).filter(item => item.name),
+      healthChanges: parsed.healthChanges && typeof parsed.healthChanges === 'object' ? parsed.healthChanges as SmartHealthChanges : {},
+      questions: Array.isArray(parsed.questions) ? parsed.questions as string[] : [],
+      clarificationOptions: [],
+    };
+  };
+
+  const importExternalDraft = () => {
+    setError('');
+    const text = importText.trim();
+    if (!text) return;
+    try {
+      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      const body = jsonMatch ? jsonMatch[1] : text;
+      const parsed = JSON.parse(body);
+      const draft = compactProposal(proposalFromImport(parsed), currentHealth);
+      if (!draft.newExercises.length && !draft.exerciseChanges.length && !Object.keys(draft.healthChanges || {}).length) {
+        throw new Error('No exercises or changes found in pasted JSON.');
+      }
+      setProposal(draft);
+      setImportText('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not parse pasted JSON');
+    }
+  };
+
   const analyze = async (overrideText?: string, overrideDraft?: DraftProposal | null) => {
     const textToAnalyze = (overrideText ?? input).trim();
     if (!textToAnalyze) return;
@@ -302,11 +356,20 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         loadHealth(),
         searchExternalSources(textToAnalyze),
       ]);
+      const compactExercises = visibleExercises.slice(0, 45).map(ex => ({
+        id: ex.id,
+        name: ex.name,
+        category: ex.category,
+        sets: ex.sets,
+        cue: ex.cue,
+        done: ex.done,
+        note: ex.note,
+      }));
       const draftForRevision = overrideDraft ?? proposal;
       const res = await fetch('/api/ai-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToAnalyze, exercises: visibleExercises, health: health ?? {}, draftProposal: draftForRevision, sourceMatches, date }),
+        body: JSON.stringify({ text: textToAnalyze, exercises: compactExercises, health: health ?? {}, draftProposal: draftForRevision, sourceMatches: sourceMatches.slice(0, 5), date }),
       });
       const data = await readResponseJson(res);
       if (!res.ok) throw new Error(formatApiError(data, res));
@@ -454,6 +517,11 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
               {loading ? 'Searching + reading…' : proposal ? 'Review draft update' : 'Review changes'}
             </button>
+            <div className="mt-3 rounded-xl border border-[#E4ECE6] bg-[#F8FBF8] p-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86] mb-1">Paste ChatGPT JSON</p>
+              <textarea value={importText} onChange={e => setImportText(e.target.value)} placeholder='Paste JSON from ChatGPT here, e.g. {"name":"Single-leg calf raise off step","categoryName":"Strength day","sets":"3 x 10 each leg","cue":"Stand on one leg on a step...","tips":["Move slowly"]}' rows={3} className="w-full resize-none rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); importExternalDraft(); }} disabled={!importText.trim()} className="mt-1.5 w-full rounded-lg py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Load pasted draft</button>
+            </div>
             <div className="mt-3 grid gap-2 rounded-xl border border-stone-100 bg-stone-50 p-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Skip AI when you already know what to add</p>
               <div className="flex gap-1.5">
