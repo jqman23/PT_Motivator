@@ -13,6 +13,7 @@ type StepKind = 'stretch' | 'switch' | 'break' | 'reps';
 
 type TimerStep = {
   seconds: number;
+  cueBefore?: string;
   cueAfter: string;
   kind: StepKind;
   label?: string;
@@ -51,6 +52,8 @@ type TimerSnapshot = {
   customSequence: StoredSequenceOption | null;
   mode: 'timer' | 'stopwatch' | undefined;
 };
+
+type PushSubscriptionJson = PushSubscriptionJSON & { endpoint: string };
 
 function startCue(holdSeconds: 30 | 60) {
   return holdSeconds === 60 ? 'One minute starting' : '30 seconds starting';
@@ -129,9 +132,115 @@ function snapshot(timer: StoredTimerState | null): TimerSnapshot {
   };
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
+function cueForStep(step?: TimerStep) {
+  if (!step) return 'Timer update';
+  if (step.cueBefore) return step.cueBefore;
+  if (step.label) return `Start ${step.label}`;
+  return normalizeCue(step.cueAfter || 'Timer update');
+}
+
+function scheduledEventsFor(timer: StoredTimerState, endpoint: string) {
+  const now = Date.now();
+  const events: Array<{ id: string; endpoint: string; at: number; body: string }> = [];
+  if (timer.mode !== 'timer' || !timer.running || !timer.endAt || timer.bellOn === false) return events;
+
+  if (!timer.sequenceActive) {
+    events.push({ id: `simple-${timer.endAt}`, endpoint, at: timer.endAt, body: 'Timer done' });
+    return events;
+  }
+
+  const sequenceKey = timer.sequenceKey ?? 'one60';
+  const steps = timer.customSequence?.steps ?? SEQUENCE_STEPS[sequenceKey as keyof typeof SEQUENCE_STEPS] ?? SEQUENCE_STEPS.one60;
+  let at = timer.endAt;
+  let index = timer.sequenceIndex ?? 0;
+
+  while (events.length < 40) {
+    const current = steps[index];
+    const nextIndex = index + 1;
+    const next = steps[nextIndex];
+    if (!current || !next) {
+      events.push({ id: `done-${sequenceKey}-${at}`, endpoint, at, body: normalizeCue(current?.cueAfter || 'Timer done') });
+      break;
+    }
+
+    events.push({ id: `step-${sequenceKey}-${nextIndex}-${at}`, endpoint, at, body: cueForStep(next) });
+    if (next.manual) break;
+    at += Math.max(1, next.seconds) * 1000;
+    index = nextIndex;
+    if (at < now - 5000) continue;
+  }
+
+  return events.filter(event => event.at > now - 5000);
+}
+
 export default function TimerBackgroundNotifications() {
   const notifiedKeysRef = useRef<Set<string>>(new Set());
   const lastSnapshotRef = useRef<TimerSnapshot | null>(null);
+  const pushEndpointRef = useRef<string | null>(null);
+  const lastScheduledKeyRef = useRef('');
+
+  const ensurePushSubscription = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return null;
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return null;
+    }
+    if (Notification.permission !== 'granted') return null;
+
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) {
+      pushEndpointRef.current = existing.endpoint;
+      return existing;
+    }
+
+    const keyRes = await fetch('/api/push/public-key');
+    const { publicKey } = await keyRes.json();
+    if (!publicKey) return null;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+    pushEndpointRef.current = subscription.endpoint;
+    return subscription;
+  };
+
+  const schedulePushNotifications = async () => {
+    const timer = readStoredTimer();
+    if (!timer?.running || timer.mode !== 'timer') return;
+    const subscription = await ensurePushSubscription();
+    const json = subscription?.toJSON() as PushSubscriptionJson | undefined;
+    const endpoint = subscription?.endpoint ?? json?.endpoint ?? pushEndpointRef.current;
+    if (!endpoint) return;
+    if (json?.endpoint) {
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(json),
+      });
+    }
+    const events = scheduledEventsFor(timer, endpoint);
+    const scheduleKey = JSON.stringify(events.map(event => [event.id, event.at, event.body]));
+    if (scheduleKey === lastScheduledKeyRef.current) return;
+    lastScheduledKeyRef.current = scheduleKey;
+    await fetch('/api/timer-push/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, events }),
+    });
+  };
 
   useEffect(() => {
     notifiedKeysRef.current = loadNotifiedKeys();
@@ -141,7 +250,7 @@ export default function TimerBackgroundNotifications() {
       if (Notification.permission !== 'default') return;
       if (localStorage.getItem(PERMISSION_STORAGE_KEY) === 'true') return;
       localStorage.setItem(PERMISSION_STORAGE_KEY, 'true');
-      void Notification.requestPermission();
+      void ensurePushSubscription();
     };
 
     const handleClick = (event: MouseEvent) => {
@@ -159,7 +268,10 @@ export default function TimerBackgroundNotifications() {
         || label === 'Next'
         || /^\d+s$/.test(label)
         || label.includes('set');
-      if (isTimerButton) askPermissionFromTimerGesture();
+      if (isTimerButton) {
+        askPermissionFromTimerGesture();
+        window.setTimeout(() => { void schedulePushNotifications(); }, 300);
+      }
     };
 
     document.addEventListener('click', handleClick, true);
@@ -190,6 +302,7 @@ export default function TimerBackgroundNotifications() {
       if (!document.hidden) return;
       if (timer?.bellOn === false) return;
       if (current.mode !== 'timer') return;
+      if (current.running) void schedulePushNotifications();
 
       if (previous && !previous.running && current.running) {
         notifyOnce(`started-${current.endAt ?? Date.now()}`, 'Timer started');
@@ -216,8 +329,8 @@ export default function TimerBackgroundNotifications() {
       const steps = current.customSequence?.steps ?? SEQUENCE_STEPS[sequenceKey as keyof typeof SEQUENCE_STEPS] ?? SEQUENCE_STEPS.one60;
       const currentStep = current.sequenceIndex < 0 ? steps[0] : steps[current.sequenceIndex];
       const cue = current.sequenceIndex < 0
-        ? currentStep?.label ? `Start ${currentStep.label.split(' set ')[0]}` : 'Start'
-        : (currentStep?.cueAfter ?? currentStep?.label ?? current.cue ?? 'Timer update');
+        ? currentStep?.cueBefore ?? (currentStep?.label ? `Start ${currentStep.label.split(' set ')[0]}` : 'Start')
+        : (currentStep?.cueBefore ?? currentStep?.cueAfter ?? currentStep?.label ?? current.cue ?? 'Timer update');
       notifyOnce(`sequence-${sequenceKey}-${current.sequenceIndex}-${current.endAt}-${cue}`, normalizeCue(cue));
     };
 

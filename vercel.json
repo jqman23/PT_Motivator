@@ -6,5 +6,11 @@
   "installCommand": "npm install",
   "git": {
     "deploymentEnabled": true
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/timer-push/send",
+      "schedule": "* * * * *"
+    }
+  ]
 }
