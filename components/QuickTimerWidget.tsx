@@ -521,9 +521,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     playCue(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message }, true);
     if (completedWorkout && onSaveNote) {
-      notesForCompletedSteps(completedWorkout.name, completedWorkStepsRef.current).forEach(({ exerciseId, note }) => {
-        void onSaveNote(exerciseId, note);
-      });
+      void Promise.all(notesForCompletedSteps(completedWorkout.name, completedWorkStepsRef.current).map(async ({ exerciseId, note }) => {
+        const standardized = await standardizeWorkoutNote(exerciseId, note);
+        await onSaveNote(exerciseId, standardized);
+      }));
       setLogSaved(true);
     }
   };
@@ -766,6 +767,29 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     if (!logExerciseId || !logNoteText || !onSaveNote) return;
     await onSaveNote(logExerciseId, logNoteText);
     setLogSaved(true);
+  };
+
+  const standardizeWorkoutNote = async (exerciseId: string, rawNote: string) => {
+    const exercise = exercises?.find(item => item.id === exerciseId);
+    try {
+      const res = await fetch('/api/standardize-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawNote,
+          exerciseName: exercise?.name ?? '',
+          exerciseSets: exercise?.sets ?? '',
+          exerciseCue: exercise?.cue ?? '',
+          exerciseTips: exercise?.tips ?? [],
+        }),
+      });
+      const data = await res.json().catch(() => ({})) as { standardizedNote?: string };
+      return typeof data.standardizedNote === 'string' && data.standardizedNote.trim()
+        ? data.standardizedNote.trim()
+        : rawNote;
+    } catch {
+      return rawNote;
+    }
   };
 
   const restoreStoredTimer = () => {
