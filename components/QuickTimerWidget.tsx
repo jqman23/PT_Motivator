@@ -390,7 +390,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     }
   }, [done]);
 
-  const persistTimer = (patch: Partial<StoredTimerState> = {}) => {
+  const persistTimer = (patch: Partial<StoredTimerState> = {}, forceNotificationSync = false) => {
     if (typeof window === 'undefined') return;
     const state: StoredTimerState = {
       mode,
@@ -409,7 +409,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       ...patch,
     };
     localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state));
-    window.dispatchEvent(new CustomEvent('pt-timer-state-updated'));
+    window.dispatchEvent(new CustomEvent('pt-timer-state-updated', { detail: { force: forceNotificationSync } }));
   };
 
   const unlockAudio = async () => {
@@ -501,7 +501,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setSequenceActive(false);
     sequenceActiveRef.current = false;
     playCue(message);
-    persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
+    persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message }, true);
     if (completedWorkout && onSaveNote) {
       notesForCompletedSteps(completedWorkout.name, completedWorkStepsRef.current).forEach(({ exerciseId, note }) => {
         void onSaveNote(exerciseId, note);
@@ -616,7 +616,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     completedWorkStepsRef.current = [];
     setRemaining(nextDuration);
-    persistTimer({ running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, remaining: nextDuration, duration: nextDuration, cue: '' });
+    persistTimer({ running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, remaining: nextDuration, duration: nextDuration, cue: '' }, true);
   };
 
   const resetStopwatch = () => {
@@ -631,7 +631,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     completedWorkStepsRef.current = [];
     setElapsed(0);
-    persistTimer({ mode: 'stopwatch', running: false, done: false, elapsed: 0, sequenceActive: false, endAt: null, cue: '' });
+    persistTimer({ mode: 'stopwatch', running: false, done: false, elapsed: 0, sequenceActive: false, endAt: null, cue: '' }, true);
   };
 
   const startCountdown = async () => {
@@ -655,7 +655,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setDone(false);
     lastCountdownSecondRef.current = null;
     if (sequenceActive && sequenceIndexRef.current < 0) playCue('Start in 10');
-    persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceKey: sequenceKeyRef.current, endAt });
+    persistTimer({ mode: 'timer', running: true, done: false, remaining: startSeconds, duration, sequenceActive, sequenceIndex: sequenceIndexRef.current, sequenceKey: sequenceKeyRef.current, endAt }, true);
   };
 
   const startStopwatch = async () => {
@@ -670,7 +670,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     runningRef.current = true;
     setRunning(true);
-    persistTimer({ mode: 'stopwatch', running: true, done: false, sequenceActive: false, endAt: null });
+    persistTimer({ mode: 'stopwatch', running: true, done: false, sequenceActive: false, endAt: null }, true);
   };
 
   const startSequencePreset = async (option: SequenceOption) => {
@@ -695,10 +695,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setRemaining(LEAD_IN_SECONDS);
     setCue(`${option.label} ready`);
     setWorkoutModeOpen(true);
-    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} ready` });
+    persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} ready` }, true);
   };
 
-  const advanceManualStep = () => {
+  const advanceManualStep = (resumeTimedStep = true) => {
     if (!sequenceActiveRef.current) return;
     const steps = activeSequenceRef.current;
     const current = steps[sequenceIndexRef.current];
@@ -718,18 +718,18 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       setRemaining(0);
       const nextCue = next.cueBefore ?? next.label ?? 'Do reps';
       playCue(nextCue);
-      persistTimer({ running: false, done: false, duration: 0, remaining: 0, sequenceIndex: nextIndex, endAt: null, cue: nextCue });
+      persistTimer({ running: false, done: false, duration: 0, remaining: 0, sequenceIndex: nextIndex, endAt: null, cue: nextCue }, true);
       return;
     }
     const endAt = Date.now() + next.seconds * 1000;
-    endAtRef.current = endAt;
+    endAtRef.current = resumeTimedStep ? endAt : null;
     setDuration(next.seconds);
     setRemaining(next.seconds);
-    runningRef.current = true;
-    setRunning(true);
+    runningRef.current = resumeTimedStep;
+    setRunning(resumeTimedStep);
     const nextCue = next.cueBefore || current?.cueAfter || next.label || 'Start';
     playCue(nextCue);
-    persistTimer({ running: true, done: false, duration: next.seconds, remaining: next.seconds, sequenceIndex: nextIndex, endAt, cue: nextCue });
+    persistTimer({ running: resumeTimedStep, done: false, duration: next.seconds, remaining: next.seconds, sequenceIndex: nextIndex, endAt: resumeTimedStep ? endAt : null, cue: nextCue }, true);
   };
 
   const skipSegment = () => {
@@ -737,7 +737,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     const wasRunning = runningRef.current;
     stopTimer();
     endAtRef.current = null;
-    advanceManualStep();
+    advanceManualStep(wasRunning);
     if (!wasRunning) return;
   };
 
@@ -871,7 +871,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setDone(false);
     setRemaining(seconds);
     setCue('');
-    persistTimer({ mode: 'timer', duration: seconds, remaining: seconds, running: false, done: false, sequenceActive: false, sequenceKey: null, endAt: null, cue: '' });
+    persistTimer({ mode: 'timer', duration: seconds, remaining: seconds, running: false, done: false, sequenceActive: false, sequenceKey: null, endAt: null, cue: '' }, true);
   };
 
   const applyCustomMinutes = async () => {
@@ -896,7 +896,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     setMode(next);
     modeRef.current = next;
-    persistTimer({ mode: next, running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, cue: '' });
+    persistTimer({ mode: next, running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, cue: '' }, true);
   };
 
   const pauseTimer = () => {
@@ -904,7 +904,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     stopTimer();
     endAtRef.current = null;
     setRemaining(pausedRemaining);
-    persistTimer({ running: false, endAt: null, remaining: pausedRemaining });
+    persistTimer({ running: false, endAt: null, remaining: pausedRemaining }, true);
   };
 
   const persistWorkouts = async (next: CustomWorkout[], selectedId = selectedWorkoutId) => {

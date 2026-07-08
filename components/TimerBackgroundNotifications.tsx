@@ -380,8 +380,10 @@ export default function TimerBackgroundNotifications() {
         window.setTimeout(() => { void schedulePushNotifications(); }, 300);
       }
     };
-    const handleTimerStateUpdated = () => {
-      window.setTimeout(() => { void schedulePushNotifications(); }, 0);
+    const handleTimerStateUpdated = (event: Event) => {
+      const force = !!(event as CustomEvent<{ force?: boolean }>).detail?.force;
+      if (force) lastScheduledKeyRef.current = '';
+      window.setTimeout(() => { void schedulePushNotifications(force); }, 0);
     };
     const handleVisibilityChange = () => {
       if (document.hidden) {
