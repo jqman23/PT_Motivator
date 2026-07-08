@@ -31,10 +31,12 @@ type SequenceOption = {
   group?: '60 sec holds' | '30 sec holds';
   holdSeconds?: 30 | 60;
   steps: TimerStep[];
+  workout?: CustomWorkout;
 };
 
 type CustomWorkoutExercise = {
   id: string;
+  exerciseId?: string;
   name: string;
   sets: number;
   unit: WorkoutUnit;
@@ -96,21 +98,70 @@ function makeWorkoutExercise(name = 'Exercise'): CustomWorkoutExercise {
   };
 }
 
+function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string }): CustomWorkoutExercise {
+  const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ');
+  const setsMatch = text.match(/(\d+)\s*(?:-\s*\d+)?\s*(?:x|×|sets?\b)/)
+    ?? text.match(/(?:x|×)\s*(\d+)/)
+    ?? text.match(/\b(\d+)\s*rounds?\b/);
+  const compactMatch = text.match(/\b(\d+)\s*(?:x|×)\s*(\d+)\b/);
+  const minutesRange = text.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:min|minutes?)/);
+  const minutesSingle = text.match(/(\d+(?:\.\d+)?)\s*(?:min|minutes?)/);
+  const secondsRange = text.match(/(\d+)\s*-\s*(\d+)\s*(?:sec|secs|seconds?)/);
+  const secondsSingle = text.match(/(\d+)\s*(?:sec|secs|seconds?)/);
+  const repsRange = text.match(/(\d+)\s*-\s*(\d+)\s*reps?/);
+  const repsSingle = text.match(/(\d+)\s*reps?/);
+  const hasEachSide = /\beach\b|\bper\b|\bside\b|\bleg\b|\bdirection\b|left.*right|right.*left/.test(text);
+  const hasRepTarget = !!(repsRange || repsSingle || (compactMatch && /\breps?\b/.test(text)));
+  const amount = minutesRange ? Math.round(Number(minutesRange[2]) * 60)
+    : minutesSingle ? Math.round(Number(minutesSingle[1]) * 60)
+      : secondsRange ? Number(secondsRange[2])
+        : secondsSingle ? Number(secondsSingle[1])
+          : repsRange ? Number(repsRange[2])
+            : repsSingle ? Number(repsSingle[1])
+              : compactMatch && hasRepTarget ? Number(compactMatch[2])
+                : 60;
+  return {
+    id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    exerciseId: exercise.id,
+    name: exercise.name,
+    sets: setsMatch ? Math.max(1, Number(setsMatch[1])) : compactMatch ? Math.max(1, Number(compactMatch[1])) : 2,
+    unit: hasRepTarget ? 'reps' : 'seconds',
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 60,
+    sides: hasEachSide ? 'each' : 'both',
+  };
+}
+
 function makeDefaultWorkout(): CustomWorkout {
   return {
     id: `workout-${Date.now()}`,
     name: 'Custom workout',
     breakSeconds: BREAK_SECONDS,
-    exercises: [
-      { ...makeWorkoutExercise('Exercise A'), sets: 2, unit: 'seconds', amount: 60, sides: 'each' },
-      { ...makeWorkoutExercise('Exercise B'), sets: 3, unit: 'seconds', amount: 60, sides: 'both' },
-      { ...makeWorkoutExercise('Exercise C'), sets: 3, unit: 'reps', amount: 15, sides: 'both' },
-    ],
+    exercises: [],
   };
 }
 
 function workoutSummary(workout: CustomWorkout) {
   return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${ex.sides === 'each' ? 'each side' : 'both'}`).join(' · ');
+}
+
+function noteForWorkoutExercise(exercise: CustomWorkoutExercise) {
+  const unit = exercise.unit === 'seconds' ? 'seconds' : 'reps';
+  const side = exercise.sides === 'each' ? 'each side' : 'both';
+  return `${exercise.sets} x ${exercise.amount} ${unit} ${side}`;
+}
+
+function notesForCustomWorkout(workout: CustomWorkout) {
+  const notes = new Map<string, string[]>();
+  workout.exercises.forEach(exercise => {
+    if (!exercise.exerciseId) return;
+    const current = notes.get(exercise.exerciseId) ?? [];
+    current.push(noteForWorkoutExercise(exercise));
+    notes.set(exercise.exerciseId, current);
+  });
+  return Array.from(notes.entries()).map(([exerciseId, lines]) => ({ exerciseId, note: lines.join('\n') }));
 }
 
 function buildCustomSequence(workout: CustomWorkout): SequenceOption {
@@ -136,7 +187,7 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
       steps.push({ seconds: workout.breakSeconds, cueAfter: `Start ${nextName}`, kind: 'break', countdownToStretch: true, label: `Break · ${workout.breakSeconds}s` });
     }
   });
-  return { key: `custom-${workout.id}`, label: workout.name.trim() || 'Custom workout', steps };
+  return { key: `custom-${workout.id}`, label: workout.name.trim() || 'Custom workout', steps, workout };
 }
 
 const SEQUENCE_OPTIONS: SequenceOption[] = [
@@ -161,6 +212,11 @@ function segmentLabel(step?: TimerStep) {
   if (step.kind === 'switch') return 'Switch · 15 sec';
   if (step.kind === 'break') return 'Break · 30 sec';
   return step.seconds === 60 ? 'Stretch · 1 min' : 'Stretch · 30 sec';
+}
+
+function startMessageForStep(step?: TimerStep) {
+  if (!step?.label) return 'Start';
+  return `Start ${step.label.split(' set ')[0]}`;
 }
 
 function formatTime(totalSeconds: number) {
@@ -197,7 +253,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -222,6 +278,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [selectedWorkoutId, setSelectedWorkoutId] = useState('');
   const [workoutDraft, setWorkoutDraft] = useState<CustomWorkout>(() => makeDefaultWorkout());
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
+  const [exerciseToAddId, setExerciseToAddId] = useState('');
 
   const [logExerciseId, setLogExerciseId] = useState('');
   const [logNoteText, setLogNoteText] = useState('');
@@ -387,6 +444,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const finishTimer = (message = 'Done') => {
     stopTimer();
+    const completedWorkout = activeSequenceOptionRef.current.workout;
     endAtRef.current = null;
     setRemaining(0);
     setDone(true);
@@ -394,6 +452,12 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     sequenceActiveRef.current = false;
     playCue(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
+    if (completedWorkout && onSaveNote) {
+      notesForCustomWorkout(completedWorkout).forEach(({ exerciseId, note }) => {
+        void onSaveNote(exerciseId, `${completedWorkout.name}: ${note}`);
+      });
+      setLogSaved(true);
+    }
   };
 
   const resolveSequenceAt = (now: number): SequenceResolution => {
@@ -406,7 +470,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     while (endAt <= now) {
       lastCountdownSecondRef.current = null;
       if (index < 0) {
-        lastCue = 'Start';
+        lastCue = startMessageForStep(steps[0]);
         index = 0;
         if (steps[0]?.manual) return { done: false, manual: true, index, lastCue };
         nextDuration = steps[0]?.seconds ?? duration;
@@ -784,6 +848,22 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     }));
   };
 
+  const addSavedExerciseToWorkout = (exerciseId = exerciseToAddId) => {
+    const exercise = exercises?.find(item => item.id === exerciseId);
+    if (!exercise) return;
+    const parsed = parseExercisePrescription(exercise);
+    setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, parsed] }));
+    setExerciseToAddId('');
+  };
+
+  const smartAddAllSavedExercises = () => {
+    if (!exercises?.length) return;
+    setWorkoutDraft(prev => ({
+      ...prev,
+      exercises: exercises.map(exercise => parseExercisePrescription(exercise)),
+    }));
+  };
+
   const saveWorkoutDraft = () => {
     const cleaned: CustomWorkout = {
       ...workoutDraft,
@@ -839,7 +919,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '30 sec holds') },
   ];
 
-  const showLogSection = done && !sequenceActive && mode === 'timer' && !!onSaveNote && !!(exercises?.length);
+  const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!onSaveNote && !!(exercises?.length);
 
   const panel = open ? (
     <div
@@ -922,9 +1002,22 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 {workoutDraft.exercises.map((exercise, index) => (
                   <div key={exercise.id} className="rounded-xl bg-white border border-stone-100 p-2 space-y-1.5">
                     <div className="flex gap-1.5">
-                      <input value={exercise.name} onChange={event => updateWorkoutExercise(exercise.id, { name: event.target.value })} className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label={`Exercise ${index + 1} name`} />
+                      <select
+                        value={exercise.exerciseId ?? ''}
+                        onChange={event => {
+                          const saved = exercises?.find(item => item.id === event.target.value);
+                          if (saved) updateWorkoutExercise(exercise.id, parseExercisePrescription(saved));
+                        }}
+                        className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-sm font-semibold"
+                        style={{ fontSize: 16, colorScheme: 'light' }}
+                        aria-label={`Exercise ${index + 1}`}
+                      >
+                        <option value="">{exercise.name}</option>
+                        {(exercises ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                      </select>
                       <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.id !== exercise.id) })); }} className="w-8 rounded-lg text-sm font-bold" style={{ background: '#f5f5f4', color: '#a8a29e' }}>×</button>
                     </div>
+                    <p className="text-[10px] leading-snug text-stone-400 truncate">{exercise.name}</p>
                     <div className="grid grid-cols-4 gap-1.5">
                       <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-1.5 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
                       <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-1.5 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
@@ -939,8 +1032,20 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                     </div>
                   </div>
                 ))}
+                {!!exercises?.length && (
+                  <>
+                    <button onClick={event => { event.stopPropagation(); smartAddAllSavedExercises(); }} className="w-full rounded-lg py-2 text-xs font-bold" style={{ background: '#E4ECE6', color: '#476653' }}>Smart add current exercises</button>
+                    <div className="flex gap-1.5">
+                      <select value={exerciseToAddId} onChange={event => setExerciseToAddId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Add saved exercise">
+                        <option value="">Choose saved exercise...</option>
+                        {exercises.map(exercise => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}
+                      </select>
+                      <button onClick={event => { event.stopPropagation(); addSavedExerciseToWorkout(); }} disabled={!exerciseToAddId} className="rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Add</button>
+                    </div>
+                  </>
+                )}
                 <div className="flex gap-1.5">
-                  <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, makeWorkoutExercise(`Exercise ${prev.exercises.length + 1}`)] })); }} className="flex-1 rounded-lg py-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }}>Add exercise</button>
+                  <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, makeWorkoutExercise(`Exercise ${prev.exercises.length + 1}`)] })); }} className="flex-1 rounded-lg py-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }}>Add manual row</button>
                   <button onClick={event => { event.stopPropagation(); newWorkout(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }}>New</button>
                 </div>
                 <div className="flex gap-1.5">

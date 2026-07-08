@@ -8,14 +8,22 @@ const PERMISSION_STORAGE_KEY = 'pt-timer-notifications-permission-asked';
 const SWITCH_SECONDS = 15;
 const BREAK_SECONDS = 30;
 
-type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30';
-type StepKind = 'stretch' | 'switch' | 'break';
+type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30' | `custom-${string}`;
+type StepKind = 'stretch' | 'switch' | 'break' | 'reps';
 
 type TimerStep = {
   seconds: number;
   cueAfter: string;
   kind: StepKind;
+  label?: string;
+  manual?: boolean;
   countdownToStretch?: boolean;
+};
+
+type StoredSequenceOption = {
+  key: SequenceKey;
+  label: string;
+  steps: TimerStep[];
 };
 
 type StoredTimerState = {
@@ -29,6 +37,7 @@ type StoredTimerState = {
   sequenceActive?: boolean;
   sequenceIndex?: number;
   sequenceKey?: SequenceKey | null;
+  customSequence?: StoredSequenceOption | null;
   endAt?: number | null;
 };
 
@@ -39,6 +48,7 @@ type TimerSnapshot = {
   endAt: number | null;
   sequenceKey: SequenceKey | null;
   sequenceIndex: number;
+  customSequence: StoredSequenceOption | null;
   mode: 'timer' | 'stopwatch' | undefined;
 };
 
@@ -114,6 +124,7 @@ function snapshot(timer: StoredTimerState | null): TimerSnapshot {
     endAt: timer?.endAt ?? null,
     sequenceKey: timer?.sequenceKey ?? null,
     sequenceIndex: timer?.sequenceIndex ?? 0,
+    customSequence: timer?.customSequence ?? null,
     mode: timer?.mode,
   };
 }
@@ -144,6 +155,8 @@ export default function TimerBackgroundNotifications() {
         || label === 'Restart'
         || label === 'Pause'
         || label === 'Reset'
+        || label === 'Load'
+        || label === 'Next'
         || /^\d+s$/.test(label)
         || label.includes('set');
       if (isTimerButton) askPermissionFromTimerGesture();
@@ -200,8 +213,11 @@ export default function TimerBackgroundNotifications() {
       }
 
       const sequenceKey = current.sequenceKey ?? 'one60';
-      const steps = SEQUENCE_STEPS[sequenceKey] ?? SEQUENCE_STEPS.one60;
-      const cue = current.sequenceIndex < 0 ? 'Start' : (steps[current.sequenceIndex]?.cueAfter ?? current.cue ?? 'Timer update');
+      const steps = current.customSequence?.steps ?? SEQUENCE_STEPS[sequenceKey as keyof typeof SEQUENCE_STEPS] ?? SEQUENCE_STEPS.one60;
+      const currentStep = current.sequenceIndex < 0 ? steps[0] : steps[current.sequenceIndex];
+      const cue = current.sequenceIndex < 0
+        ? currentStep?.label ? `Start ${currentStep.label.split(' set ')[0]}` : 'Start'
+        : (currentStep?.cueAfter ?? currentStep?.label ?? current.cue ?? 'Timer update');
       notifyOnce(`sequence-${sequenceKey}-${current.sequenceIndex}-${current.endAt}-${cue}`, normalizeCue(cue));
     };
 
