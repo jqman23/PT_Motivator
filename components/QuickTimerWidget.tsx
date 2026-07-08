@@ -8,7 +8,7 @@ const LEAD_IN_SECONDS = 10;
 const SWITCH_SECONDS = 15;
 const BREAK_SECONDS = 30;
 const TIMER_STORAGE_KEY = 'pt-quick-timer-state';
-const CUSTOM_WORKOUTS_STORAGE_KEY = 'pt-custom-workouts';
+const CUSTOM_WORKOUTS_CONFIG_KEY = 'customTimerWorkouts';
 
 type Mode = 'timer' | 'stopwatch';
 type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30' | `custom-${string}`;
@@ -731,20 +731,24 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   useEffect(() => {
     setMounted(true);
-    try {
-      const raw = localStorage.getItem(CUSTOM_WORKOUTS_STORAGE_KEY);
-      const stored = raw ? JSON.parse(raw) as CustomWorkout[] : [];
-      const usable = (Array.isArray(stored) && stored.length > 0 ? stored : [makeDefaultWorkout()]).map(sanitizeWorkout);
-      setCustomWorkouts(usable);
-      setSelectedWorkoutId(usable[0]?.id ?? '');
-      setWorkoutDraft(usable[0] ?? makeDefaultWorkout());
-      localStorage.setItem(CUSTOM_WORKOUTS_STORAGE_KEY, JSON.stringify(usable));
-    } catch {
-      const fallback = makeDefaultWorkout();
-      setCustomWorkouts([fallback]);
-      setSelectedWorkoutId(fallback.id);
-      setWorkoutDraft(fallback);
-    }
+    const loadCustomWorkouts = async () => {
+      try {
+        const res = await fetch(`/api/config?key=${CUSTOM_WORKOUTS_CONFIG_KEY}`, { cache: 'no-store' });
+        const data = await res.json();
+        const dbWorkouts = Array.isArray(data.value) ? data.value as CustomWorkout[] : null;
+        const source = dbWorkouts && dbWorkouts.length > 0 ? dbWorkouts : [makeDefaultWorkout()];
+        const usable = (Array.isArray(source) && source.length > 0 ? source : [makeDefaultWorkout()]).map(sanitizeWorkout);
+        setCustomWorkouts(usable);
+        setSelectedWorkoutId(usable[0]?.id ?? '');
+        setWorkoutDraft(usable[0] ?? makeDefaultWorkout());
+      } catch {
+        const fallback = makeDefaultWorkout();
+        setCustomWorkouts([fallback]);
+        setSelectedWorkoutId(fallback.id);
+        setWorkoutDraft(fallback);
+      }
+    };
+    void loadCustomWorkouts();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
     }
@@ -844,10 +848,16 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     persistTimer({ running: false, endAt: null, remaining: pausedRemaining });
   };
 
-  const persistWorkouts = (next: CustomWorkout[], selectedId = selectedWorkoutId) => {
-    setCustomWorkouts(next);
-    localStorage.setItem(CUSTOM_WORKOUTS_STORAGE_KEY, JSON.stringify(next));
+  const persistWorkouts = async (next: CustomWorkout[], selectedId = selectedWorkoutId) => {
+    const sanitized = next.map(sanitizeWorkout);
+    setCustomWorkouts(sanitized);
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: CUSTOM_WORKOUTS_CONFIG_KEY, value: sanitized }),
+    });
     if (selectedId) setSelectedWorkoutId(selectedId);
+    return sanitized.find(workout => workout.id === selectedId) ?? sanitized[0];
   };
 
   const updateWorkoutExercise = (id: string, patch: Partial<CustomWorkoutExercise>) => {
@@ -879,7 +889,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, parsed] }));
   };
 
-  const saveWorkoutDraft = () => {
+  const saveWorkoutDraft = async () => {
     const cleaned: CustomWorkout = {
       ...workoutDraft,
       id: workoutDraft.id || `workout-${Date.now()}`,
@@ -896,8 +906,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     };
     const exists = customWorkouts.some(workout => workout.id === cleaned.id);
     const next = exists ? customWorkouts.map(workout => workout.id === cleaned.id ? cleaned : workout) : [...customWorkouts, cleaned];
-    persistWorkouts(next, cleaned.id);
+    await persistWorkouts(next, cleaned.id);
     setWorkoutDraft(cleaned);
+    return cleaned;
   };
 
   const selectWorkout = (id: string) => {
@@ -917,7 +928,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const deleteWorkout = (id: string) => {
     const next = customWorkouts.filter(workout => workout.id !== id);
     const fallback = next[0] ?? makeDefaultWorkout();
-    persistWorkouts(next.length ? next : [fallback], fallback.id);
+    void persistWorkouts(next.length ? next : [fallback], fallback.id);
     setWorkoutDraft(fallback);
   };
 
@@ -1174,8 +1185,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         </div>
 
         <div className="p-4 border-t border-stone-200 bg-[#F6F1E7] flex gap-2 flex-shrink-0">
-          <button onClick={event => { event.stopPropagation(); saveWorkoutDraft(); setShowWorkoutBuilder(false); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#7E9B86' }}>Save workout</button>
-          <button onClick={event => { event.stopPropagation(); saveWorkoutDraft(); setShowWorkoutBuilder(false); void startCustomWorkout(); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>Save & load</button>
+          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(() => setShowWorkoutBuilder(false)); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#7E9B86' }}>Save workout</button>
+          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(saved => { setShowWorkoutBuilder(false); if (saved) void startSequencePreset(buildCustomSequence(saved)); }); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>Save & load</button>
         </div>
       </div>
     </div>
