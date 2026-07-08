@@ -294,7 +294,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -303,6 +303,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [workoutModeOpen, setWorkoutModeOpen] = useState(false);
+  const [workoutInfoStep, setWorkoutInfoStep] = useState<TimerStep | null>(null);
   const [mode, setMode] = useState<Mode>('timer');
   const [duration, setDuration] = useState(30);
   const [remaining, setRemaining] = useState(30);
@@ -1068,6 +1069,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const workoutProgressPct = Math.min(100, Math.max(0, ((completedStepCount + (running ? 0.35 : 0)) / totalStepCount) * 100));
   const workoutStatus = done ? 'Complete' : running ? 'In progress' : currentWorkoutStep?.manual ? 'Waiting for reps' : sequenceActive ? 'Ready' : mode === 'stopwatch' ? 'Stopwatch' : 'Timer';
   const canShowWorkoutMode = mode === 'timer' && (sequenceActive || done || activeSequence.workout);
+  const workoutInfoExercise = workoutInfoStep?.exerciseId ? exercises?.find(exercise => exercise.id === workoutInfoStep.exerciseId) : undefined;
+  const openWorkoutInfo = (step?: TimerStep) => {
+    if (!step?.exerciseId && !step?.exerciseName && !step?.label) return;
+    setWorkoutInfoStep(step);
+  };
 
   const panel = open ? (
     <div
@@ -1250,10 +1256,16 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           <section className="grid flex-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="rounded-[2rem] bg-white/[0.08] p-5 shadow-2xl ring-1 ring-white/10 sm:p-7">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => openWorkoutInfo(currentWorkoutStep)}
+                  className="min-w-0 text-left"
+                  disabled={!currentWorkoutStep}
+                >
                   <p className="text-[11px] font-bold uppercase tracking-widest text-[#D9A94B]">Now</p>
                   <h1 className="mt-1 text-4xl font-black leading-none tracking-tight sm:text-6xl">{stepTitle(currentWorkoutStep, done ? 'Workout complete' : sequenceIndex < 0 ? 'Get ready' : 'Timer')}</h1>
-                </div>
+                  {currentWorkoutStep && <p className="mt-2 text-xs font-bold uppercase tracking-widest text-white/35">Tap for details</p>}
+                </button>
                 <button
                   onClick={() => { void unlockAudio(); setBellOn(value => !value); }}
                   className="rounded-2xl px-3 py-2 text-xs font-bold"
@@ -1296,11 +1308,16 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
             </div>
 
             <aside className="flex flex-col gap-4">
-              <div className="rounded-3xl bg-white/[0.08] p-4 ring-1 ring-white/10">
+              <button
+                type="button"
+                onClick={() => openWorkoutInfo(nextWorkoutStep)}
+                disabled={!nextWorkoutStep}
+                className="rounded-3xl bg-white/[0.08] p-4 text-left ring-1 ring-white/10 disabled:cursor-default"
+              >
                 <p className="text-[11px] font-bold uppercase tracking-widest text-white/45">Up next</p>
                 <h3 className="mt-2 text-2xl font-black leading-tight">{stepTitle(nextWorkoutStep, done ? 'Finished' : 'Nothing queued')}</h3>
                 <p className="mt-1 text-sm font-semibold text-white/55">{stepDetail(nextWorkoutStep) || (done ? 'Workout complete' : 'Start a preset or custom workout')}</p>
-              </div>
+              </button>
 
               <div className="rounded-3xl bg-white/[0.08] p-4 ring-1 ring-white/10">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -1309,10 +1326,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 </div>
                 <div className="space-y-2">
                   {upcomingWorkoutSteps.length ? upcomingWorkoutSteps.map((step, index) => (
-                    <div key={`${step.label ?? step.cueAfter}-${index}`} className="rounded-2xl bg-white/[0.07] px-3 py-2">
+                    <button key={`${step.label ?? step.cueAfter}-${index}`} type="button" onClick={() => openWorkoutInfo(step)} className="w-full rounded-2xl bg-white/[0.07] px-3 py-2 text-left">
                       <p className="truncate text-sm font-bold">{stepTitle(step)}</p>
                       <p className="truncate text-xs font-semibold text-white/45">{stepDetail(step)}</p>
-                    </div>
+                    </button>
                   )) : (
                     <p className="rounded-2xl bg-white/[0.07] px-3 py-4 text-center text-sm font-semibold text-white/45">{done ? 'All steps complete.' : 'Load a workout to see the queue.'}</p>
                   )}
@@ -1340,6 +1357,52 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           </section>
         </div>
       </div>
+      {workoutInfoStep && (
+        <div className="fixed inset-0 z-[10003] flex items-end justify-center bg-black/55 px-3 py-3 backdrop-blur-sm sm:items-center" onClick={() => setWorkoutInfoStep(null)}>
+          <div className="w-full max-w-lg rounded-3xl bg-white p-5 text-stone-800 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{workoutInfoExercise?.categoryName ?? workoutInfoStep.kind}</p>
+                <h3 className="mt-1 text-2xl font-black leading-tight text-stone-900">{workoutInfoExercise?.name ?? stepTitle(workoutInfoStep)}</h3>
+                <p className="mt-1 text-sm font-semibold text-stone-500">{stepDetail(workoutInfoStep)}</p>
+              </div>
+              <button onClick={() => setWorkoutInfoStep(null)} className="h-9 w-9 flex-shrink-0 rounded-xl bg-stone-100 text-xl leading-none text-stone-500">×</button>
+            </div>
+
+            <div className="grid gap-3">
+              {(workoutInfoExercise?.sets || workoutInfoStep.workNote) && (
+                <div className="rounded-2xl bg-stone-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Prescription</p>
+                  <p className="mt-1 text-sm font-bold text-stone-800">{workoutInfoStep.workNote ?? workoutInfoExercise?.sets}</p>
+                  {workoutInfoExercise?.sets && workoutInfoStep.workNote && <p className="mt-1 text-xs font-semibold text-stone-400">{workoutInfoExercise.sets}</p>}
+                </div>
+              )}
+
+              {workoutInfoExercise?.cue && (
+                <div className="rounded-2xl bg-[#E4ECE6] p-3 text-[#283F30]">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-65">Cue</p>
+                  <p className="mt-1 text-sm font-bold leading-snug">{workoutInfoExercise.cue}</p>
+                </div>
+              )}
+
+              {!!workoutInfoExercise?.tips?.length && (
+                <div className="rounded-2xl bg-stone-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tips</p>
+                  <ul className="mt-2 space-y-1.5">
+                    {workoutInfoExercise.tips.slice(0, 6).map((tip, index) => (
+                      <li key={`${tip}-${index}`} className="text-sm font-semibold leading-snug text-stone-600">{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {!workoutInfoExercise?.cue && !workoutInfoExercise?.sets && !workoutInfoExercise?.tips?.length && (
+                <p className="rounded-2xl bg-stone-50 p-4 text-sm font-semibold text-stone-500">No extra details saved for this step.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 
