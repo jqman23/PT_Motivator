@@ -14,7 +14,7 @@ type Mode = 'timer' | 'stopwatch';
 type SequenceKey = 'one60' | 'two60' | 'three60' | 'one30' | 'two30' | 'three30' | `custom-${string}`;
 type StepKind = 'stretch' | 'switch' | 'break' | 'reps';
 type WorkoutUnit = 'seconds' | 'reps';
-type WorkoutSides = 'both' | 'each';
+type WorkoutSides = 'both' | 'each' | 'inversion_eversion_both';
 
 type TimerStep = {
   seconds: number;
@@ -109,6 +109,7 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
   const repsRange = text.match(/(\d+)\s*-\s*(\d+)\s*reps?/);
   const repsSingle = text.match(/(\d+)\s*reps?/);
   const hasEachSide = /\beach\b|\bper\b|\bside\b|\bleg\b|\bdirection\b|left.*right|right.*left/.test(text);
+  const hasInversionEversion = /\binversion\b/.test(text) && /\beversion\b/.test(text);
   const hasRepTarget = !!(repsRange || repsSingle || (compactMatch && /\breps?\b/.test(text)));
   const amount = minutesRange ? Math.round(Number(minutesRange[2]) * 60)
     : minutesSingle ? Math.round(Number(minutesSingle[1]) * 60)
@@ -127,7 +128,7 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
     sets: setsMatch ? Math.max(1, Number(setsMatch[1])) : compactMatch ? Math.max(1, Number(compactMatch[1])) : 2,
     unit: hasRepTarget ? 'reps' : 'seconds',
     amount: Number.isFinite(amount) && amount > 0 ? amount : 60,
-    sides: hasEachSide ? 'each' : 'both',
+    sides: hasInversionEversion ? 'inversion_eversion_both' : hasEachSide ? 'each' : 'both',
   };
 }
 
@@ -145,12 +146,21 @@ function sanitizeWorkout(workout: CustomWorkout): CustomWorkout {
     ...workout,
     name: workout.name?.trim() || 'Custom workout',
     breakSeconds: Number.isFinite(Number(workout.breakSeconds)) ? Number(workout.breakSeconds) : BREAK_SECONDS,
-    exercises: (workout.exercises ?? []).filter(exercise => !!exercise.exerciseId),
+    exercises: (workout.exercises ?? []).filter(exercise => !!exercise.exerciseId).map(exercise => ({
+      ...exercise,
+      sides: ['both', 'each', 'inversion_eversion_both'].includes(exercise.sides) ? exercise.sides : 'both',
+    })),
   };
 }
 
+function sidePatternLabel(sides: WorkoutSides) {
+  if (sides === 'each') return 'right then left';
+  if (sides === 'inversion_eversion_both') return 'right inversion, right eversion, left inversion, left eversion';
+  return 'both';
+}
+
 function workoutSummary(workout: CustomWorkout) {
-  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${ex.sides === 'each' ? 'right then left' : 'both'}`).join(' · ');
+  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${sidePatternLabel(ex.sides)}`).join(' · ');
 }
 
 function categoryAccent(color?: string) {
@@ -167,7 +177,15 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
     for (let set = 1; set <= Math.max(1, exercise.sets); set += 1) {
       const prefix = `${exercise.name} set ${set}/${exercise.sets}`;
       if (exercise.unit === 'seconds') {
-        if (exercise.sides === 'each') {
+        if (exercise.sides === 'inversion_eversion_both') {
+          const parts = ['right inversion', 'right eversion', 'left inversion', 'left eversion'];
+          parts.forEach((part, partIndex) => {
+            const isLastPart = partIndex === parts.length - 1;
+            const nextPart = parts[partIndex + 1];
+            steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${part}`, cueAfter: isLastPart ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Switch to ${nextPart}`, kind: 'stretch', label: `${prefix} · ${part} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${part}, ${exercise.amount} seconds` });
+            if (!isLastPart) steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to ${nextPart} for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${nextPart}`, kind: 'switch', countdownToStretch: true, label: `Switch to ${nextPart}` });
+          });
+        } else if (exercise.sides === 'each') {
           steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, right leg`, cueAfter: 'Switch to left leg', kind: 'stretch', label: `${prefix} · right leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, right leg, ${exercise.amount} seconds` });
           steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to left leg for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, kind: 'switch', countdownToStretch: true, label: 'Switch to left leg' });
           steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · left leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, left leg, ${exercise.amount} seconds` });
@@ -175,7 +193,7 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
           steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds` });
         }
       } else {
-        const sideText = exercise.sides === 'each' ? 'right then left' : 'both';
+        const sideText = sidePatternLabel(exercise.sides);
         steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps ${sideText}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps ${sideText}` });
       }
       if (set < exercise.sets) {
@@ -1475,7 +1493,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
                   <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
                   <select value={exercise.unit} onChange={event => updateWorkoutExercise(exercise.id, { unit: event.target.value as WorkoutUnit })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Unit"><option value="seconds">sec</option><option value="reps">reps</option></select>
-                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Sides"><option value="both">both</option><option value="each">each</option></select>
+                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Pattern"><option value="both">both</option><option value="each">R/L</option><option value="inversion_eversion_both">R/L inv+ev</option></select>
                 </div>
               </div>
             ))}
