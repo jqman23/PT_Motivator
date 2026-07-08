@@ -95,6 +95,30 @@ function makeSchemaText(ex: ExerciseBrief) {
   ].filter(Boolean).join('; '), 420);
 }
 
+function inferIntentHints(text: string) {
+  const lower = text.toLowerCase();
+  const hints: string[] = [];
+  if (/(elevated|step|stairs?|ledge|box|platform|surface).*(one|single|leg|foot|heel|calf|ankle|up|down|raise|lower)|(?:one|single|leg|foot|heel|calf|ankle|up|down|raise|lower).*(elevated|step|stairs?|ledge|box|platform|surface)/i.test(lower)) {
+    hints.push('Likely canonical exercise: single-leg calf raise off step. If user emphasizes slow lowering or heel dropping below the step, consider eccentric heel drop.');
+  }
+  if (/(heel|calf).*(drop|lower|down|eccentric)|slow.*lower.*heel/i.test(lower)) {
+    hints.push('Likely canonical exercise: eccentric heel drop / eccentric calf raise.');
+  }
+  if (/(nerve|floss|glide|sciatic|slump)|(?:leg.*90.*knee.*bend.*foot.*flex)/i.test(lower)) {
+    hints.push('Likely canonical exercise: sciatic nerve glide / nerve floss. Use gentle motion, not a static stretch.');
+  }
+  if (/(band|theraband).*(ankle|foot).*(in|out|side|eversion|inversion)|(?:ankle|foot).*(in|out|side|eversion|inversion).*(band|theraband)/i.test(lower)) {
+    hints.push('Likely canonical exercise: banded ankle eversion/inversion.');
+  }
+  if (/(pillow|foam|cushion|unstable|balance pad).*(one|single|leg|foot|stand)|(?:one|single|leg|foot|stand).*(pillow|foam|cushion|unstable|balance pad)/i.test(lower)) {
+    hints.push('Likely canonical exercise: single-leg balance on unstable surface.');
+  }
+  if (/(toe).*(spread|yoga|lift|big toe|little toes)/i.test(lower)) {
+    hints.push('Likely canonical exercise: toe yoga / intrinsic foot strengthening.');
+  }
+  return hints.slice(0, 6);
+}
+
 function errorMessage(err: unknown) {
   return err instanceof Error ? err.message : String(err ?? 'Unknown error');
 }
@@ -116,6 +140,7 @@ export async function POST(req: NextRequest) {
     const { text, exercises = [], health = {}, draftProposal = null, sourceMatches: rawSourceMatches = [], date: requestDate } = await req.json();
     const diaryText = cleanText(text, 1800);
     const sourceMatches = cleanSourceMatches(rawSourceMatches);
+    const inferredIntentHints = inferIntentHints(diaryText);
     const todayDate: string = typeof requestDate === 'string' && requestDate.match(/^\d{4}-\d{2}-\d{2}$/)
       ? requestDate
       : new Date().toISOString().split('T')[0];
@@ -154,7 +179,11 @@ export async function POST(req: NextRequest) {
 
     const system = [
       'You are the PT Motivator smart-add assistant. Convert the user note into proposed app changes. Return compact JSON only.',
-      'Think like an exercise interpreter, not a stenographer. First infer the exercise concept, then write clean app fields from that inferred concept.',
+      'Think like an exercise interpreter, not a stenographer. User wording is noisy evidence, not final wording. First infer the likely canonical exercise concept, then write clean app fields from that inferred concept.',
+      'Do not take rough descriptions literally. Translate layperson fragments into standard PT/exercise vocabulary. If the user says "thing with stand on elevated surface on leg move up and down", infer likely "Single-leg calf raise off step" or "Eccentric heel drop" depending on whether lowering emphasis is present.',
+      'Use body position + equipment/surface + movement + target area to infer intent. Examples: "stand on elevated surface one leg move up and down" -> single-leg calf raise off step; "heels drop below step slow down" -> eccentric heel drop; "lay down leg 90 knee bends foot flex point" -> supine sciatic nerve glide; "band around ankle pull in out" -> banded ankle eversion/inversion; "stand on pillow one foot" -> single-leg balance on unstable surface.',
+      'If a phrase could be two materially different exercises, ask a targeted clarification with useful options using canonical names, not vague questions.',
+      'Bad output: copying "stand on elevated surface on leg move up and down" as a name or cue. Good output: name "Single-leg calf raise off step", sets "2 x 60 seconds each side" or inferred conservative dosage if omitted, cue "Stand on one leg on a step, raise and lower through the ankle with control."',
       'Important: interpretation never overrides note structure. After interpreting, every exercise note must still follow: dosage first, then body part/side/component, then descriptor or context. Use comma-separated fragments, not long sentences.',
       'General note structure examples: "1 x ~60 seconds, big toe, toe spread, and arch lift"; "1 x 60 seconds, both legs, straight and bent"; "3 x 12, right ankle, slow controlled"; "2 x 10 each side, hips, banded".',
       'For any messy new exercise description, internally identify: body position, target body area or nerve/muscle, action pair, side/body part, dosage, and intent. Then output a canonical name, standardized sets, clean cue, and tips.',
@@ -165,6 +194,7 @@ export async function POST(req: NextRequest) {
       'Never add generic filler tips like breathe naturally, engage your core, keep back straight, maintain neutral spine, sit tall, or upright posture unless the user explicitly asks for that exact cue and it does not conflict with the movement.',
       'For nerve glides/flossing, prioritize gentle motion and not forcing range. Do not add bracing or generic fitness cues.',
       'You may receive sourceMatches from ExerciseDB and API Ninjas. These are external database search results from the user query. Consider them before inventing a brand-new exercise, but do not choose a database result if it is clearly unrelated.',
+      'You may receive inferredIntentHints. Treat these as candidate canonical interpretations generated from rough user language. Prefer a strong inferredIntentHint over literal wording when it fits the described body position, equipment/surface, and movement.',
       'When a sourceMatch is a good fit for a new exercise, use its name/cue/tips, set origin to exercisedb or api_ninjas, set sourceId, include gifUrl if available, and include up to 3 dbMatches for review.',
       'If sourceMatches contain plausible alternatives but the user description is unclear, ask a clarification question with 2-3 clarificationOptions instead of creating the wrong exercise.',
       'If no sourceMatch fits, you can still create a patient_added exercise from general PT knowledge.',
@@ -201,6 +231,7 @@ export async function POST(req: NextRequest) {
       draftProposal,
       exercises: safeExercises,
       sourceMatches,
+      inferredIntentHints,
       health,
     });
 

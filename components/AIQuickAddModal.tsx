@@ -163,19 +163,42 @@ function normalizeApiNinjasMatch(item: ApiNinjasResult, index: number): SmartDbM
 
 async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
   if (search.trim().length < 2) return [];
-  const [exerciseDbRes, apiNinjasRes] = await Promise.all([
-    fetch(`/api/exercisedb/search?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
-    fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
-  ]);
+  const lower = search.toLowerCase();
+  const queryHints = new Set([search.trim()]);
+  if (/(elevated|step|stairs?|ledge|box|surface|platform).*(leg|heel|calf|ankle|foot|up|down)|(?:leg|heel|calf|ankle|foot|up|down).*(elevated|step|stairs?|ledge|box|surface|platform)/i.test(lower)) {
+    queryHints.add('single leg calf raise step');
+    queryHints.add('eccentric heel drop');
+    queryHints.add('single leg heel raise');
+  }
+  if (/(toe|heel).*(raise|lift)|calf.*raise|plantar/i.test(lower)) queryHints.add('calf raise');
+  if (/(nerve|floss|glide|sciatic|slump)/i.test(lower)) queryHints.add('sciatic nerve glide');
+  if (/(balance|unstable|foam|cushion|pillow|single leg stand)/i.test(lower)) queryHints.add('single leg balance');
+  if (/(band|theraband).*(ankle|foot).*(in|out|side|eversion|inversion)/i.test(lower)) queryHints.add('ankle eversion inversion band');
 
-  const exerciseDbMatches: SmartDbMatch[] = Array.isArray(exerciseDbRes.data)
-    ? exerciseDbRes.data.slice(0, 5).map((item: ExerciseDbResult) => normalizeExerciseDbMatch(item))
-    : [];
-  const apiNinjasMatches: SmartDbMatch[] = Array.isArray(apiNinjasRes.data)
-    ? apiNinjasRes.data.slice(0, 5).map((item: ApiNinjasResult, index: number) => normalizeApiNinjasMatch(item, index))
-    : [];
+  const searches = Array.from(queryHints).slice(0, 4);
+  const responses = await Promise.all(searches.map(term => Promise.all([
+    fetch(`/api/exercisedb/search?search=${encodeURIComponent(term)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(term)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+  ])));
 
-  return [...exerciseDbMatches, ...apiNinjasMatches].slice(0, 8);
+  const seen = new Set<string>();
+  const matches: SmartDbMatch[] = [];
+  responses.forEach(([exerciseDbRes, apiNinjasRes]) => {
+    const exerciseDbMatches: SmartDbMatch[] = Array.isArray(exerciseDbRes.data)
+      ? exerciseDbRes.data.slice(0, 4).map((item: ExerciseDbResult) => normalizeExerciseDbMatch(item))
+      : [];
+    const apiNinjasMatches: SmartDbMatch[] = Array.isArray(apiNinjasRes.data)
+      ? apiNinjasRes.data.slice(0, 4).map((item: ApiNinjasResult, index: number) => normalizeApiNinjasMatch(item, index))
+      : [];
+    [...exerciseDbMatches, ...apiNinjasMatches].forEach(match => {
+      const key = `${match.source}-${match.sourceId || match.name}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      matches.push(match);
+    });
+  });
+
+  return matches.slice(0, 10);
 }
 
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
@@ -494,7 +517,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">New exercises</p>
                   {proposal.newExercises.map((item, idx) => (
-                    <div key={`${item.name}-${idx}`} className="bg-white rounded-2xl border-2 p-3" style={{ borderColor: '#cfded3' }}>
+                    <div key={`${item.sourceId ?? item.origin ?? 'new'}-${idx}`} className="bg-white rounded-2xl border-2 p-3" style={{ borderColor: '#cfded3' }}>
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
                           <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1" style={{ background: item.origin === 'exercisedb' ? '#ede9fe' : item.origin === 'api_ninjas' || item.origin === 'patient_added' ? '#dbeafe' : '#E4ECE6', color: item.origin === 'exercisedb' ? '#7C3AED' : item.origin === 'api_ninjas' || item.origin === 'patient_added' ? '#2f6f9f' : '#476653' }}>{item.origin === 'exercisedb' ? 'ExerciseDB' : item.origin === 'api_ninjas' ? 'API Ninjas' : item.origin === 'patient_added' ? 'Manual' : 'AI draft'}</span>
