@@ -140,6 +140,14 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
 }
 
+function arrayBufferToUrlBase64(value: ArrayBuffer | null) {
+  if (!value) return '';
+  const bytes = new Uint8Array(value);
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 function cueForStep(step?: TimerStep) {
   if (!step) return 'Timer update';
   if (step.cueBefore) return step.cueBefore;
@@ -202,15 +210,27 @@ export default function TimerBackgroundNotifications() {
     if (Notification.permission !== 'granted') return null;
 
     const registration = await navigator.serviceWorker.register('/sw.js');
-    const existing = await registration.pushManager.getSubscription();
-    if (existing) {
-      pushEndpointRef.current = existing.endpoint;
-      return existing;
-    }
-
     const keyRes = await fetch('/api/push/public-key');
     const { publicKey } = await keyRes.json();
     if (!publicKey) return null;
+
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) {
+      const existingKey = arrayBufferToUrlBase64(existing.options.applicationServerKey);
+      if (existingKey && existingKey !== publicKey) {
+        await existing.unsubscribe();
+      } else {
+        pushEndpointRef.current = existing.endpoint;
+        return existing;
+      }
+    }
+
+    const latestExisting = await registration.pushManager.getSubscription();
+    if (latestExisting) {
+      pushEndpointRef.current = latestExisting.endpoint;
+      return latestExisting;
+    }
+
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
@@ -312,9 +332,16 @@ export default function TimerBackgroundNotifications() {
         window.setTimeout(() => { void schedulePushNotifications(); }, 300);
       }
     };
+    const handleTimerStateUpdated = () => {
+      window.setTimeout(() => { void schedulePushNotifications(); }, 0);
+    };
 
     document.addEventListener('click', handleClick, true);
-    return () => document.removeEventListener('click', handleClick, true);
+    window.addEventListener('pt-timer-state-updated', handleTimerStateUpdated);
+    return () => {
+      document.removeEventListener('click', handleClick, true);
+      window.removeEventListener('pt-timer-state-updated', handleTimerStateUpdated);
+    };
   }, []);
 
   useEffect(() => {
@@ -337,11 +364,13 @@ export default function TimerBackgroundNotifications() {
       const previous = lastSnapshotRef.current;
       lastSnapshotRef.current = current;
 
-      // Never notify while the app is foregrounded. In-app voice/beeps own that case.
-      if (!document.hidden) return;
       if (timer?.bellOn === false) return;
       if (current.mode !== 'timer') return;
       if (current.running) void schedulePushNotifications();
+
+      // Never show fallback browser notifications while the app is foregrounded.
+      // In-app voice/beeps own that case, but scheduling above must still happen.
+      if (!document.hidden) return;
 
       if (previous && !previous.running && current.running) {
         notifyOnce(`started-${current.endAt ?? Date.now()}`, 'Timer started');

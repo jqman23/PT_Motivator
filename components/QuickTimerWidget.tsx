@@ -388,6 +388,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       ...patch,
     };
     localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state));
+    window.dispatchEvent(new CustomEvent('pt-timer-state-updated'));
   };
 
   const unlockAudio = async () => {
@@ -457,7 +458,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   };
 
   const maybeCountdownBeep = (secondsLeft: number) => {
-    if (!runningRef.current || !isCountdownToStretch()) return;
+    if (!runningRef.current) return;
     if (secondsLeft < 1 || secondsLeft > 5) return;
     if (lastCountdownSecondRef.current === secondsLeft) return;
     lastCountdownSecondRef.current = secondsLeft;
@@ -1118,7 +1119,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <div className="text-center mb-3 rounded-xl px-2 py-1.5" style={{ background: '#E4ECE6', color: '#476653' }}>
           {sequenceLabel && <p className="text-[10px] font-bold uppercase tracking-wider">{sequenceLabel}</p>}
           {cue && <p className="text-xs font-bold">{cue}</p>}
-          {running && (sequenceIndex < 0 || !!currentStep?.countdownToStretch) && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Stretch starts in {remaining}</p>}
+          {running && remaining <= 5 && <p className="text-[11px] font-bold mt-0.5">Next cue in {remaining}</p>}
         </div>
       )}
 
