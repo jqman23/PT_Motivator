@@ -183,13 +183,16 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
         if (exercise.sides === 'each') {
           steps.push({ seconds: exercise.amount, cueAfter: 'Switch sides', kind: 'stretch', label: `${prefix} · side A · ${exercise.amount}s` });
           steps.push({ seconds: SWITCH_SECONDS, cueAfter: `${exercise.name} side B`, kind: 'switch', countdownToStretch: true, label: 'Switch sides' });
-          steps.push({ seconds: exercise.amount, cueAfter: set === exercise.sets ? 'Exercise done' : `${exercise.name} next set`, kind: 'stretch', label: `${prefix} · side B · ${exercise.amount}s` });
+          steps.push({ seconds: exercise.amount, cueAfter: set === exercise.sets ? 'Exercise done' : '30 second break', kind: 'stretch', label: `${prefix} · side B · ${exercise.amount}s` });
         } else {
-          steps.push({ seconds: exercise.amount, cueAfter: set === exercise.sets ? 'Exercise done' : `${exercise.name} next set`, kind: 'stretch', label: `${prefix} · ${exercise.amount}s` });
+          steps.push({ seconds: exercise.amount, cueAfter: set === exercise.sets ? 'Exercise done' : '30 second break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s` });
         }
       } else {
         const sideText = exercise.sides === 'each' ? 'each side' : 'both';
-        steps.push({ seconds: 0, cueAfter: set === exercise.sets ? 'Exercise done' : `${exercise.name} next set`, kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}` });
+        steps.push({ seconds: 0, cueAfter: set === exercise.sets ? 'Exercise done' : '30 second break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}` });
+      }
+      if (set < exercise.sets) {
+        steps.push({ seconds: BREAK_SECONDS, cueAfter: `${exercise.name} set ${set + 1}`, kind: 'break', countdownToStretch: true, label: `Set break · ${BREAK_SECONDS}s` });
       }
     }
     if (exerciseIndex < workout.exercises.length - 1 && workout.breakSeconds > 0) {
