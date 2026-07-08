@@ -244,7 +244,7 @@ export default function TimerBackgroundNotifications() {
     return subscription;
   };
 
-  const schedulePushNotifications = async () => {
+  const schedulePushNotifications = async (force = false) => {
     const timer = readStoredTimer();
     if (!timer?.running || timer.mode !== 'timer') return;
     if (await scheduleNativeNotifications(timer)) return;
@@ -261,7 +261,7 @@ export default function TimerBackgroundNotifications() {
     }
     const events = scheduledEventsFor(timer, endpoint);
     const scheduleKey = JSON.stringify(events.map(event => [event.id, event.at, event.body]));
-    if (scheduleKey === lastScheduledKeyRef.current) return;
+    if (!force && scheduleKey === lastScheduledKeyRef.current) return;
     lastScheduledKeyRef.current = scheduleKey;
     await fetch('/api/timer-push/schedule', {
       method: 'POST',
@@ -335,11 +335,19 @@ export default function TimerBackgroundNotifications() {
     const handleTimerStateUpdated = () => {
       window.setTimeout(() => { void schedulePushNotifications(); }, 0);
     };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        lastScheduledKeyRef.current = '';
+        window.setTimeout(() => { void schedulePushNotifications(true); }, 0);
+      }
+    };
 
     document.addEventListener('click', handleClick, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pt-timer-state-updated', handleTimerStateUpdated);
     return () => {
       document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pt-timer-state-updated', handleTimerStateUpdated);
     };
   }, []);

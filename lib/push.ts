@@ -62,3 +62,30 @@ export async function replaceTimerPushEvents(endpoint: string, events: TimerPush
 export async function saveTimerPushEvents(events: TimerPushEvent[]) {
   await setConfig(TIMER_PUSH_EVENTS_KEY, events.slice(-200));
 }
+
+export async function sendTimerPushNotification(subscription: PushSubscription, event: TimerPushEvent) {
+  await webpush.sendNotification(
+    subscription,
+    JSON.stringify({
+      title: 'PT Timer',
+      body: event.body,
+      tag: event.id,
+      requireInteraction: true,
+      url: '/',
+    }),
+    {
+      TTL: 5 * 60,
+      urgency: 'high',
+    },
+  );
+}
+
+export function shouldRemovePushSubscription(err: unknown) {
+  const statusCode = typeof err === 'object' && err && 'statusCode' in err ? Number((err as { statusCode?: number }).statusCode) : 0;
+  const body = typeof err === 'object' && err && 'body' in err ? String((err as { body?: string }).body ?? '') : '';
+  return statusCode === 404
+    || statusCode === 410
+    || body.includes('VapidPkHashMismatch')
+    || body.includes('BadJwtToken')
+    || body.includes('BadVapidPublicKey');
+}
