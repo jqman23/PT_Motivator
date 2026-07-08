@@ -174,7 +174,9 @@ export default function Home() {
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
   const layoutExercises = useMemo(() =>
-    layout.flatMap(cat => cat.exerciseIds.map(id => exerciseMap[id]).filter((ex): ex is Exercise => Boolean(ex))),
+    layout.flatMap(cat => cat.exerciseIds
+      .map(id => exerciseMap[id] ? { ...exerciseMap[id], categoryName: cat.name, categoryColor: cat.color } : null)
+      .filter((ex): ex is Exercise & { categoryName: string; categoryColor: string } => Boolean(ex))),
     [layout, exerciseMap]
   );
   const notesRef = useRef<NotesMap>({});

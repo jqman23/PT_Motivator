@@ -38,6 +38,8 @@ type CustomWorkoutExercise = {
   id: string;
   exerciseId?: string;
   name: string;
+  categoryName?: string;
+  categoryColor?: string;
   sets: number;
   unit: WorkoutUnit;
   amount: number;
@@ -98,7 +100,7 @@ function makeWorkoutExercise(name = 'Exercise'): CustomWorkoutExercise {
   };
 }
 
-function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string }): CustomWorkoutExercise {
+function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string }): CustomWorkoutExercise {
   const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
     .toLowerCase()
     .replace(/[–—]/g, '-')
@@ -127,6 +129,8 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
     id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     exerciseId: exercise.id,
     name: exercise.name,
+    categoryName: exercise.categoryName,
+    categoryColor: exercise.categoryColor,
     sets: setsMatch ? Math.max(1, Number(setsMatch[1])) : compactMatch ? Math.max(1, Number(compactMatch[1])) : 2,
     unit: hasRepTarget ? 'reps' : 'seconds',
     amount: Number.isFinite(amount) && amount > 0 ? amount : 60,
@@ -162,6 +166,14 @@ function notesForCustomWorkout(workout: CustomWorkout) {
     notes.set(exercise.exerciseId, current);
   });
   return Array.from(notes.entries()).map(([exerciseId, lines]) => ({ exerciseId, note: lines.join('\n') }));
+}
+
+function categoryAccent(color?: string) {
+  if (color === 'orange') return '#C17B4F';
+  if (color === 'blue') return '#5B9BD5';
+  if (color === 'purple') return '#8B5CF6';
+  if (color === 'red') return '#EF4444';
+  return '#7E9B86';
 }
 
 function buildCustomSequence(workout: CustomWorkout): SequenceOption {
@@ -253,7 +265,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -848,6 +860,17 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     }));
   };
 
+  const moveWorkoutExercise = (id: string, direction: -1 | 1) => {
+    setWorkoutDraft(prev => {
+      const index = prev.exercises.findIndex(ex => ex.id === id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= prev.exercises.length) return prev;
+      const nextExercises = [...prev.exercises];
+      [nextExercises[index], nextExercises[target]] = [nextExercises[target], nextExercises[index]];
+      return { ...prev, exercises: nextExercises };
+    });
+  };
+
   const addSavedExerciseToWorkout = (exerciseId = exerciseToAddId) => {
     const exercise = exercises?.find(item => item.id === exerciseId);
     if (!exercise) return;
@@ -919,13 +942,24 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     { label: '30 sec holds', options: SEQUENCE_OPTIONS.filter(option => option.group === '30 sec holds') },
   ];
 
+  const groupedCurrentExercises = (exercises ?? []).reduce<Array<{ name: string; color?: string; items: NonNullable<QuickTimerWidgetProps['exercises']> }>>((groups, exercise) => {
+    const name = exercise.categoryName ?? 'Current exercises';
+    let group = groups.find(item => item.name === name);
+    if (!group) {
+      group = { name, color: exercise.categoryColor, items: [] };
+      groups.push(group);
+    }
+    group.items.push(exercise);
+    return groups;
+  }, []);
+
   const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!onSaveNote && !!(exercises?.length);
 
   const panel = open ? (
     <div
       ref={panelRef}
       className="fixed right-3 bottom-3 sm:right-4 sm:bottom-5 z-[9999] bg-white rounded-2xl shadow-2xl border border-stone-100 p-4"
-      style={{ width: 292, maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', touchAction: 'manipulation' }}
+      style={{ width: showWorkoutBuilder ? 'min(560px, calc(100vw - 24px))' : 292, maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', touchAction: 'manipulation' }}
       onClick={event => event.stopPropagation()}
     >
       <div className="flex items-center justify-between mb-3">
@@ -990,69 +1024,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
             </div>
             {selectedWorkoutId && customWorkouts.find(workout => workout.id === selectedWorkoutId) && (
               <p className="mt-1.5 text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
-            )}
-            {showWorkoutBuilder && (
-              <div className="mt-2 space-y-2">
-                <input value={workoutDraft.name} onChange={event => setWorkoutDraft(prev => ({ ...prev, name: event.target.value }))} className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-sm font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Workout name" />
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Break</span>
-                  <input value={workoutDraft.breakSeconds} onChange={event => setWorkoutDraft(prev => ({ ...prev, breakSeconds: Number(event.target.value) }))} type="number" min="0" step="5" className="w-16 rounded-lg border border-stone-200 bg-white px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Break seconds" />
-                  <span className="text-xs text-stone-400">sec between exercises</span>
-                </div>
-                {workoutDraft.exercises.map((exercise, index) => (
-                  <div key={exercise.id} className="rounded-xl bg-white border border-stone-100 p-2 space-y-1.5">
-                    <div className="flex gap-1.5">
-                      <select
-                        value={exercise.exerciseId ?? ''}
-                        onChange={event => {
-                          const saved = exercises?.find(item => item.id === event.target.value);
-                          if (saved) updateWorkoutExercise(exercise.id, parseExercisePrescription(saved));
-                        }}
-                        className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-sm font-semibold"
-                        style={{ fontSize: 16, colorScheme: 'light' }}
-                        aria-label={`Exercise ${index + 1}`}
-                      >
-                        <option value="">{exercise.name}</option>
-                        {(exercises ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                      </select>
-                      <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.id !== exercise.id) })); }} className="w-8 rounded-lg text-sm font-bold" style={{ background: '#f5f5f4', color: '#a8a29e' }}>×</button>
-                    </div>
-                    <p className="text-[10px] leading-snug text-stone-400 truncate">{exercise.name}</p>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-1.5 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
-                      <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-1.5 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
-                      <select value={exercise.unit} onChange={event => updateWorkoutExercise(exercise.id, { unit: event.target.value as WorkoutUnit })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Unit">
-                        <option value="seconds">sec</option>
-                        <option value="reps">reps</option>
-                      </select>
-                      <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Sides">
-                        <option value="both">both</option>
-                        <option value="each">each</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-                {!!exercises?.length && (
-                  <>
-                    <button onClick={event => { event.stopPropagation(); smartAddAllSavedExercises(); }} className="w-full rounded-lg py-2 text-xs font-bold" style={{ background: '#E4ECE6', color: '#476653' }}>Smart add current exercises</button>
-                    <div className="flex gap-1.5">
-                      <select value={exerciseToAddId} onChange={event => setExerciseToAddId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Add saved exercise">
-                        <option value="">Choose saved exercise...</option>
-                        {exercises.map(exercise => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}
-                      </select>
-                      <button onClick={event => { event.stopPropagation(); addSavedExerciseToWorkout(); }} disabled={!exerciseToAddId} className="rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Add</button>
-                    </div>
-                  </>
-                )}
-                <div className="flex gap-1.5">
-                  <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: [...prev.exercises, makeWorkoutExercise(`Exercise ${prev.exercises.length + 1}`)] })); }} className="flex-1 rounded-lg py-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }}>Add manual row</button>
-                  <button onClick={event => { event.stopPropagation(); newWorkout(); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#f5f5f4', color: '#57534e' }}>New</button>
-                </div>
-                <div className="flex gap-1.5">
-                  <button onClick={event => { event.stopPropagation(); saveWorkoutDraft(); }} className="flex-1 rounded-lg py-2 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>Save workout</button>
-                  <button onClick={event => { event.stopPropagation(); if (selectedWorkoutId) deleteWorkout(selectedWorkoutId); }} className="rounded-lg px-2 text-xs font-bold" style={{ background: '#fef2f2', color: '#b91c1c' }}>Delete</button>
-                </div>
-              </div>
             )}
           </div>
 
@@ -1130,6 +1101,91 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     </div>
   ) : null;
 
+  const builderSheet = showWorkoutBuilder ? (
+    <div className="fixed inset-0 z-[10000] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={() => setShowWorkoutBuilder(false)}>
+      <div className="w-full sm:max-w-2xl bg-[#F6F1E7] rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 flex flex-col" style={{ maxHeight: '92dvh' }} onClick={event => event.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
+          <div className="min-w-0">
+            <h2 className="font-serif text-lg font-semibold text-stone-800">Build workout</h2>
+            <p className="text-[11px] text-stone-400">Tap exercises from your current list, then confirm sets/time/reps.</p>
+          </div>
+          <button onClick={() => setShowWorkoutBuilder(false)} className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-xl">×</button>
+        </div>
+
+        <div className="overflow-y-auto p-4 space-y-4">
+          <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
+            <input value={workoutDraft.name} onChange={event => setWorkoutDraft(prev => ({ ...prev, name: event.target.value }))} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Workout name" />
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Break</span>
+              <input value={workoutDraft.breakSeconds} onChange={event => setWorkoutDraft(prev => ({ ...prev, breakSeconds: Number(event.target.value) }))} type="number" min="0" step="5" className="w-20 rounded-lg border border-stone-200 bg-white px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Break seconds" />
+              <span className="text-xs text-stone-400">seconds between exercises</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-stone-100 p-3">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Current exercises</p>
+            </div>
+            <div className="space-y-3">
+              {groupedCurrentExercises.map(group => (
+                <div key={group.name}>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: categoryAccent(group.color) }}>{group.name}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {group.items.map(exercise => {
+                      const selected = workoutDraft.exercises.some(item => item.exerciseId === exercise.id);
+                      return (
+                        <button
+                          key={exercise.id}
+                          onClick={event => { event.stopPropagation(); addSavedExerciseToWorkout(exercise.id); }}
+                          className="text-left rounded-xl border px-3 py-2 transition-colors"
+                          style={{ borderColor: selected ? categoryAccent(group.color) : '#e7e5e4', background: selected ? `${categoryAccent(group.color)}12` : '#fff' }}
+                        >
+                          <span className="block text-sm font-bold text-stone-800 leading-snug">{exercise.name}</span>
+                          <span className="block text-[11px] text-stone-400 truncate">{exercise.sets || exercise.cue || 'Defaults to 2 x 60 sec'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Workout order</p>
+            {workoutDraft.exercises.length === 0 && <p className="text-sm text-stone-400 text-center py-4">Tap exercises above to add them.</p>}
+            {workoutDraft.exercises.map((exercise, index) => (
+              <div key={exercise.id} className="rounded-xl border p-2 space-y-2" style={{ borderColor: exercise.exerciseId ? `${categoryAccent(exercise.categoryColor)}55` : '#f5f5f4', boxShadow: exercise.exerciseId ? `inset 3px 0 0 ${categoryAccent(exercise.categoryColor)}` : 'none' }}>
+                <div className="flex gap-2">
+                  <div className="flex gap-1">
+                    <button onClick={event => { event.stopPropagation(); moveWorkoutExercise(exercise.id, -1); }} disabled={index === 0} className="w-8 rounded-lg text-xs font-bold disabled:opacity-30" style={{ background: '#f5f5f4', color: '#78716c' }}>↑</button>
+                    <button onClick={event => { event.stopPropagation(); moveWorkoutExercise(exercise.id, 1); }} disabled={index === workoutDraft.exercises.length - 1} className="w-8 rounded-lg text-xs font-bold disabled:opacity-30" style={{ background: '#f5f5f4', color: '#78716c' }}>↓</button>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-stone-800 truncate">{exercise.name}</p>
+                    {exercise.categoryName && <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: categoryAccent(exercise.categoryColor) }}>{exercise.categoryName}</p>}
+                  </div>
+                  <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.id !== exercise.id) })); }} className="w-8 rounded-lg text-sm font-bold" style={{ background: '#f5f5f4', color: '#a8a29e' }}>×</button>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
+                  <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
+                  <select value={exercise.unit} onChange={event => updateWorkoutExercise(exercise.id, { unit: event.target.value as WorkoutUnit })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Unit"><option value="seconds">sec</option><option value="reps">reps</option></select>
+                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Sides"><option value="both">both</option><option value="each">each</option></select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-stone-200 bg-[#F6F1E7] flex gap-2 flex-shrink-0">
+          <button onClick={event => { event.stopPropagation(); saveWorkoutDraft(); setShowWorkoutBuilder(false); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#7E9B86' }}>Save workout</button>
+          <button onClick={event => { event.stopPropagation(); saveWorkoutDraft(); setShowWorkoutBuilder(false); void startCustomWorkout(); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>Save & load</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const labelStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.9 };
 
   return (
@@ -1139,6 +1195,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <span style={labelStyle}>timer</span>
       </button>
       {mounted && panel ? createPortal(panel, document.body) : null}
+      {mounted && builderSheet ? createPortal(builderSheet, document.body) : null}
     </>
   );
 }
