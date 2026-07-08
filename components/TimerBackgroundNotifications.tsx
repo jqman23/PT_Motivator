@@ -54,6 +54,7 @@ type TimerSnapshot = {
 };
 
 type PushSubscriptionJson = PushSubscriptionJSON & { endpoint: string };
+type ScheduledTimerEvent = { id: string; endpoint: string; at: number; body: string };
 
 function startCue(holdSeconds: 30 | 60) {
   return holdSeconds === 60 ? 'One minute starting' : '30 seconds starting';
@@ -146,9 +147,15 @@ function cueForStep(step?: TimerStep) {
   return normalizeCue(step.cueAfter || 'Timer update');
 }
 
+function notificationId(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return Math.abs(hash % 2147483647) || 1;
+}
+
 function scheduledEventsFor(timer: StoredTimerState, endpoint: string) {
   const now = Date.now();
-  const events: Array<{ id: string; endpoint: string; at: number; body: string }> = [];
+  const events: ScheduledTimerEvent[] = [];
   if (timer.mode !== 'timer' || !timer.running || !timer.endAt || timer.bellOn === false) return events;
 
   if (!timer.sequenceActive) {
@@ -220,6 +227,7 @@ export default function TimerBackgroundNotifications() {
   const schedulePushNotifications = async () => {
     const timer = readStoredTimer();
     if (!timer?.running || timer.mode !== 'timer') return;
+    if (await scheduleNativeNotifications(timer)) return;
     const subscription = await ensurePushSubscription();
     const json = subscription?.toJSON() as PushSubscriptionJson | undefined;
     const endpoint = subscription?.endpoint ?? json?.endpoint ?? pushEndpointRef.current;
@@ -240,6 +248,37 @@ export default function TimerBackgroundNotifications() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint, events }),
     });
+  };
+
+  const scheduleNativeNotifications = async (timer: StoredTimerState) => {
+    try {
+      const [{ Capacitor }, { LocalNotifications }] = await Promise.all([
+        import('@capacitor/core'),
+        import('@capacitor/local-notifications'),
+      ]);
+      if (!Capacitor.isNativePlatform()) return false;
+      const permission = await LocalNotifications.requestPermissions();
+      if (permission.display !== 'granted') return false;
+      const endpoint = 'native-local';
+      const events = scheduledEventsFor(timer, endpoint);
+      const pending = await LocalNotifications.getPending();
+      const timerPending = pending.notifications.filter(item => item.extra?.ptTimer === true);
+      if (timerPending.length) await LocalNotifications.cancel({ notifications: timerPending.map(item => ({ id: item.id })) });
+      if (!events.length) return true;
+      await LocalNotifications.schedule({
+        notifications: events.map(event => ({
+          id: notificationId(event.id),
+          title: 'PT Timer',
+          body: event.body,
+          schedule: { at: new Date(event.at) },
+          sound: 'default',
+          extra: { ptTimer: true },
+        })),
+      });
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   useEffect(() => {

@@ -22,6 +22,9 @@ type TimerStep = {
   cueAfter: string;
   kind: StepKind;
   label?: string;
+  exerciseId?: string;
+  exerciseName?: string;
+  workNote?: string;
   manual?: boolean;
   countdownToStretch?: boolean;
 };
@@ -150,23 +153,6 @@ function workoutSummary(workout: CustomWorkout) {
   return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${ex.sides === 'each' ? 'each side' : 'both'}`).join(' · ');
 }
 
-function noteForWorkoutExercise(exercise: CustomWorkoutExercise) {
-  const unit = exercise.unit === 'seconds' ? 'seconds' : 'reps';
-  const side = exercise.sides === 'each' ? 'each side' : 'both';
-  return `${exercise.sets} x ${exercise.amount} ${unit} ${side}`;
-}
-
-function notesForCustomWorkout(workout: CustomWorkout) {
-  const notes = new Map<string, string[]>();
-  workout.exercises.forEach(exercise => {
-    if (!exercise.exerciseId) return;
-    const current = notes.get(exercise.exerciseId) ?? [];
-    current.push(noteForWorkoutExercise(exercise));
-    notes.set(exercise.exerciseId, current);
-  });
-  return Array.from(notes.entries()).map(([exerciseId, lines]) => ({ exerciseId, note: lines.join('\n') }));
-}
-
 function categoryAccent(color?: string) {
   if (color === 'orange') return '#C17B4F';
   if (color === 'blue') return '#5B9BD5';
@@ -182,15 +168,15 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
       const prefix = `${exercise.name} set ${set}/${exercise.sets}`;
       if (exercise.unit === 'seconds') {
         if (exercise.sides === 'each') {
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side A`, cueAfter: 'Switch sides', kind: 'stretch', label: `${prefix} · side A · ${exercise.amount}s` });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side A`, cueAfter: 'Switch sides', kind: 'stretch', label: `${prefix} · side A · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, side A, ${exercise.amount} seconds` });
           steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch sides for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side B`, kind: 'switch', countdownToStretch: true, label: 'Switch sides' });
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side B`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · side B · ${exercise.amount}s` });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, side B`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · side B · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, side B, ${exercise.amount} seconds` });
         } else {
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s` });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds` });
         }
       } else {
         const sideText = exercise.sides === 'each' ? 'each side' : 'both';
-        steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps ${sideText}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}` });
+        steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps ${sideText}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps ${sideText}` });
       }
       if (set < exercise.sets) {
         steps.push({ seconds: BREAK_SECONDS, cueBefore: `Rest ${BREAK_SECONDS} seconds before ${exercise.name}, set ${set + 1}`, cueAfter: `${exercise.name} set ${set + 1}`, kind: 'break', countdownToStretch: true, label: `Set break · ${BREAK_SECONDS}s` });
@@ -202,6 +188,27 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
     }
   });
   return { key: `custom-${workout.id}`, label: workout.name.trim() || 'Custom workout', steps, workout };
+}
+
+function workoutDurationSummary(workout: CustomWorkout) {
+  const steps = buildCustomSequence(workout).steps;
+  const timedSeconds = steps.reduce((total, step) => total + Math.max(0, step.seconds || 0), 0);
+  const manualCount = steps.filter(step => step.manual).length;
+  const minutes = Math.floor(timedSeconds / 60);
+  const seconds = timedSeconds % 60;
+  const time = minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
+  return manualCount > 0 ? `${time}+ (${manualCount} manual rep ${manualCount === 1 ? 'set' : 'sets'})` : time;
+}
+
+function notesForCompletedSteps(workoutName: string, steps: TimerStep[]) {
+  const notes = new Map<string, string[]>();
+  steps.forEach(step => {
+    if (!step.exerciseId || !step.workNote) return;
+    const current = notes.get(step.exerciseId) ?? [];
+    current.push(step.workNote);
+    notes.set(step.exerciseId, current);
+  });
+  return Array.from(notes.entries()).map(([exerciseId, lines]) => ({ exerciseId, note: `${workoutName}: ${lines.join('; ')}` }));
 }
 
 const SEQUENCE_OPTIONS: SequenceOption[] = [
@@ -312,6 +319,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const sequenceIndexRef = useRef(0);
   const sequenceKeyRef = useRef<SequenceKey | null>(null);
   const lastCountdownSecondRef = useRef<number | null>(null);
+  const completedWorkStepsRef = useRef<TimerStep[]>([]);
 
   useEffect(() => { bellOnRef.current = bellOn; }, [bellOn]);
 
@@ -437,6 +445,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     speakCue(message);
   };
 
+  const markStepCompleted = (step?: TimerStep) => {
+    if (!step?.exerciseId || !step.workNote) return;
+    completedWorkStepsRef.current.push(step);
+  };
+
   const isCountdownToStretch = () => {
     if (!sequenceActiveRef.current) return false;
     if (sequenceIndexRef.current < 0) return true;
@@ -468,8 +481,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     playCue(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message });
     if (completedWorkout && onSaveNote) {
-      notesForCustomWorkout(completedWorkout).forEach(({ exerciseId, note }) => {
-        void onSaveNote(exerciseId, `${completedWorkout.name}: ${note}`);
+      notesForCompletedSteps(completedWorkout.name, completedWorkStepsRef.current).forEach(({ exerciseId, note }) => {
+        void onSaveNote(exerciseId, note);
       });
       setLogSaved(true);
     }
@@ -493,6 +506,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       } else {
         const current = steps[index];
         if (!current) return { done: true, lastCue: lastCue || 'End' };
+        markStepCompleted(current);
         lastCue = current.cueAfter;
         const nextIndex = index + 1;
         const next = steps[nextIndex];
@@ -578,6 +592,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setSequenceIndex(0);
     sequenceIndexRef.current = 0;
     setCue('');
+    completedWorkStepsRef.current = [];
     setRemaining(nextDuration);
     persistTimer({ running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, remaining: nextDuration, duration: nextDuration, cue: '' });
   };
@@ -592,6 +607,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setSequenceIndex(0);
     sequenceIndexRef.current = 0;
     setCue('');
+    completedWorkStepsRef.current = [];
     setElapsed(0);
     persistTimer({ mode: 'stopwatch', running: false, done: false, elapsed: 0, sequenceActive: false, endAt: null, cue: '' });
   };
@@ -603,6 +619,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       return;
     }
     if (sequenceActive && currentStep?.manual) {
+      markStepCompleted(currentStep);
       advanceManualStep();
       return;
     }
@@ -639,6 +656,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     stopTimer();
     endAtRef.current = null;
     lastCountdownSecondRef.current = null;
+    completedWorkStepsRef.current = [];
     activeSequenceRef.current = option.steps;
     activeSequenceOptionRef.current = option;
     setActiveSequenceOption(option);
@@ -689,6 +707,15 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     const nextCue = next.cueBefore || current?.cueAfter || next.label || 'Start';
     playCue(nextCue);
     persistTimer({ running: true, done: false, duration: next.seconds, remaining: next.seconds, sequenceIndex: nextIndex, endAt, cue: nextCue });
+  };
+
+  const skipSegment = () => {
+    if (!sequenceActiveRef.current) return;
+    const wasRunning = runningRef.current;
+    stopTimer();
+    endAtRef.current = null;
+    advanceManualStep();
+    if (!wasRunning) return;
   };
 
   const start = () => mode === 'timer' ? void startCountdown() : void startStopwatch();
@@ -1060,7 +1087,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
               <button onClick={event => { event.stopPropagation(); void startCustomWorkout(); }} className="rounded-lg px-3 text-xs font-bold text-white" style={{ background: '#D9A94B' }}>Load</button>
             </div>
             {selectedWorkoutId && customWorkouts.find(workout => workout.id === selectedWorkoutId) && (
-              <p className="mt-1.5 text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
+              <div className="mt-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#7E9B86' }}>Total: {workoutDurationSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
+                <p className="text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
+              </div>
             )}
           </div>
 
@@ -1133,6 +1163,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
       <div className="flex gap-2">
         <button onClick={event => { event.stopPropagation(); if (running) pauseTimer(); else start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : currentStep?.manual ? 'Next' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
+        {sequenceActive && sequenceIndex >= 0 && !done && <button onClick={event => { event.stopPropagation(); skipSegment(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 10px', background: '#fef3c7', color: '#92400e' }}>Skip</button>}
         <button onClick={event => { event.stopPropagation(); reset(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c' }}>Reset</button>
       </div>
     </div>
@@ -1152,6 +1183,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <div className="overflow-y-auto p-4 space-y-4">
           <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
             <input value={workoutDraft.name} onChange={event => setWorkoutDraft(prev => ({ ...prev, name: event.target.value }))} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Workout name" />
+            <div className="rounded-xl px-3 py-2" style={{ background: '#E4ECE6', color: '#476653' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest">Estimated timer total</p>
+              <p className="text-lg font-bold leading-tight">{workoutDurationSummary(workoutDraft)}</p>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Break</span>
               <input value={workoutDraft.breakSeconds} onChange={event => setWorkoutDraft(prev => ({ ...prev, breakSeconds: Number(event.target.value) }))} type="number" min="0" step="5" className="w-20 rounded-lg border border-stone-200 bg-white px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Break seconds" />
