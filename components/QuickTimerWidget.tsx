@@ -961,6 +961,24 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     });
   };
 
+  const currentWorkoutOrderJson = () => JSON.stringify({
+    order: workoutDraft.exercises.map(exercise => exercise.name),
+  }, null, 2);
+
+  const downloadWorkoutOrderJson = () => {
+    if (typeof window === 'undefined') return;
+    const blob = new Blob([currentWorkoutOrderJson()], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeName = (workoutDraft.name || 'workout-order').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workout-order';
+    link.href = url;
+    link.download = `${safeName}-order.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const addSavedExerciseToWorkout = (exerciseId: string) => {
     const exercise = exercises?.find(item => item.id === exerciseId);
     if (!exercise) return;
@@ -1385,7 +1403,13 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Workout order</p>
             <div className="rounded-xl border border-stone-100 bg-stone-50 p-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Auto reorder</p>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Auto reorder</p>
+                <div className="flex gap-1">
+                  <button onClick={event => { event.stopPropagation(); setReorderText(currentWorkoutOrderJson()); }} disabled={!workoutDraft.exercises.length} className="rounded-lg px-2 py-1 text-[10px] font-bold disabled:opacity-40" style={{ background: '#E4ECE6', color: '#476653' }}>Fill JSON</button>
+                  <button onClick={event => { event.stopPropagation(); downloadWorkoutOrderJson(); }} disabled={!workoutDraft.exercises.length} className="rounded-lg px-2 py-1 text-[10px] font-bold disabled:opacity-40" style={{ background: '#1F2F46', color: '#fff' }}>Download JSON</button>
+                </div>
+              </div>
               <textarea
                 value={reorderText}
                 onChange={event => setReorderText(event.target.value)}
