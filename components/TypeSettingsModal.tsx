@@ -88,7 +88,7 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
   }, [query, recent]);
 
   const setLetters = (type: string, letters: string) => {
-    const clean = letters.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+    const clean = Array.from(letters.replace(/\s+/g, '')).slice(0, 3).join('');
     onChange(mergeMeta(meta, type, { letters: clean || defaultExerciseTypeMeta(type).letters }));
   };
 
@@ -111,7 +111,7 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-serif text-lg font-semibold text-stone-800">Exercise types</h2>
-            <p className="text-[11px] text-stone-400">Set the 3-letter label and optional emoji for each type.</p>
+            <p className="text-[11px] text-stone-400">Set the 3-character label and optional emoji for each type.</p>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
