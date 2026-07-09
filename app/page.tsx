@@ -613,18 +613,18 @@ export default function Home() {
   const isToday = selectedDate === today;
 
   const DayControls = ({ bottom = false }: { bottom?: boolean }) => (
-    <div className={`flex items-center gap-3 ${bottom ? 'mt-2' : 'mt-3'}`}>
-      <button onClick={() => handleDateChange(-1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }}>‹</button>
-      <div className="flex-1 text-center">
-        <span className="inline-flex min-w-0 items-baseline justify-center gap-2">
+    <div className={`grid grid-cols-[2.5rem_1fr_2.5rem] items-center gap-3 ${bottom ? 'mt-2' : 'mt-3'}`}>
+      <button onClick={() => handleDateChange(-1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }} aria-label="Previous day">‹</button>
+      <div className="relative min-w-0 text-center">
+        <span className="inline-flex max-w-full min-w-0 items-baseline justify-center gap-2">
           <span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>
           {!isToday && <span className="text-xs text-stone-400">{selectedDate}</span>}
-          {!bottom && (
-            <span className={`min-w-[3.5rem] text-left text-xs transition-opacity ${saving ? 'animate-pulse opacity-100' : 'opacity-0'}`} style={{ color: '#7E9B86' }}>
-              Saving...
-            </span>
-          )}
         </span>
+        {!bottom && saving && (
+          <span className="absolute left-[calc(50%+4.25rem)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] animate-pulse sm:text-xs" style={{ color: '#7E9B86' }}>
+            Saving...
+          </span>
+        )}
       </div>
       {isToday ? (
         <div className="w-10 h-10 flex-shrink-0" aria-hidden="true" />
@@ -658,7 +658,7 @@ export default function Home() {
           </div>
           {undoMessage && <p className="mt-1 text-right text-[10px] text-stone-400">{undoMessage}</p>}
 
-          <h1 className="sm:hidden text-center font-serif text-3xl font-semibold text-stone-800 mt-3">{appTitle}</h1>
+          <h1 className="sr-only">{appTitle}</h1>
           {dailySummary && summaryVisible && (
             <div className="mt-3 rounded-2xl px-4 py-3 flex items-start gap-3" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4' }}>
               <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }}>☀️</span>
@@ -667,76 +667,78 @@ export default function Home() {
             </div>
           )}
           <DayControls />
-          <div className="mt-2 flex items-center justify-center gap-2">
-            {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
-            <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
-            <div className="relative">
-              <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="text-xs font-medium px-3 py-1 rounded-full disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
-              <button
-                onClick={() => setShowTypeFilterMenu(prev => !prev)}
-                className="ml-2 text-xs font-medium px-3 py-1 rounded-full"
-                style={{
-                  color: typeFilterActive ? '#7E9B86' : '#a8a29e',
-                  background: typeFilterActive ? '#E4ECE6' : '#f5f5f4',
-                  touchAction: 'manipulation',
-                }}
-              >
-                {typeFilterActive ? `Type (${typeFilter.length})` : 'Type'}
-              </button>
-              {showTypeFilterMenu && (
-                <div className="fixed left-3 right-3 top-[calc(100dvh-18rem)] z-30 rounded-2xl border border-stone-100 bg-white shadow-2xl p-2 overflow-hidden sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:overflow-visible">
-                  <div className="flex items-center justify-between gap-2 px-1 pb-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
-                    {typeFilterActive && (
+          <div className="mt-2 flex justify-center">
+            <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-white/65 p-1 shadow-sm ring-1 ring-stone-200/70 [-ms-overflow-style:none] [scrollbar-width:none]">
+              {!isToday && <button onClick={() => changeDate(today)} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>Today</button>}
+              <button onClick={handleSaveAll} disabled={savingAll} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving' : saveAllDone ? 'Saved' : 'Save day'}</button>
+              <div className="relative flex shrink-0 items-center gap-1.5">
+                <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
+                <button
+                  onClick={() => setShowTypeFilterMenu(prev => !prev)}
+                  className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium"
+                  style={{
+                    color: typeFilterActive ? '#7E9B86' : '#a8a29e',
+                    background: typeFilterActive ? '#E4ECE6' : '#f5f5f4',
+                    touchAction: 'manipulation',
+                  }}
+                >
+                  {typeFilterActive ? `Type (${typeFilter.length})` : 'Type'}
+                </button>
+                {showTypeFilterMenu && (
+                  <div className="fixed left-3 right-3 top-[calc(100dvh-18rem)] z-30 rounded-2xl border border-stone-100 bg-white shadow-2xl p-2 overflow-hidden sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:overflow-visible">
+                    <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
+                      {typeFilterActive && (
+                        <button
+                          onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
+                          className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
+                          style={{ touchAction: 'manipulation' }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
                       <button
                         onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
-                        className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
-                        style={{ touchAction: 'manipulation' }}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
-                    <button
-                      onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
-                      className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
-                      style={{
-                        borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
-                        color: !typeFilterActive ? '#7E9B86' : '#78716c',
-                        background: !typeFilterActive ? '#E4ECE6' : '#fff',
-                        touchAction: 'manipulation',
-                      }}
-                    >
-                      All types
-                    </button>
-                    {typeOptions.map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setTypeFilter(prev => prev.includes(type) ? prev.filter(item => item !== type) : [...prev, type])}
-                        className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize truncate"
+                        className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
                         style={{
-                          borderColor: typeFilter.includes(type) ? '#7E9B86' : '#e7e5e4',
-                          color: typeFilter.includes(type) ? '#7E9B86' : '#78716c',
-                          background: typeFilter.includes(type) ? '#E4ECE6' : '#fff',
+                          borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
+                          color: !typeFilterActive ? '#7E9B86' : '#78716c',
+                          background: !typeFilterActive ? '#E4ECE6' : '#fff',
                           touchAction: 'manipulation',
                         }}
                       >
-                        {type}
+                        All types
                       </button>
-                    ))}
+                      {typeOptions.map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setTypeFilter(prev => prev.includes(type) ? prev.filter(item => item !== type) : [...prev, type])}
+                          className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize truncate"
+                          style={{
+                            borderColor: typeFilter.includes(type) ? '#7E9B86' : '#e7e5e4',
+                            color: typeFilter.includes(type) ? '#7E9B86' : '#78716c',
+                            background: typeFilter.includes(type) ? '#E4ECE6' : '#fff',
+                            touchAction: 'manipulation',
+                          }}
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="h-7 w-7 shrink-0 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
+                {summaryLoading ? <span className="text-sm leading-none">…</span> : (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" style={{ color: '#D9A94B' }} aria-hidden="true">
+                    <circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none" />
+                    <path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4" />
+                  </svg>
+                )}
+              </button>
             </div>
-            <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="w-8 h-8 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
-              {summaryLoading ? <span className="text-sm leading-none">…</span> : (
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" style={{ color: '#D9A94B' }} aria-hidden="true">
-                  <circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none" />
-                  <path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4" />
-                </svg>
-              )}
-            </button>
           </div>
         </div>
 
