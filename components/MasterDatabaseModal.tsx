@@ -139,15 +139,17 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const item = raw as Record<string, unknown>;
     const name = asString(item.name ?? item.title ?? item.exerciseName);
-    if (!name) return null;
-
-    const out: Partial<Exercise> & { id?: string } = { name };
     const id = asString(item.id);
+    const sourceId = asString(item.sourceId ?? item.externalId);
+    if (!name && !id && !sourceId) return null;
+
+    const out: Partial<Exercise> & { id?: string } = {};
+    if (name) out.name = name;
     if (id) out.id = id;
 
     const stringFields: Array<keyof Exercise> = ['cue', 'sets', 'imageSearch', 'gifUrl', 'mainImageUrl', 'mainVideoUrl', 'sourceId'];
     stringFields.forEach(fieldName => {
-      const value = asString(item[fieldName]);
+      const value = asString(fieldName === 'sourceId' ? (item.sourceId ?? item.externalId) : item[fieldName]);
       if (value) (out as Record<string, unknown>)[fieldName] = value;
     });
     const typeValue = cleanType(asString(item.type ?? item.cat));
@@ -190,19 +192,20 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
         rawItems.forEach(raw => {
           const incoming = normalizeImportedExercise(raw);
-          if (!incoming?.name) return;
+          if (!incoming) return;
 
           const sourceId = incoming.sourceId;
           const incomingName = normalizeName(incoming.name);
           let index = incoming.id ? next.findIndex(ex => ex.id === incoming.id) : -1;
           if (index < 0 && sourceId) index = next.findIndex(ex => ex.sourceId === sourceId);
-          if (index < 0) index = next.findIndex(ex => normalizeName(ex.name) === incomingName);
+          if (index < 0 && incomingName) index = next.findIndex(ex => normalizeName(ex.name) === incomingName);
 
           if (index >= 0) {
             const { id: _ignoredId, ...patch } = incoming;
             next[index] = { ...next[index], ...patch, id: next[index].id };
             updated += 1;
           } else {
+            if (!incoming.name) return;
             const id = incoming.id && !usedIds.has(incoming.id) ? incoming.id : uniqueExerciseId(incoming.name, usedIds);
             usedIds.add(id);
             next.push({
