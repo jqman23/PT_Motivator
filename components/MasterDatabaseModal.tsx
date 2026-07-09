@@ -56,6 +56,11 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   };
   const currentCat = (id: string) => layout.find(c => c.exerciseIds.includes(id))?.id ?? '';
   const typeOptions = useMemo(() => Array.from(new Set(draft.map(e => e.cat).filter(Boolean))).sort(), [draft]);
+  const buttonBase = 'w-full rounded-xl py-2 text-xs font-semibold border transition-colors disabled:opacity-50';
+  const buttonPrimary = `${buttonBase} text-white border-transparent bg-[#7E9B86]`;
+  const buttonSecondary = `${buttonBase} bg-white border-stone-200 text-stone-600 hover:bg-stone-50`;
+  const buttonWarm = `${buttonBase} bg-[#FBF5E8] border-[#F4E3D6] text-stone-700 hover:bg-[#F4E3D6]`;
+  const buttonDanger = `${buttonBase} bg-red-50 text-red-600 border-red-100 hover:bg-red-100`;
 
   const bulk = () => setDraft(prev => prev.map(e => {
     if (!target.includes(e.id)) return e;
@@ -343,8 +348,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anything…" className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm" />
 
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setSelected(Object.fromEntries(filtered.map(e => [e.id,true])))} className="bg-white rounded-xl border py-2 text-xs font-semibold">Select visible</button>
-              <button onClick={() => setSelected({})} className="bg-white rounded-xl border py-2 text-xs font-semibold">Clear</button>
+              <button onClick={() => setSelected(Object.fromEntries(filtered.map(e => [e.id,true])))} className={buttonSecondary}>Select visible</button>
+              <button onClick={() => setSelected({})} className={buttonSecondary}>Clear</button>
             </div>
 
             <p className="text-xs text-stone-400">Bulk target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
@@ -355,27 +360,32 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                 {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
-              <button onClick={bulk} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#7E9B86]">Apply bulk value</button>
+              <button onClick={bulk} className={buttonPrimary}>Apply bulk value</button>
             </div>
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={catId} onChange={e => setCatId(e.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
                 {layout.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={moveBulk} className="w-full rounded-xl py-2 text-sm font-semibold bg-[#FBF5E8] text-stone-700">Move target category</button>
+              <button onClick={moveBulk} className={buttonWarm}>Move target category</button>
             </div>
 
-            <button onClick={() => setJson(JSON.stringify(draft,null,2))} className="w-full rounded-xl bg-white border py-2 text-xs font-semibold">Export JSON</button>
-            {json && <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} className="w-full font-mono text-[10px] rounded-xl border p-2" />}
-            {json && <button onClick={importJsonToDraft} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Merge JSON into draft</button>}
+            <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">JSON merge</p>
+              <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} placeholder="Paste exercise JSON to merge by id, sourceId, or name..." className="w-full font-mono text-[10px] rounded-xl border border-stone-200 p-2 resize-none" />
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setJson(JSON.stringify(draft,null,2))} className={buttonSecondary}>Fill current</button>
+                <button onClick={importJsonToDraft} disabled={!json.trim()} className={buttonPrimary}>Merge JSON</button>
+              </div>
+            </div>
 
-            <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">
+            <button onClick={fillGifs} disabled={gifLoading} className={buttonSecondary}>
               {gifLoading ? 'Finding GIFs…' : 'Overwrite selected GIFs from ExerciseDB'}
             </button>
             {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
 
-            <button onClick={deleteTarget} className="w-full rounded-xl py-2 text-xs font-semibold bg-red-50 text-red-600 border border-red-100">Delete target exercises</button>
-            <button onClick={save} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#D9A94B]">{saved ? '✓ Saved' : 'Save database'}</button>
+            <button onClick={deleteTarget} className={buttonDanger}>Delete target exercises</button>
+            <button onClick={save} className={buttonWarm}>{saved ? 'Saved' : 'Save database'}</button>
           </aside>
 
           <div className="flex-1 overflow-auto p-4">
