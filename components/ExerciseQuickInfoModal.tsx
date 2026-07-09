@@ -53,6 +53,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
   const [videoLoading, setVideoLoading] = useState(false);
   const [manualVideoUrl, setManualVideoUrl] = useState('');
   const [error, setError] = useState('');
+  const [showMainVideo, setShowMainVideo] = useState(false);
 
   const uploadImage = async (file?: File | null) => {
     if (!file) return;
@@ -119,7 +120,20 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       <div className="bg-[#F6F1E7] w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88dvh] overflow-y-auto" onPointerDown={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between gap-3">
           <div>
-            <h2 className="font-serif text-xl font-semibold text-stone-800">{exercise.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-serif text-xl font-semibold text-stone-800">{exercise.name}</h2>
+              {hasPrimaryVideo && (
+                <button
+                  onPointerDown={e => { e.stopPropagation(); setShowMainVideo(prev => !prev); }}
+                  className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#C17B4F] shadow-sm border border-stone-100"
+                  title="Show main video"
+                >
+                  <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 ml-0.5" fill="currentColor">
+                    <polygon points="5,3 17,10 5,17" />
+                  </svg>
+                </button>
+              )}
+            </div>
             <p className="text-xs text-stone-500 mt-1">{exercise.cue}</p>
           </div>
           <button onPointerDown={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 text-xl text-stone-500">×</button>
@@ -127,53 +141,47 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
         <div className="p-5 space-y-4">
           {error && <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{error}</p>}
 
-          {(imageUrl || embedUrl) && (
+          {showMainVideo && embedUrl && (
             <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
-              {embedUrl ? (
-                <div className="relative aspect-video">
-                  {hasPrimaryVideo && (
-                    <button
-                      onClick={() => clearMedia('mainVideoUrl')}
-                      className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
-                    >
-                      Remove video
-                    </button>
-                  )}
-                  <iframe
-                    src={embedUrl}
-                    title={`${exercise.name} main video`}
-                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    className="absolute inset-0 h-full w-full border-0"
-                  />
-                </div>
-              ) : imageUrl ? (
-                <div className="relative">
-                  {hasPrimaryImage && (
-                    <button
-                      onClick={() => clearMedia('mainImageUrl')}
-                      className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
-                    >
-                      Remove photo
-                    </button>
-                  )}
-                  <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
-                </div>
-              ) : null}
+              <div className="relative aspect-video">
+                <button
+                  onClick={() => setShowMainVideo(false)}
+                  className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                >
+                  Hide video
+                </button>
+                {hasPrimaryVideo && (
+                  <button
+                    onClick={() => clearMedia('mainVideoUrl')}
+                    className="absolute left-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                  >
+                    Remove video
+                  </button>
+                )}
+                <iframe
+                  src={embedUrl}
+                  title={`${exercise.name} main video`}
+                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="absolute inset-0 h-full w-full border-0"
+                />
+              </div>
             </div>
           )}
 
-          {imageUrl && embedUrl && (
-            <div className="relative">
-              {hasPrimaryImage && (
-                <button
-                  onClick={() => clearMedia('mainImageUrl')}
-                  className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
-                >
-                  Remove photo
-                </button>
-              )}
-              <img src={imageUrl} alt={`${exercise.name} reference`} className="w-full rounded-2xl aspect-video object-cover bg-stone-100 border border-stone-100" />
+          {imageUrl && (
+            <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
+              <div className="relative">
+                {hasPrimaryImage && (
+                  <button
+                    onClick={() => clearMedia('mainImageUrl')}
+                    className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                  >
+                    Remove photo
+                  </button>
+                )}
+                <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
+              </div>
             </div>
           )}
 
