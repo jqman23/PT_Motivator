@@ -220,6 +220,20 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > inpu
   }
 }
 
+/* Make the Type filter outside-tap layer sit above mobile headers/floating widgets. */
+button[aria-label="Close type filter"] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10020 !important;
+  pointer-events: auto !important;
+  background: transparent !important;
+  touch-action: manipulation;
+}
+
+button[aria-label="Close type filter"] + div {
+  z-index: 10021 !important;
+}
+
 /* Library create/edit forms can be taller than the phone viewport after source search results appear. */
 .fixed.inset-0[class*="z-[60]"] > div.flex.flex-col:has(> div.border-t.flex-shrink-0 > div.bg-white.rounded-xl.border) {
   overflow: hidden;
