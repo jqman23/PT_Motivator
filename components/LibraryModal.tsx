@@ -354,6 +354,16 @@ export default function LibraryModal({
       nextLayout[targetIndex] = { ...target, color: target.color || color || 'green', exerciseIds: Array.from(new Set([...target.exerciseIds, exerciseId])) };
     });
 
+    const seenExerciseIds = new Set<string>();
+    nextLayout = [...nextLayout].reverse().map(category => {
+      const exerciseIds = category.exerciseIds.filter(exerciseId => {
+        if (seenExerciseIds.has(exerciseId)) return false;
+        seenExerciseIds.add(exerciseId);
+        return true;
+      });
+      return { ...category, exerciseIds };
+    }).reverse();
+
     const nextLibrary = Array.from(libraryById.values());
     await Promise.all([
       fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: nextLibrary }) }),
