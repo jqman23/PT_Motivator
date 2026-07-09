@@ -15,6 +15,7 @@ interface Props {
   done: boolean;
   note: string;
   today: string;
+  categoryName?: string;
   onToggle: () => void;
   onNoteSave: (note: string) => void;
   onMoveExercise?: (exerciseId: string, direction: -1 | 1) => Promise<boolean> | boolean;
@@ -41,7 +42,7 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
-export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave, onMoveExercise, typeOptions, typeMeta }: Props) {
+export default function ExerciseCard({ exercise, done, note, today, categoryName, onToggle, onNoteSave, onMoveExercise, typeOptions, typeMeta }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
@@ -70,6 +71,9 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     : 'bg-white border-stone-200';
   const typeTheme = getExerciseTypeTheme(exercise.cat);
   const typeDisplay = getExerciseTypeDisplay(exercise.cat, typeMeta);
+  const hideTypeBadge = categoryName
+    ? normalizeExerciseType(categoryName) === normalizeExerciseType(exercise.cat)
+    : false;
 
   const closeSwipe = () => {
     setSwipeX(0);
@@ -311,22 +315,24 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
                   {exercise.optional && <span className="ml-1 text-xs text-stone-400">(optional)</span>}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setTypeDraft(normalizeExerciseType(exercise.cat)); setShowTypePicker(true); }}
-                className="absolute right-0 top-0 inline-flex items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
-                style={{
-                  color: typeTheme.accent,
-                  transform: 'translateY(-3px)',
-                  touchAction: 'manipulation',
-                }}
-                title="Change or add type"
-              >
-                <span className="inline-flex items-center gap-0.5">
-                  {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
-                  <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
-                </span>
-              </button>
+              {!hideTypeBadge && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setTypeDraft(normalizeExerciseType(exercise.cat)); setShowTypePicker(true); }}
+                  className="absolute right-0 top-0 inline-flex items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
+                  style={{
+                    color: typeTheme.accent,
+                    transform: 'translateY(-3px)',
+                    touchAction: 'manipulation',
+                  }}
+                  title="Change or add type"
+                >
+                  <span className="inline-flex items-center gap-0.5">
+                    {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                    <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
+                  </span>
+                </button>
+              )}
             </div>
             <p className="mt-0.5 text-xs leading-[1.2] text-stone-400 sm:mt-0.5 sm:leading-snug">{exercise.cue}</p>
             {note && (

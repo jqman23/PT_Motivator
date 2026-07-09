@@ -204,8 +204,6 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     return out;
   };
 
-  const normalizeCategoryLabel = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
   const importJsonToDraft = () => {
     try {
       const parsed = JSON.parse(json);
@@ -326,57 +324,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         onLayoutChange(nextLayout);
       }
 
-      const exerciseCats = Array.from(new Set(
-        rawItems
-          .map(raw => normalizeImportedExercise(raw)?.cat)
-          .filter((value): value is string => !!value && value.trim().length > 0)
-      ));
-      if (exerciseCats.length) {
-        const nextLayout = [...layout];
-        const usedIds = new Set(nextLayout.map(cat => cat.id));
-        let createdFromCats = 0;
-        let attachedFromCats = 0;
-
-        exerciseCats.forEach(catLabel => {
-          const normalizedLabel = normalizeCategoryLabel(catLabel);
-          const matchingExercises = rawItems
-            .map(raw => normalizeImportedExercise(raw))
-            .filter((item): item is NonNullable<ReturnType<typeof normalizeImportedExercise>> => !!item && normalizeCategoryLabel(item.cat ?? '') === normalizedLabel)
-            .map(item => item.id)
-            .filter((id): id is string => !!id);
-
-          if (!matchingExercises.length) return;
-
-          const existingIndex = nextLayout.findIndex(cat =>
-            normalizeCategoryLabel(cat.name) === normalizedLabel ||
-            normalizeCategoryLabel(cat.id) === normalizedLabel
-          );
-
-          if (existingIndex >= 0) {
-            nextLayout[existingIndex] = {
-              ...nextLayout[existingIndex],
-              exerciseIds: Array.from(new Set([...nextLayout[existingIndex].exerciseIds, ...matchingExercises])),
-            };
-            attachedFromCats += 1;
-          } else {
-            const id = uniqueCategoryId(catLabel, usedIds);
-            nextLayout.push({
-              id,
-              name: catLabel,
-              color: layout[0]?.color ?? 'green',
-              exerciseIds: matchingExercises,
-            });
-            createdFromCats += 1;
-          }
-        });
-
-        if (createdFromCats || attachedFromCats) onLayoutChange(nextLayout);
-      }
-
       const messages: string[] = [];
       if (rawItems.length) messages.push(`exercises updated ${draftUpdated}, added ${draftAdded}`);
       if (rawLayout.length) messages.push(`categories updated ${categoryUpdated}, added ${categoryAdded}`);
-      if (exerciseCats.length) messages.push(`categories from exercise cat ${exerciseCats.length}`);
       window.setTimeout(() => alert(`Merged JSON into draft: ${messages.join('; ')}. Click Save database to commit.`), 0);
     } catch (err) {
       alert(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
