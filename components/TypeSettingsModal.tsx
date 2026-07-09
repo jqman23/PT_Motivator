@@ -14,11 +14,28 @@ type EmojiGroup = { label: string; items: string[] };
 
 const EMOJI_GROUPS: EmojiGroup[] = [
   { label: 'Recent', items: [] },
-  { label: 'Faces', items: ['😀','😁','😂','😅','😊','🙂','😎','🥳','🤓','😌','😍','😤','🤔','😴','😬','😮'] },
-  { label: 'Body', items: ['💪','🦵','🦶','🫀','🫁','🧠','👐','👏','🤝','🙏','✋','👣'] },
-  { label: 'Nature', items: ['🌿','🍃','🌱','🌲','🌞','🌙','⭐','🔥','💧','🌈','⚡','🍀'] },
-  { label: 'Objects', items: ['🏋️','🧘','🪑','🛌','🩹','🧴','⏱️','📈','📋','🧩','🎯','📌'] },
-  { label: 'Symbols', items: ['✅','❗','⭐','💥','💯','🔁','➡️','⬆️','⬇️','⬅️','↔️','⚙️'] },
+  { label: 'Workout', items: [
+    '🏋️','🏋️‍♀️','🏋️‍♂️','🏃','🏃‍♀️','🏃‍♂️','🚶','🚶‍♀️','🚶‍♂️','🚴','🚴‍♀️','🚴‍♂️',
+    '🧘','🧘‍♀️','🧘‍♂️','🤸','🤸‍♀️','🤸‍♂️','🤾','🤾‍♀️','🤾‍♂️','🤼','🤼‍♀️','🤼‍♂️',
+    '⏱️','⏲️','⌛','⛳','🎯','🔁','↔️','⬆️','⬇️','➡️','⬅️'
+  ] },
+  { label: 'Body', items: [
+    '💪','🦵','🦶','🖐️','✋','👣','👀','👂','👃','👄','🫀','🫁','🧠','🦴','🦷','🫁',
+    '👐','👏','🤝','🙏','🫶','🤲','🫳','🫴','🫰','👌','✊','👍','👎'
+  ] },
+  { label: 'Medical', items: [
+    '🩺','💊','🩹','🧴','🧼','🪥','🪒','🧻','🧻','🧊','🔥','🩻','🦽','🦼','🩼','🪑','🛏️',
+    '🧰','🧯','📋','📈','📉','🧪','🧫','🔬','🧬'
+  ] },
+  { label: 'Equipment', items: [
+    '🏃','🛤️','🪜','🪢','🪝','🪚','🛞','🏑','🏒','🏸','🏓','🎾','⚽','🏀','🏐','🥎','🪀',
+    '🏋️','🪈','🧱','🪵','🪛','🪚','🧲','🧩','🧸','🪑','🛋️','🛌','🧎','🧍'
+  ] },
+  { label: 'Objects', items: [
+    '🪞','🪟','🪟','🧰','🧲','🧪','📱','💻','⌚','📺','📷','📹','🎥','📌','📍','🗂️','🗒️',
+    '📎','🖊️','✏️','📐','📏','🧷','🪜','🧯','🧯','🪣','🧴','🧹','🧼'
+  ] },
+  { label: 'Symbols', items: ['✅','❗','⭐','💥','💯','🔁','➡️','⬆️','⬇️','⬅️','↔️','⚙️','➕','➖','✳️','⚡','🔷','🔶','🔸','🔹'] },
 ];
 
 function loadRecentEmojis(): string[] {
@@ -51,7 +68,8 @@ function mergeMeta(base: ExerciseTypeMeta, type: string, patch: { letters?: stri
 }
 
 export default function TypeSettingsModal({ types, meta, onChange, onClose }: Props) {
-  const [query, setQuery] = useState('');
+  const [typeQuery, setTypeQuery] = useState('');
+  const [emojiQuery, setEmojiQuery] = useState('');
   const [pickerType, setPickerType] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
 
@@ -66,18 +84,18 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
   }, [onClose]);
 
   const filteredTypes = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = typeQuery.trim().toLowerCase();
     const unique = Array.from(new Set(types.map(normalizeExerciseType)));
     return unique
       .sort((a, b) => a.localeCompare(b))
       .filter(type => !q || type.toLowerCase().includes(q) || (meta[type.toLowerCase()]?.letters ?? '').toLowerCase().includes(q));
-  }, [meta, query, types]);
+  }, [meta, typeQuery, types]);
 
   const activeType = pickerType ? normalizeExerciseType(pickerType) : '';
   const activeEmoji = activeType ? (meta[activeType.toLowerCase()]?.emoji ?? '') : '';
 
   const emojiGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = emojiQuery.trim().toLowerCase();
     const groups = EMOJI_GROUPS.map(group => ({
       ...group,
       items: group.label === 'Recent'
@@ -85,7 +103,7 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
         : group.items.filter(emoji => !q || emoji.includes(q) || emoji === q),
     })).filter(group => group.items.length > 0 || group.label === 'Recent');
     return groups;
-  }, [query, recent]);
+  }, [emojiQuery, recent]);
 
   const setLetters = (type: string, letters: string) => {
     const clean = Array.from(letters.replace(/\s+/g, '')).slice(0, 3).join('');
@@ -119,8 +137,8 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
         <div className="px-4 py-4 overflow-y-auto space-y-3">
           <div className="sticky top-0 z-10 bg-[#F6F1E7] pb-3">
             <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+              value={typeQuery}
+              onChange={e => setTypeQuery(e.target.value)}
               placeholder="Search types or letters..."
               className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm"
               style={{ fontSize: 16, colorScheme: 'light' }}
@@ -173,8 +191,8 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
 
             <div className="p-3">
               <input
-                value={query}
-                onChange={e => setQuery(e.target.value)}
+                value={emojiQuery}
+                onChange={e => setEmojiQuery(e.target.value)}
                 placeholder="Search emoji"
                 className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm"
                 style={{ fontSize: 16, colorScheme: 'light' }}
