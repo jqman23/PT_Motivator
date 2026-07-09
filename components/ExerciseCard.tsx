@@ -75,6 +75,10 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
     ? normalizeExerciseType(categoryName) === normalizeExerciseType(exercise.cat)
     : false;
 
+  useEffect(() => {
+    if (!showTypePicker) setTypeDraft(normalizeExerciseType(exercise.cat));
+  }, [exercise.cat, showTypePicker]);
+
   const closeSwipe = () => {
     setSwipeX(0);
     setSwipeOpen(false);
@@ -318,7 +322,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
               {!hideTypeBadge && (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); setTypeDraft(normalizeExerciseType(exercise.cat)); setShowTypePicker(true); }}
+                  onClick={(e) => { e.stopPropagation(); setShowTypePicker(true); }}
                   className="inline-flex flex-shrink-0 items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
                   style={{
                     color: typeTheme.accent,
@@ -470,8 +474,8 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       )}
 
       {showTypePicker && (
-        <div className="fixed inset-0 z-[82] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8" onClick={() => setShowTypePicker(false)}>
-          <div className="w-full rounded-t-2xl bg-[#F6F1E7] border-t border-stone-200 p-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[82] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-4" onClick={() => setShowTypePicker(false)}>
+          <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-[#F6F1E7] border border-stone-200 p-4 shadow-2xl" onClick={e => e.stopPropagation()}>
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Edit type</p>
             <h2 className="font-serif text-lg font-semibold text-stone-800 leading-tight mt-0.5">{exercise.name}</h2>
             <div className="mt-3 flex flex-wrap gap-2">
