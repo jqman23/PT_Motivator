@@ -32,6 +32,8 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
   const [confirmDeleteEx, setConfirmDeleteEx] = useState<string | null>(null);
+  const [typeSortCat, setTypeSortCat] = useState<string | null>(null);
+  const [typeOrderDraft, setTypeOrderDraft] = useState<string[]>([]);
 
   const catSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const exRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -159,21 +161,45 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
   const removeEx = (catId: string, exId: string) =>
     onChange(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c));
 
-  const sortCatByType = (catId: string) => {
+  const typesForCat = (catId: string) => {
+    const cat = layout.find(c => c.id === catId);
+    if (!cat) return [];
+    return Array.from(new Set(cat.exerciseIds.map(exId => normalizeExerciseType(exerciseMap[exId]?.cat)).filter(Boolean)));
+  };
+
+  const openTypeSort = (catId: string) => {
+    const types = typesForCat(catId);
+    setTypeSortCat(current => current === catId ? null : catId);
+    setTypeOrderDraft(types);
+  };
+
+  const moveTypeDraft = (type: string, direction: -1 | 1) => {
+    setTypeOrderDraft(current => {
+      const index = current.indexOf(type);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+
+  const applyTypeOrder = (catId: string) => {
+    const order = new Map(typeOrderDraft.map((type, index) => [type, index]));
     const next = layout.map(c => {
       if (c.id !== catId) return c;
+      const originalIndex = new Map(c.exerciseIds.map((exId, index) => [exId, index]));
       const sorted = [...c.exerciseIds].sort((a, b) => {
-        const exA = exerciseMap[a];
-        const exB = exerciseMap[b];
-        const typeA = normalizeExerciseType(exA?.cat);
-        const typeB = normalizeExerciseType(exB?.cat);
-        const typeCmp = typeA.localeCompare(typeB);
+        const typeA = normalizeExerciseType(exerciseMap[a]?.cat);
+        const typeB = normalizeExerciseType(exerciseMap[b]?.cat);
+        const typeCmp = (order.get(typeA) ?? Number.MAX_SAFE_INTEGER) - (order.get(typeB) ?? Number.MAX_SAFE_INTEGER);
         if (typeCmp !== 0) return typeCmp;
-        return (exA?.name ?? '').localeCompare(exB?.name ?? '');
+        return (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0);
       });
       return { ...c, exerciseIds: sorted };
     });
     onChange(next);
+    setTypeSortCat(null);
   };
 
   const permanentlyDeleteEx = (exId: string) => {
@@ -266,14 +292,62 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
                         }} />
                     ))}
                     <button
-                      onClick={() => sortCatByType(cat.id)}
+                      onClick={() => openTypeSort(cat.id)}
                       className="ml-auto rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-stone-500"
                       style={{ touchAction: 'manipulation' }}
-                      title="Sort exercises in this category by type"
+                      title="Choose type order for this category"
                     >
                       Sort by type
                     </button>
                   </div>
+
+                  {typeSortCat === cat.id && (
+                    <div className="border-b border-stone-100 bg-stone-50 px-3 py-2">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Type order</p>
+                        <button
+                          onClick={() => setTypeSortCat(null)}
+                          className="rounded-full px-2 py-1 text-[10px] font-bold text-stone-400 hover:bg-white"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      {typeOrderDraft.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {typeOrderDraft.map((type, index) => (
+                            <div key={type} className="flex items-center gap-1.5 rounded-xl bg-white px-2 py-1.5">
+                              <span className="flex-1 min-w-0 truncate text-xs font-semibold text-stone-700">{type}</span>
+                              <button
+                                onClick={() => moveTypeDraft(type, -1)}
+                                disabled={index === 0}
+                                className="rounded-lg px-2 py-1 text-[11px] font-bold text-stone-500 disabled:opacity-30"
+                                style={{ background: '#f5f5f4', touchAction: 'manipulation' }}
+                              >
+                                ↑
+                              </button>
+                              <button
+                                onClick={() => moveTypeDraft(type, 1)}
+                                disabled={index === typeOrderDraft.length - 1}
+                                className="rounded-lg px-2 py-1 text-[11px] font-bold text-stone-500 disabled:opacity-30"
+                                style={{ background: '#f5f5f4', touchAction: 'manipulation' }}
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => applyTypeOrder(cat.id)}
+                            className="w-full rounded-xl py-2 text-xs font-bold text-white"
+                            style={{ background: '#7E9B86', touchAction: 'manipulation' }}
+                          >
+                            Apply type order
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs italic text-stone-400">No exercise types in this category yet.</p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Exercises */}
                   <div className="px-2 py-2">
