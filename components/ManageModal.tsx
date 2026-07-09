@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE, COLOR_KEYS } from '@/lib/layout';
+import { normalizeExerciseType } from '@/lib/exerciseTypes';
 
 interface Props {
   layout: CategoryConfig[];
@@ -144,6 +145,23 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
   const removeEx = (catId: string, exId: string) =>
     onChange(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c));
 
+  const sortCatByType = (catId: string) => {
+    const next = layout.map(c => {
+      if (c.id !== catId) return c;
+      const sorted = [...c.exerciseIds].sort((a, b) => {
+        const exA = exerciseMap[a];
+        const exB = exerciseMap[b];
+        const typeA = normalizeExerciseType(exA?.cat);
+        const typeB = normalizeExerciseType(exB?.cat);
+        const typeCmp = typeA.localeCompare(typeB);
+        if (typeCmp !== 0) return typeCmp;
+        return (exA?.name ?? '').localeCompare(exB?.name ?? '');
+      });
+      return { ...c, exerciseIds: sorted };
+    });
+    onChange(next);
+  };
+
   const permanentlyDeleteEx = (exId: string) => {
     onDeleteExercise(exId);
     setConfirmDeleteEx(null);
@@ -233,6 +251,14 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
                           boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none',
                         }} />
                     ))}
+                    <button
+                      onClick={() => sortCatByType(cat.id)}
+                      className="ml-auto rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-stone-500"
+                      style={{ touchAction: 'manipulation' }}
+                      title="Sort exercises in this category by type"
+                    >
+                      Sort by type
+                    </button>
                   </div>
 
                   {/* Exercises */}

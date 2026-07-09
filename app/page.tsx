@@ -19,6 +19,7 @@ import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
+import { normalizeExerciseType } from '@/lib/exerciseTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -177,6 +178,10 @@ export default function Home() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
+  const typeOptions = useMemo(
+    () => Array.from(new Set(allExercises.map(ex => normalizeExerciseType(ex.cat)))).sort((a, b) => a.localeCompare(b)),
+    [allExercises]
+  );
   const layoutExercises = useMemo(() =>
     layout.flatMap(cat => cat.exerciseIds
       .map(id => exerciseMap[id] ? { ...exerciseMap[id], categoryName: cat.name, categoryColor: cat.color } : null)
@@ -559,7 +564,7 @@ export default function Home() {
                     <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
                     <div className="relative flex-shrink-0"><button onClick={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)} className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: palette.accent, touchAction: 'manipulation' }} title="Change color" />{colorMenuCat === cat.id && <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">{COLOR_KEYS.map(c => <button key={c} onClick={() => changeColor(cat.id, c)} className="w-6 h-6 rounded-full" style={{ background: COLOR_PALETTE[c].accent, boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div>}</div>
                   </div>
-                  {!isCollapsed && <div className="space-y-2">{catExercises.map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
+                  {!isCollapsed && <div className="space-y-2">{catExercises.map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
                   {isCollapsed && <button onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))} className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed" style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}>{done}/{total} done · tap to expand</button>}
                 </section>
               );

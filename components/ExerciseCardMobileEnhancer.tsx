@@ -21,6 +21,12 @@ function setButtons(buttons: HTMLButtonElement[], expanded: boolean) {
   });
 }
 
+function setPreview(actionBox: HTMLElement, expanded: boolean) {
+  const preview = actionBox.querySelector<HTMLElement>('[data-mobile-action-preview="true"]');
+  if (!preview) return;
+  preview.style.display = expanded ? '' : 'none';
+}
+
 function enhanceCard(card: HTMLElement) {
   const actionBox = card.lastElementChild;
   if (!(actionBox instanceof HTMLElement)) return;
@@ -42,6 +48,7 @@ function enhanceCard(card: HTMLElement) {
   if (!isMobile) {
     menu.style.display = 'none';
     setButtons(actionButtons, true);
+    setPreview(actionBox, false);
     actionBox.dataset.actionsExpanded = 'false';
     return;
   }
@@ -51,6 +58,7 @@ function enhanceCard(card: HTMLElement) {
   menu.style.display = '';
   const expanded = actionBox.dataset.actionsExpanded === 'true';
   setButtons(actionButtons, expanded);
+  setPreview(actionBox, expanded);
   menu.style.background = expanded ? '#E4ECE6' : '';
   menu.style.color = expanded ? '#7E9B86' : '';
 
@@ -62,6 +70,7 @@ function enhanceCard(card: HTMLElement) {
     const nextExpanded = actionBox.dataset.actionsExpanded !== 'true';
     actionBox.dataset.actionsExpanded = String(nextExpanded);
     setButtons(actionButtons, nextExpanded);
+    setPreview(actionBox, nextExpanded);
     menu!.style.background = nextExpanded ? '#E4ECE6' : '';
     menu!.style.color = nextExpanded ? '#7E9B86' : '';
   });

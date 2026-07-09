@@ -2,6 +2,7 @@
 
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
+import { getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
 import { youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
@@ -58,7 +59,9 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                 </div>
 
                 <div className="space-y-2">
-                  {exercises.map(ex => (
+                  {exercises.map(ex => {
+                    const typeTheme = getExerciseTypeTheme(ex.cat);
+                    return (
                     <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
                       <div className="flex items-start gap-3">
                         {(ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || ex.mainVideoUrl) ? (
@@ -79,7 +82,21 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start gap-2">
-                            <h4 className="text-sm font-bold text-stone-800 leading-snug flex-1">{ex.name}</h4>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start gap-2 flex-wrap">
+                                <h4 className="text-sm font-bold text-stone-800 leading-snug">{ex.name}</h4>
+                                <span
+                                  className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
+                                  style={{
+                                    background: typeTheme.light,
+                                    color: typeTheme.accent,
+                                    borderColor: `${typeTheme.accent}22`,
+                                  }}
+                                >
+                                  {normalizeExerciseType(ex.cat)}
+                                </span>
+                              </div>
+                            </div>
                             {ex.origin && (
                               <span className="text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-400 flex-shrink-0">
                                 {sourceLabel(ex)}
@@ -107,7 +124,8 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                         <p className="mt-2 text-[10px] text-stone-400 truncate">Media search: {ex.imageSearch}</p>
                       )}
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             );
