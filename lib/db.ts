@@ -2,6 +2,56 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
 
+export type NotePhotoAttachment = {
+  id: string;
+  name: string;
+  type: string;
+  dataUrl: string;
+  createdAt: string;
+};
+
+const MAX_NOTE_PHOTOS = 5;
+const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
+
+function normalizePhotoAttachments(value: unknown): NotePhotoAttachment[] {
+  if (!Array.isArray(value)) return [];
+
+  const photos: NotePhotoAttachment[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<NotePhotoAttachment>;
+    if (typeof raw.dataUrl !== 'string') continue;
+    if (!raw.dataUrl.startsWith('data:image/')) continue;
+    if (raw.dataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) continue;
+
+    photos.push({
+      id: typeof raw.id === 'string' && raw.id ? raw.id.slice(0, 80) : `photo-${Date.now()}-${photos.length}`,
+      name: typeof raw.name === 'string' ? raw.name.slice(0, 160) : 'Exercise photo',
+      type: typeof raw.type === 'string' ? raw.type.slice(0, 80) : 'image/jpeg',
+      dataUrl: raw.dataUrl,
+      createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
+    });
+
+    if (photos.length >= MAX_NOTE_PHOTOS) break;
+  }
+  return photos;
+}
+
+async function ensureExerciseNotesTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS exercise_notes (
+      id SERIAL PRIMARY KEY,
+      date DATE NOT NULL,
+      exercise_id TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(date, exercise_id)
+    )
+  `;
+  await sql`ALTER TABLE exercise_notes ADD COLUMN IF NOT EXISTS photo_attachments JSONB NOT NULL DEFAULT '[]'::jsonb`;
+}
+
 export async function initDb() {
   await sql`
     CREATE TABLE IF NOT EXISTS user_config (
@@ -23,17 +73,7 @@ export async function initDb() {
     )
   `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS exercise_notes (
-      id SERIAL PRIMARY KEY,
-      date DATE NOT NULL,
-      exercise_id TEXT NOT NULL,
-      note TEXT NOT NULL DEFAULT '',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(date, exercise_id)
-    )
-  `;
+  await ensureExerciseNotesTable();
 
   await sql`
     CREATE TABLE IF NOT EXISTS health_log (
@@ -86,8 +126,9 @@ export async function upsertLog(date: string, exerciseId: string, completed: boo
 }
 
 export async function getNotesForDate(date: string) {
+  await ensureExerciseNotesTable();
   return sql`
-    SELECT exercise_id, note
+    SELECT exercise_id, note, COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments
     FROM exercise_notes
     WHERE date = ${date}::date
   `;
@@ -119,6 +160,7 @@ export async function deleteLogForDate(date: string) {
 }
 
 export async function deleteNotesForDate(date: string) {
+  await ensureExerciseNotesTable();
   await sql`DELETE FROM exercise_notes WHERE date = ${date}::date`;
 }
 
@@ -141,6 +183,7 @@ export async function setConfig(key: string, value: unknown) {
 }
 
 export async function getRecentNotes(exerciseId: string, beforeDate: string): Promise<Array<{ note: string }>> {
+  await ensureExerciseNotesTable();
   const rows = await sql`
     SELECT note
     FROM exercise_notes
@@ -155,17 +198,31 @@ export async function getRecentNotes(exerciseId: string, beforeDate: string): Pr
   return rows as Array<{ note: string }>;
 }
 
-export async function upsertNote(date: string, exerciseId: string, note: string) {
+export async function upsertNote(date: string, exerciseId: string, note: string, photoAttachments?: unknown) {
+  await ensureExerciseNotesTable();
+
+  if (photoAttachments === undefined) {
+    await sql`
+      INSERT INTO exercise_notes (date, exercise_id, note, updated_at)
+      VALUES (${date}::date, ${exerciseId}, ${note}, NOW())
+      ON CONFLICT (date, exercise_id)
+      DO UPDATE SET note = ${note}, updated_at = NOW()
+    `;
+    return;
+  }
+
+  const cleanPhotos = normalizePhotoAttachments(photoAttachments);
   await sql`
-    INSERT INTO exercise_notes (date, exercise_id, note, updated_at)
-    VALUES (${date}::date, ${exerciseId}, ${note}, NOW())
+    INSERT INTO exercise_notes (date, exercise_id, note, photo_attachments, updated_at)
+    VALUES (${date}::date, ${exerciseId}, ${note}, ${JSON.stringify(cleanPhotos)}::jsonb, NOW())
     ON CONFLICT (date, exercise_id)
-    DO UPDATE SET note = ${note}, updated_at = NOW()
+    DO UPDATE SET note = ${note}, photo_attachments = ${JSON.stringify(cleanPhotos)}::jsonb, updated_at = NOW()
   `;
 }
 
 export async function renameExerciseId(oldId: string, newId: string) {
   if (!oldId || !newId || oldId === newId) return;
+  await ensureExerciseNotesTable();
 
   await sql`
     INSERT INTO workout_log (date, exercise_id, completed, updated_at)
@@ -177,8 +234,8 @@ export async function renameExerciseId(oldId: string, newId: string) {
   `;
 
   await sql`
-    INSERT INTO exercise_notes (date, exercise_id, note, updated_at)
-    SELECT date, ${newId}, note, NOW()
+    INSERT INTO exercise_notes (date, exercise_id, note, photo_attachments, updated_at)
+    SELECT date, ${newId}, note, COALESCE(photo_attachments, '[]'::jsonb), NOW()
     FROM exercise_notes
     WHERE exercise_id = ${oldId}
     ON CONFLICT (date, exercise_id)
@@ -188,6 +245,11 @@ export async function renameExerciseId(oldId: string, newId: string) {
         WHEN EXCLUDED.note = '' THEN exercise_notes.note
         WHEN POSITION(EXCLUDED.note IN exercise_notes.note) > 0 THEN exercise_notes.note
         ELSE exercise_notes.note || E'\n' || EXCLUDED.note
+      END,
+      photo_attachments = CASE
+        WHEN jsonb_array_length(COALESCE(exercise_notes.photo_attachments, '[]'::jsonb)) = 0 THEN EXCLUDED.photo_attachments
+        WHEN jsonb_array_length(COALESCE(EXCLUDED.photo_attachments, '[]'::jsonb)) = 0 THEN exercise_notes.photo_attachments
+        ELSE exercise_notes.photo_attachments || EXCLUDED.photo_attachments
       END,
       updated_at = NOW()
   `;
