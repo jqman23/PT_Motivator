@@ -140,21 +140,21 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           )}
 
           {(!hasPrimaryImage || !hasPrimaryVideo) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {!hasPrimaryImage && (
-                <label className="min-h-36 rounded-2xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-2 px-4 py-5 text-center active:bg-stone-50 cursor-pointer">
-                  <span className="text-2xl text-stone-300">＋</span>
-                  <span className="text-sm font-bold text-stone-700">{uploading ? 'Uploading image...' : 'Add main photo'}</span>
-                  <span className="text-[11px] text-stone-400">Choose from Photos or files</span>
+                <label className="min-h-24 rounded-xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center active:bg-stone-50 cursor-pointer">
+                  <span className="text-lg text-stone-300">＋</span>
+                  <span className="text-xs font-bold text-stone-700">{uploading ? 'Uploading...' : 'Add photo'}</span>
+                  <span className="text-[10px] text-stone-400 leading-tight">Photos or files</span>
                   <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
                 </label>
               )}
 
               {!hasPrimaryVideo && (
-                <button onClick={() => setVideoSearchOpen(prev => !prev)} className="min-h-36 rounded-2xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-2 px-4 py-5 text-center active:bg-stone-50">
-                  <span className="text-2xl text-stone-300">▶</span>
-                  <span className="text-sm font-bold text-stone-700">Add main video</span>
-                  <span className="text-[11px] text-stone-400">Search YouTube or paste URL</span>
+                <button onClick={() => setVideoSearchOpen(prev => !prev)} className="min-h-24 rounded-xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center active:bg-stone-50">
+                  <span className="text-lg text-stone-300">▶</span>
+                  <span className="text-xs font-bold text-stone-700">Add video</span>
+                  <span className="text-[10px] text-stone-400 leading-tight">Search or paste URL</span>
                 </button>
               )}
             </div>
