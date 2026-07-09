@@ -28,6 +28,7 @@ type ApiNinjasResult = {
 
 type ExternalExerciseResult = ExerciseDbResult | ApiNinjasResult;
 type JsonExerciseInput = Record<string, unknown>;
+type ParsedJsonExercise = { exercise: Exercise; categoryName?: string };
 
 interface Props {
   builtIns: Exercise[];
@@ -36,6 +37,7 @@ interface Props {
   addToCatId?: string | null;
   onPick: (exId: string, catId: string) => void;
   onCreateCustom: (ex: Exercise) => void;
+  onImportExercises?: (items: ParsedJsonExercise[]) => void;
   onUpdateCustom: (ex: Exercise) => void;
   onDeleteCustom: (exId: string) => void;
   onClose: () => void;
@@ -61,6 +63,7 @@ const looksLikeJson = (input: string) => {
   const clean = cleanJsonInput(input);
   return clean.startsWith('{') || clean.startsWith('[') || clean.includes('```json') || clean.includes('```JSON');
 };
+const normalizeCategoryText = (value: string) => value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 
 function splitTopLevelObjects(input: string): string[] {
   const objects: string[] = [];
@@ -95,7 +98,7 @@ function splitTopLevelObjects(input: string): string[] {
   return objects;
 }
 
-function parseExerciseJsonInput(input: string): { exercises: Exercise[]; error?: string } | null {
+function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { items: ParsedJsonExercise[]; error?: string } | null {
   const clean = cleanJsonInput(input);
   if (!looksLikeJson(clean)) return null;
 
@@ -105,46 +108,62 @@ function parseExerciseJsonInput(input: string): { exercises: Exercise[]; error?:
     rawItems = Array.isArray(parsed) ? parsed : [parsed];
   } catch {
     const objectChunks = splitTopLevelObjects(clean);
-    if (objectChunks.length === 0) return { exercises: [], error: 'Invalid JSON. Paste one exercise object, an array, or multiple objects.' };
+    if (objectChunks.length === 0) return { items: [], error: 'Invalid JSON. Paste one exercise object, an array, or multiple objects.' };
     try {
       rawItems = objectChunks.map(chunk => JSON.parse(chunk));
     } catch {
-      return { exercises: [], error: 'Invalid JSON. One of the pasted exercise objects could not be parsed.' };
+      return { items: [], error: 'Invalid JSON. One of the pasted exercise objects could not be parsed.' };
     }
   }
 
-  const exercises: Exercise[] = [];
+  const layoutNames = layout.map(cat => cat.name);
+  const resolveCategoryName = (value: unknown) => {
+    const raw = asString(value);
+    if (!raw) return undefined;
+    const normalized = normalizeCategoryText(raw);
+    return layoutNames.find(name => normalizeCategoryText(name) === normalized)
+      ?? layoutNames.find(name => {
+        const candidate = normalizeCategoryText(name);
+        return candidate.includes(normalized) || normalized.includes(candidate);
+      });
+  };
+
+  const items: ParsedJsonExercise[] = [];
   for (let index = 0; index < rawItems.length; index += 1) {
     const item = rawItems[index];
-    if (!isObject(item)) return { exercises: [], error: `Exercise ${index + 1} must be a JSON object.` };
+    if (!isObject(item)) return { items: [], error: `Exercise ${index + 1} must be a JSON object.` };
 
     const name = asString(item.name ?? item.title ?? item.exerciseName);
-    if (!name) return { exercises: [], error: `Exercise ${index + 1} is missing a name.` };
+    if (!name) return { items: [], error: `Exercise ${index + 1} is missing a name.` };
 
     const cue = asString(item.cue ?? item.shortCue ?? item.description ?? item.note);
     const explicitSets = asString(item.sets ?? item.setRepScheme ?? item.dosage);
     const reps = asString(item.reps ?? item.repCount);
     const sets = explicitSets || (reps ? reps : undefined);
-    const catText = asString(item.cat ?? item.category ?? item.type).toLowerCase();
+    const categoryName = resolveCategoryName(item.categoryName ?? item.category);
+    const catText = asString(item.cat ?? item.type ?? item.category).toLowerCase();
     const cat: Exercise['cat'] = catText.includes('strength') ? 'strength' : 'mobility';
     const originText = asString(item.origin ?? item.source).toLowerCase();
     const origin = ORIGIN_OPTIONS.some(opt => opt.value === originText) ? originText as NonNullable<Exercise['origin']> : 'patient_added';
     const tips = asStringArray(item.tips ?? item.helpfulTips ?? item.instructions ?? item.cues);
 
-    exercises.push(makeCustomExercise({
-      name,
-      cue,
-      sets,
-      cat,
-      imageSearch: asString(item.imageSearch ?? item.mediaSearch ?? item.searchTerms) || name,
-      tips,
-      origin,
-      sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
-      gifUrl: asString(item.gifUrl) || undefined,
-    }));
+    items.push({
+      exercise: makeCustomExercise({
+        name,
+        cue,
+        sets,
+        cat,
+        imageSearch: asString(item.imageSearch ?? item.mediaSearch ?? item.searchTerms) || name,
+        tips,
+        origin,
+        sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
+        gifUrl: asString(item.gifUrl) || undefined,
+      }),
+      categoryName,
+    });
   }
 
-  return { exercises };
+  return { items };
 }
 
 export default function LibraryModal({
@@ -154,6 +173,7 @@ export default function LibraryModal({
   addToCatId,
   onPick,
   onCreateCustom,
+  onImportExercises,
   onUpdateCustom,
   onDeleteCustom,
   onClose,
@@ -237,18 +257,24 @@ export default function LibraryModal({
   };
 
   const importJsonExercises = (input: string) => {
-    const parsed = parseExerciseJsonInput(input);
+    const parsed = parseExerciseJsonInput(input, layout);
     if (!parsed) return false;
     if (parsed.error) {
       setBulkMessage(parsed.error);
       return true;
     }
-    parsed.exercises.forEach(ex => {
-      onCreateCustom(ex);
-      if (addToCatId) onPick(ex.id, addToCatId);
-    });
+    if (onImportExercises) {
+      onImportExercises(parsed.items);
+    } else {
+      parsed.items.forEach(({ exercise, categoryName }) => {
+        const categoryId = categoryName ? layout.find(cat => cat.name === categoryName)?.id : addToCatId;
+        const targetId = categoryId ?? addToCatId;
+        onCreateCustom(exercise);
+        if (targetId) onPick(exercise.id, targetId);
+      });
+    }
     setQuery('');
-    setBulkMessage(`Added ${parsed.exercises.length} exercise${parsed.exercises.length === 1 ? '' : 's'} from JSON.`);
+    setBulkMessage(`Added ${parsed.items.length} exercise${parsed.items.length === 1 ? '' : 's'} from JSON.`);
     resetForm();
     setCreating(false);
     return true;

@@ -206,6 +206,10 @@ function parseJsonFromText(text: string) {
   return JSON.parse(jsonMatch ? jsonMatch[1] : text.trim());
 }
 
+function normalizeCategoryText(value: string) {
+  return value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -217,6 +221,18 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const [manualNote, setManualNote] = useState('');
 
   const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
+  const resolveCategoryName = (value?: string | null) => {
+    const fallback = categoryNames[0] ?? '';
+    const raw = String(value ?? '').trim();
+    if (!raw) return fallback;
+    const normalized = normalizeCategoryText(raw);
+    return categoryNames.find(name => normalizeCategoryText(name) === normalized)
+      ?? categoryNames.find(name => {
+        const candidate = normalizeCategoryText(name);
+        return candidate.includes(normalized) || normalized.includes(candidate);
+      })
+      ?? fallback;
+  };
 
   const visibleExercises = useMemo(() => layout.flatMap(cat =>
     cat.exerciseIds
@@ -262,7 +278,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     const newExercises: SmartNewExercise[] = (raw.newExercises ?? [])
       .map((item: SmartNewExercise) => ({
         name: String(item.name ?? '').trim(),
-        categoryName: categoryNames.includes(item.categoryName ?? '') ? item.categoryName : categoryNames[0],
+        categoryName: resolveCategoryName(item.categoryName),
         sets: String(item.sets ?? '').trim(),
         cue: String(item.cue ?? '').trim(),
         tips: Array.isArray(item.tips) ? item.tips.map(tip => String(tip).trim()).filter(Boolean).slice(0, 6) : [],

@@ -414,6 +414,16 @@ export default function Home() {
     updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })).map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c));
   };
   const createCustom = (ex: Exercise) => updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
+  const importExercises = (items: { exercise: Exercise; categoryName?: string }[]) => {
+    const additions = items.map(({ exercise }) => ({ ...exercise, origin: exercise.origin ?? 'patient_added' }));
+    updateExerciseLibrary([...exerciseLibrary, ...additions]);
+    updateLayout(layout.map(cat => {
+      const ids = items
+        .filter(({ categoryName }) => categoryName === cat.name || (!categoryName && libraryCatId === cat.id))
+        .map(({ exercise }) => exercise.id);
+      return ids.length ? { ...cat, exerciseIds: Array.from(new Set([...cat.exerciseIds, ...ids])) } : cat;
+    }));
+  };
   const updateExercise = (nextExercise: Exercise) => updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
   const deleteCustom = (exId: string) => {
     updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId));
@@ -497,7 +507,7 @@ export default function Home() {
         {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} onClose={() => setShowAiCoach(false)} />}
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
-        {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
+        {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onImportExercises={importExercises} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
         {noteModalId && exerciseMap[noteModalId] && (
           <NotesModal
             exerciseName={exerciseMap[noteModalId].name}
