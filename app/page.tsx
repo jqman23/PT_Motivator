@@ -626,7 +626,11 @@ export default function Home() {
           )}
         </span>
       </div>
-      <button onClick={() => handleDateChange(1)} disabled={isToday} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 disabled:opacity-30 text-lg" style={{ touchAction: 'manipulation' }}>›</button>
+      {isToday ? (
+        <div className="w-10 h-10 flex-shrink-0" aria-hidden="true" />
+      ) : (
+        <button onClick={() => handleDateChange(1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }} aria-label="Next day">›</button>
+      )}
     </div>
   );
 
