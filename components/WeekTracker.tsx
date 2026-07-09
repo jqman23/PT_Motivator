@@ -21,7 +21,6 @@ type WeekGroup = {
   id: string;
   name: string;
   color: string;
-  goal: number;
   exercises: Exercise[];
 };
 
@@ -55,19 +54,25 @@ function normalizeType(value?: string) {
   return (value || 'untyped').trim() || 'untyped';
 }
 
-function loadPrefs(): { mode: WeekMode; hidden: Record<WeekMode, string[]> } {
-  if (typeof window === 'undefined') return { mode: 'type', hidden: { type: [], category: [] } };
+type WeekPrefs = { mode: WeekMode; hidden: Record<WeekMode, string[]>; goals: Record<WeekMode, Record<string, number>> };
+
+function loadPrefs(): WeekPrefs {
+  if (typeof window === 'undefined') return { mode: 'type', hidden: { type: [], category: [] }, goals: { type: {}, category: {} } };
   try {
-    const parsed = JSON.parse(localStorage.getItem(PREF_KEY) || '{}') as Partial<{ mode: WeekMode; hidden: Record<WeekMode, string[]> }>;
+    const parsed = JSON.parse(localStorage.getItem(PREF_KEY) || '{}') as Partial<WeekPrefs>;
     return {
       mode: parsed.mode === 'category' ? 'category' : 'type',
       hidden: {
         type: Array.isArray(parsed.hidden?.type) ? parsed.hidden.type : [],
         category: Array.isArray(parsed.hidden?.category) ? parsed.hidden.category : [],
       },
+      goals: {
+        type: parsed.goals?.type && typeof parsed.goals.type === 'object' ? parsed.goals.type : {},
+        category: parsed.goals?.category && typeof parsed.goals.category === 'object' ? parsed.goals.category : {},
+      },
     };
   } catch {
-    return { mode: 'type', hidden: { type: [], category: [] } };
+    return { mode: 'type', hidden: { type: [], category: [] }, goals: { type: {}, category: {} } };
   }
 }
 
@@ -76,17 +81,19 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
   const [mode, setMode] = useState<WeekMode>('type');
   const [hidden, setHidden] = useState<Record<WeekMode, string[]>>({ type: [], category: [] });
+  const [goals, setGoals] = useState<Record<WeekMode, Record<string, number>>>({ type: {}, category: {} });
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const prefs = loadPrefs();
     setMode(prefs.mode);
     setHidden(prefs.hidden);
+    setGoals(prefs.goals);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(PREF_KEY, JSON.stringify({ mode, hidden }));
-  }, [mode, hidden]);
+    localStorage.setItem(PREF_KEY, JSON.stringify({ mode, hidden, goals }));
+  }, [mode, hidden, goals]);
 
   const groups = useMemo<WeekGroup[]>(() => {
     if (mode === 'category') {
@@ -96,7 +103,6 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
           id: cat.id,
           name: cat.name,
           color: palette.accent,
-          goal: 7,
           exercises: cat.exerciseIds.map(id => exercises.find(ex => ex.id === id)).filter((ex): ex is Exercise => !!ex && !ex.optional),
         };
       }).filter(group => group.exercises.length || indexIsVisible(group.id, hidden.category));
@@ -111,7 +117,6 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
       id: type,
       name: type,
       color: TYPE_COLORS[index % TYPE_COLORS.length],
-      goal: type === 'strength' ? 3 : 7,
       exercises: items,
     }));
   }, [exercises, hidden.category, layout, mode]);
@@ -129,7 +134,17 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
 
   function groupFraction(dateStr: string, group: WeekGroup) {
     const done = groupCount(dateStr, group);
-    return group.exercises.length ? done / group.exercises.length : 0;
+    const denominator = groupGoal(group);
+    return denominator ? Math.min(1, done / denominator) : 0;
+  }
+
+  function groupGoal(group: WeekGroup) {
+    return Math.max(1, Math.min(99, Number(goals[mode][group.id] ?? (group.exercises.length || 1))));
+  }
+
+  function setGroupGoal(groupId: string, value: string) {
+    const next = Math.max(1, Math.min(99, Number(value) || 1));
+    setGoals(prev => ({ ...prev, [mode]: { ...prev[mode], [groupId]: next } }));
   }
 
   function toggleGroup(id: string) {
@@ -155,15 +170,15 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
         groups: visibleGroups.map(group => ({
           group,
           done: groupCount(hoveredDay, group),
-          total: group.exercises.length,
+          total: groupGoal(group),
         })),
         ptSession: ptSessions?.find((s) => s.date === hoveredDay),
       }
     : null;
 
   const completions = visibleGroups.map(group => {
-    const completeDays = days.filter(day => groupFraction(todayStr(day), group) >= 1).length;
-    return `${group.name}: ${completeDays}/${group.goal}`;
+    const totalDone = days.reduce((sum, day) => sum + groupCount(todayStr(day), group), 0);
+    return `${group.name}: ${totalDone}/${groupGoal(group) * 7}`;
   });
 
   return (
@@ -178,7 +193,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
           </p>
         </div>
         <button onClick={() => setSettingsOpen(prev => !prev)} className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-[10px] font-bold text-stone-500">
-          {mode === 'type' ? 'By type' : 'By category'}
+          Set goal
         </button>
       </div>
 
@@ -212,6 +227,22 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
               </button>
             ))}
           </div>
+          <div className="mt-2 space-y-1.5">
+            {visibleGroups.map(group => (
+              <div key={group.id} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold capitalize text-stone-600">{group.name}</span>
+                <span className="text-[10px] text-stone-400">daily goal</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={groupGoal(group)}
+                  onChange={e => setGroupGoal(group.id, e.target.value)}
+                  className="w-14 rounded-lg border border-stone-200 px-2 py-1 text-center text-xs font-bold text-stone-700"
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -219,7 +250,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
         <div key={group.id} className="flex items-center gap-3 mb-3 last:mb-0">
           <div className="w-24 flex-shrink-0 min-w-0">
             <p className="text-xs font-semibold text-stone-700 truncate capitalize">{group.name}</p>
-            <p className="text-[10px] text-stone-400">goal: {group.goal}x</p>
+            <p className="text-[10px] text-stone-400">goal: {groupGoal(group)}/day</p>
           </div>
           <div className="flex justify-between flex-1 gap-1">
             {days.map((d) => {
