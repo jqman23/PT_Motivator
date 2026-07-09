@@ -6,6 +6,8 @@ import { CategoryConfig } from '@/lib/layout';
 
 type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
 
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,120}$/;
+
 export default function MasterDatabaseModal({ exercises, layout, onLibraryChange, onLayoutChange, onClose }: {
   exercises: Exercise[];
   layout: CategoryConfig[];
@@ -24,6 +26,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const [gifLoading, setGifLoading] = useState(false);
   const [gifStatus, setGifStatus] = useState('');
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameStatus, setRenameStatus] = useState('');
 
   const filtered = useMemo(
     () => draft.filter(e => !q || JSON.stringify(e).toLowerCase().includes(q.toLowerCase())),
@@ -97,6 +101,59 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       ? Array.from(new Set([...c.exerciseIds, id]))
       : c.exerciseIds.filter(x => x !== id),
   })));
+
+  const renameOne = async (oldId: string, rawNewId: string) => {
+    const newId = rawNewId.trim();
+    if (!newId || newId === oldId || renamingId) return;
+    if (!ID_PATTERN.test(newId)) {
+      alert('ID must be 2–121 characters and use only letters, numbers, dashes, or underscores.');
+      return;
+    }
+    if (draft.some(ex => ex.id === newId)) {
+      alert(`That ID already exists in the master database:\n\n${newId}`);
+      return;
+    }
+
+    const current = draft.find(ex => ex.id === oldId);
+    if (!current) return;
+    const ok = window.confirm(`Rename this exercise ID?\n\n${current.name}\n\n${oldId}\n→ ${newId}\n\nThis also migrates workout logs and notes from the old ID to the new ID.`);
+    if (!ok) return;
+
+    setRenamingId(oldId);
+    setRenameStatus(`Renaming ${oldId} → ${newId}…`);
+    try {
+      const res = await fetch('/api/exercise-id/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldId, newId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not migrate logs/notes.');
+
+      const nextDraft = draft.map(ex => ex.id === oldId ? { ...ex, id: newId } : ex);
+      const nextLayout = layout.map(cat => ({
+        ...cat,
+        exerciseIds: cat.exerciseIds.map(id => id === oldId ? newId : id),
+      }));
+      setDraft(nextDraft);
+      onLibraryChange(nextDraft);
+      onLayoutChange(nextLayout);
+      setSelected(prev => {
+        const next = { ...prev };
+        if (next[oldId]) {
+          delete next[oldId];
+          next[newId] = true;
+        }
+        return next;
+      });
+      setRenameStatus(`Renamed ${oldId} → ${newId}. Logs/notes migrated.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not rename exercise ID.');
+      setRenameStatus('ID rename failed.');
+    } finally {
+      setRenamingId(null);
+    }
+  };
 
   const deleteTarget = () => {
     if (!target.length) return;
@@ -444,6 +501,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
             <p className="text-xs text-stone-400">Bulk target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
             <p className="text-xs text-stone-400">GIF target: {ids.length} selected rows</p>
+            {renameStatus && <p className="text-[11px] text-stone-500 leading-snug">{renameStatus}</p>}
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
@@ -479,15 +537,31 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           </aside>
 
           <div className="flex-1 overflow-auto p-4">
-            <table className="w-full min-w-[1050px] border-separate border-spacing-y-2 text-xs">
+            <table className="w-full min-w-[1190px] border-separate border-spacing-y-2 text-xs">
               <thead>
                 <tr className="text-left text-stone-400 uppercase tracking-widest">
-                  <th>✓</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Main media</th><th>Search/GIF</th><th>Videos</th><th>Tips</th>
+                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Main media</th><th>Search/GIF</th><th>Videos</th><th>Tips</th>
                 </tr>
               </thead>
               <tbody>{filtered.map(e => (
                 <tr key={e.id} className="bg-white align-top shadow-sm">
                   <td className="p-2 rounded-l-xl"><input type="checkbox" checked={!!selected[e.id]} onChange={x => setSelected(s => ({...s,[e.id]:x.target.checked}))} /></td>
+                  <td className="p-2">
+                    <input
+                      defaultValue={e.id}
+                      disabled={renamingId === e.id}
+                      onBlur={x => {
+                        const next = x.currentTarget.value.trim();
+                        if (next !== e.id) void renameOne(e.id, next).finally(() => { x.currentTarget.value = next || e.id; });
+                      }}
+                      onKeyDown={x => {
+                        if (x.key === 'Enter') x.currentTarget.blur();
+                        if (x.key === 'Escape') { x.currentTarget.value = e.id; x.currentTarget.blur(); }
+                      }}
+                      className="w-48 border rounded-lg p-1 font-mono text-[10px] bg-white disabled:opacity-60"
+                      title="Edit ID and migrate logs/notes"
+                    />
+                  </td>
                   <td className="p-2"><textarea value={e.name} onChange={x=>patch(e.id,{name:x.target.value})} rows={2} className="w-40 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2"><textarea value={e.cue} onChange={x=>patch(e.id,{cue:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2"><textarea value={e.sets ?? ''} onChange={x=>patch(e.id,{sets:x.target.value})} rows={2} className="w-28 border rounded-lg p-1 resize-none" /></td>
