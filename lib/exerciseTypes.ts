@@ -25,10 +25,7 @@ export function getExerciseTypeTheme(value?: string) {
 export function getExerciseTypeMark(value?: string) {
   const type = normalizeExerciseType(value).toLowerCase();
   const letters = type
-    .split(/[^a-z0-9]+/i)
-    .filter(Boolean)
-    .map(part => part[0] ?? '')
-    .join('')
-    .slice(0, 2);
-  return (letters || type.slice(0, 2) || '??').toUpperCase();
+    .replace(/[^a-z0-9]+/gi, '')
+    .slice(0, 3);
+  return (letters || type.slice(0, 3) || '???').toUpperCase();
 }

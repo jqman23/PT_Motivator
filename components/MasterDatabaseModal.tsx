@@ -43,6 +43,17 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const asString = (v: unknown) => typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '';
   const normalizeName = (v: unknown) => asString(v).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
   const importedList = (v: unknown) => Array.isArray(v) ? v.map(asString).filter(Boolean) : asString(v) ? split(asString(v)) : undefined;
+  const uniqueCategoryId = (name: string, used: Set<string>) => {
+    const slug = normalizeName(name).replace(/\s+/g, '-').slice(0, 28) || 'category';
+    let id = `cat-${slug}-${Date.now().toString(36)}`;
+    let suffix = 1;
+    while (used.has(id)) {
+      id = `cat-${slug}-${Date.now().toString(36)}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(id);
+    return id;
+  };
   const uniqueExerciseId = (name: string, used: Set<string>) => {
     const slug = normalizeName(name).replace(/\s+/g, '-').slice(0, 36) || 'exercise';
     let id = `custom-${slug}-${Date.now().toString(36)}`;
@@ -157,7 +168,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       const value = asString(fieldName === 'sourceId' ? (item.sourceId ?? item.externalId) : item[fieldName]);
       if (value) (out as Record<string, unknown>)[fieldName] = value;
     });
-    const typeValue = cleanType(asString(item.type ?? item.cat));
+    const typeValue = cleanType(asString(item.type ?? item.cat ?? item.category));
     if (typeValue) out.cat = typeValue;
     if (typeof item.optional === 'boolean') out.optional = item.optional;
     if (['hep', 'patient_added', 'exercisedb', 'api_ninjas'].includes(asString(item.origin))) out.origin = asString(item.origin) as NonNullable<Exercise['origin']>;
@@ -174,6 +185,25 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     return out;
   };
 
+  const normalizeImportedCategory = (raw: unknown): Partial<CategoryConfig> & { id?: string } | null => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const item = raw as Record<string, unknown>;
+    const name = asString(item.name ?? item.title ?? item.label);
+    const id = asString(item.id ?? item.key);
+    if (!name && !id) return null;
+
+    const out: Partial<CategoryConfig> & { id?: string } = {};
+    if (id) out.id = id;
+    if (name) out.name = name;
+
+    const color = asString(item.color);
+    if (color) out.color = color;
+    const exerciseIds = importedList(item.exerciseIds ?? item.ids ?? item.items);
+    if (exerciseIds) out.exerciseIds = exerciseIds;
+
+    return out;
+  };
+
   const importJsonToDraft = () => {
     try {
       const parsed = JSON.parse(json);
@@ -184,15 +214,27 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           : parsed.name
             ? [parsed]
             : [];
-      if (!rawItems.length) {
-        alert('No exercises found in JSON.');
+      const rawLayout: unknown[] = Array.isArray(parsed)
+        ? []
+        : Array.isArray(parsed.layout)
+          ? parsed.layout
+          : Array.isArray(parsed.categories)
+          ? parsed.categories
+          : Array.isArray(parsed.categoryConfig)
+            ? parsed.categoryConfig
+            : [];
+      if (!rawItems.length && !rawLayout.length) {
+        alert('No exercises or categories found in JSON.');
         return;
       }
 
+      let draftUpdated = 0;
+      let draftAdded = 0;
+      let categoryUpdated = 0;
+      let categoryAdded = 0;
+
       setDraft(prev => {
         const usedIds = new Set(prev.map(ex => ex.id));
-        let updated = 0;
-        let added = 0;
         const next = [...prev];
 
         rawItems.forEach(raw => {
@@ -208,7 +250,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           if (index >= 0) {
             const { id: _ignoredId, ...patch } = incoming;
             next[index] = { ...next[index], ...patch, id: next[index].id };
-            updated += 1;
+            draftUpdated += 1;
           } else {
             if (!incoming.name) return;
             const id = incoming.id && !usedIds.has(incoming.id) ? incoming.id : uniqueExerciseId(incoming.name, usedIds);
@@ -231,13 +273,61 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               mainImageUrls: incoming.mainImageUrls,
               mainVideoUrl: incoming.mainVideoUrl,
             });
-            added += 1;
+            draftAdded += 1;
+          }
+        });
+        return next;
+      });
+
+      if (rawLayout.length) {
+        const usedIds = new Set(layout.map(cat => cat.id));
+        const nextLayout = [...layout];
+        let addedCategories = 0;
+        let updatedCategories = 0;
+
+        rawLayout.forEach(raw => {
+          const incoming = normalizeImportedCategory(raw);
+          if (!incoming) return;
+
+          const incomingName = normalizeName(incoming.name);
+          let index = incoming.id ? nextLayout.findIndex(cat => cat.id === incoming.id) : -1;
+          if (index < 0 && incomingName) index = nextLayout.findIndex(cat => normalizeName(cat.name) === incomingName);
+
+          const incomingExerciseIds = Array.from(new Set(incoming.exerciseIds ?? []));
+
+          if (index >= 0) {
+            const current = nextLayout[index];
+            nextLayout[index] = {
+              ...current,
+              ...incoming,
+              id: current.id,
+              name: incoming.name ?? current.name,
+              color: incoming.color ?? current.color,
+              exerciseIds: Array.from(new Set([...(current.exerciseIds ?? []), ...incomingExerciseIds])),
+            };
+            categoryUpdated += 1;
+          } else {
+            const id = incoming.id && !usedIds.has(incoming.id)
+              ? incoming.id
+              : uniqueCategoryId(incoming.name ?? incoming.id ?? 'category', usedIds);
+            usedIds.add(id);
+            nextLayout.push({
+              id,
+              name: incoming.name ?? id,
+              color: incoming.color ?? layout[0]?.color ?? 'green',
+              exerciseIds: incomingExerciseIds,
+            });
+            categoryAdded += 1;
           }
         });
 
-        window.setTimeout(() => alert(`Merged JSON into draft: updated ${updated}, added ${added}. Click Save database to commit.`), 0);
-        return next;
-      });
+        onLayoutChange(nextLayout);
+      }
+
+      const messages: string[] = [];
+      if (rawItems.length) messages.push(`exercises updated ${draftUpdated}, added ${draftAdded}`);
+      if (rawLayout.length) messages.push(`categories updated ${categoryUpdated}, added ${categoryAdded}`);
+      window.setTimeout(() => alert(`Merged JSON into draft: ${messages.join('; ')}. Click Save database to commit.`), 0);
     } catch (err) {
       alert(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -374,7 +464,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">JSON merge</p>
               <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} placeholder="Paste exercise JSON to merge by id, sourceId, or name..." className="w-full font-mono text-[10px] rounded-xl border border-stone-200 p-2 resize-none" />
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setJson(JSON.stringify(draft,null,2))} className={buttonSecondary}>Fill current</button>
+                <button onClick={() => setJson(JSON.stringify({ exercises: draft, layout }, null, 2))} className={buttonSecondary}>Export JSON</button>
                 <button onClick={importJsonToDraft} disabled={!json.trim()} className={buttonPrimary}>Merge JSON</button>
               </div>
             </div>
