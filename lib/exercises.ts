@@ -15,6 +15,7 @@ export interface Exercise {
   sourceId?: string;
   gifUrl?: string;
   mainImageUrl?: string;
+  mainImageUrls?: string[];
   mainVideoUrl?: string;
 }
 

@@ -160,6 +160,7 @@ function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { item
         sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
         gifUrl: asString(item.gifUrl) || undefined,
         mainImageUrl: asString(item.mainImageUrl ?? item.imageUrl ?? item.photoUrl) || undefined,
+        mainImageUrls: asStringArray(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls).slice(0, 3),
         mainVideoUrl: asString(item.mainVideoUrl ?? item.videoUrl ?? item.youtubeUrl) || undefined,
       }),
       categoryName,

@@ -28,6 +28,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   const sourceId = cleanText(raw.sourceId, 90);
   const gifUrl = cleanText(raw.gifUrl, 400);
   const mainImageUrl = cleanText(raw.mainImageUrl, 600);
+  const mainImageUrls = cleanList(raw.mainImageUrls, 3, 600);
   const mainVideoUrl = cleanText(raw.mainVideoUrl, 600);
   const cat = cleanText(raw.type ?? raw.cat, 40).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
   const origin = cleanText(raw.origin, 40);
@@ -41,6 +42,7 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   if (sourceId) patch.sourceId = sourceId;
   if (gifUrl) patch.gifUrl = gifUrl;
   if (mainImageUrl) patch.mainImageUrl = mainImageUrl;
+  if (mainImageUrls.length) patch.mainImageUrls = mainImageUrls;
   if (mainVideoUrl) patch.mainVideoUrl = mainVideoUrl;
   if (['hep', 'patient_added', 'exercisedb', 'api_ninjas'].includes(origin)) patch.origin = origin as NonNullable<Exercise['origin']>;
 
@@ -81,6 +83,7 @@ export async function POST(req: NextRequest) {
       sourceId: cleanText(exercise?.sourceId, 90),
       gifUrl: cleanText(exercise?.gifUrl, 300),
       mainImageUrl: cleanText(exercise?.mainImageUrl, 500),
+      mainImageUrls: cleanList(exercise?.mainImageUrls, 3, 500),
       mainVideoUrl: cleanText(exercise?.mainVideoUrl, 500),
       imageSearch: cleanText(exercise?.imageSearch, 220),
       videoIds: cleanList(exercise?.videoIds, 8, 80),
@@ -101,7 +104,7 @@ export async function POST(req: NextRequest) {
       'Tips should be short, useful bullets with one idea per item.',
       'Do not add unsupported benefits, claims, mechanics, or random tips.',
       'If confidence is low for a field, leave that field blank.',
-      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","mainImageUrl":"","mainVideoUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
+      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","mainImageUrl":"","mainImageUrls":[],"mainVideoUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance

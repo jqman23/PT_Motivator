@@ -7,6 +7,11 @@ import type { VideoResult } from '@/app/api/yt-search/route';
 
 const MEDIA_SWIPE_REVEAL = 52;
 const MEDIA_SWIPE_THRESHOLD = 28;
+const MAX_PRIMARY_PHOTOS = 3;
+
+function primaryPhotos(exercise: Exercise) {
+  return Array.from(new Set([...(exercise.mainImageUrls ?? []), exercise.mainImageUrl].filter((url): url is string => !!url?.trim()))).slice(0, MAX_PRIMARY_PHOTOS);
+}
 
 async function saveExercisePatch(exerciseId: string, patch: Partial<Exercise>) {
   const res = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
@@ -46,8 +51,11 @@ const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject)
 
 export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
   const embedUrl = youtubeEmbedUrl(exercise.mainVideoUrl);
-  const imageUrl = exercise.mainImageUrl || exercise.gifUrl || youtubeThumbnailUrl(exercise.mainVideoUrl);
-  const hasPrimaryImage = !!exercise.mainImageUrl;
+  const photos = primaryPhotos(exercise);
+  const [activePhoto, setActivePhoto] = useState(0);
+  const imageUrl = photos[activePhoto] || exercise.gifUrl || youtubeThumbnailUrl(exercise.mainVideoUrl);
+  const hasPrimaryImage = photos.length > 0;
+  const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
   const hasPrimaryVideo = !!exercise.mainVideoUrl;
   const [uploading, setUploading] = useState(false);
   const [videoSearchOpen, setVideoSearchOpen] = useState(false);
@@ -77,7 +85,8 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       });
       const data = await res.json();
       if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-      await saveExercisePatch(exercise.id, { mainImageUrl: data.url });
+      const nextPhotos = [...photos, data.url].slice(0, MAX_PRIMARY_PHOTOS);
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
       window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not upload image');
@@ -114,7 +123,18 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     }
   };
 
-  const clearMedia = async (field: 'mainImageUrl' | 'mainVideoUrl') => {
+  const clearPhoto = async (index: number) => {
+    setError('');
+    try {
+      const nextPhotos = photos.filter((_, i) => i !== index).slice(0, MAX_PRIMARY_PHOTOS);
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove photo');
+    }
+  };
+
+  const clearMedia = async (field: 'mainVideoUrl') => {
     setError('');
     try {
       await saveExercisePatch(exercise.id, { [field]: undefined });
@@ -223,9 +243,10 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           )}
 
           {imageUrl && (
-            <div className="relative overflow-hidden rounded-2xl bg-red-500 shadow-sm">
+            <div className={`grid gap-2 ${photos.length > 1 ? 'grid-cols-[1fr_72px]' : 'grid-cols-1'}`}>
+              <div className="relative overflow-hidden rounded-2xl bg-red-500 shadow-sm">
               <button
-                onClick={() => clearMedia('mainImageUrl')}
+                onClick={() => clearPhoto(activePhoto)}
                 className="absolute inset-y-0 right-0 z-0 flex w-[52px] items-center justify-center text-2xl font-bold text-white sm:hidden"
                 style={{ touchAction: 'manipulation' }}
               >
@@ -238,7 +259,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
               >
                 {hasPrimaryImage && (
                   <button
-                    onClick={() => clearMedia('mainImageUrl')}
+                    onClick={() => clearPhoto(activePhoto)}
                     className="absolute right-2 top-2 z-10 hidden rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur sm:block"
                   >
                     Remove photo
@@ -246,16 +267,31 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                 )}
                 <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
               </div>
+              </div>
+              {photos.length > 1 && (
+                <div className="flex flex-col gap-2">
+                  {photos.map((photo, index) => (
+                    <button
+                      key={`${photo}-${index}`}
+                      onClick={() => { setActivePhoto(index); setImageSwipeX(0); setImageSwipeOpen(false); }}
+                      className="overflow-hidden rounded-xl border bg-white"
+                      style={{ borderColor: activePhoto === index ? '#7E9B86' : '#e7e5e4' }}
+                    >
+                      <img src={photo} alt="" className="h-[54px] w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {(!hasPrimaryImage || !hasPrimaryVideo) && (
+          {(canAddPhoto || !hasPrimaryVideo) && (
             <div className="grid grid-cols-2 gap-2">
-              {!hasPrimaryImage && (
+              {canAddPhoto && (
                 <label className="min-h-24 rounded-xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center active:bg-stone-50 cursor-pointer">
                   <span className="text-lg text-stone-300">＋</span>
-                  <span className="text-xs font-bold text-stone-700">{uploading ? 'Uploading...' : 'Add photo'}</span>
-                  <span className="text-[10px] text-stone-400 leading-tight">Photos or files</span>
+                  <span className="text-xs font-bold text-stone-700">{uploading ? 'Uploading...' : photos.length ? 'Add photo' : 'Add photo'}</span>
+                  <span className="text-[10px] text-stone-400 leading-tight">{photos.length}/3 added</span>
                   <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
                 </label>
               )}

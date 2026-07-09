@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
 
 export default function MasterDatabaseModal({ exercises, layout, onLibraryChange, onLayoutChange, onClose }: {
   exercises: Exercise[];
@@ -63,7 +63,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     let next: unknown = value;
     if (field === 'optional') next = /true|yes|1/i.test(value);
     if (field === 'cat') next = cleanType(value) || 'mobility';
-    if (['videoIds','videoTitles','tips'].includes(field)) next = split(value);
+    if (['videoIds','videoTitles','tips','mainImageUrls'].includes(field)) next = split(value).slice(0, field === 'mainImageUrls' ? 3 : 999);
 
     return { ...e, [field]: next } as Exercise;
   }));
@@ -125,7 +125,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       });
       const data = await res.json();
       if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-      patch(id, { mainImageUrl: data.url });
+      const current = draft.find(ex => ex.id === id);
+      const nextPhotos = Array.from(new Set([...(current?.mainImageUrls ?? []), current?.mainImageUrl, data.url].filter(Boolean) as string[])).slice(0, 3);
+      patch(id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -156,9 +158,11 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     const videoIds = importedList(item.videoIds);
     const videoTitles = importedList(item.videoTitles);
     const tips = importedList(item.tips ?? item.instructions);
+    const mainImageUrls = importedList(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls);
     if (videoIds) out.videoIds = videoIds;
     if (videoTitles) out.videoTitles = videoTitles;
     if (tips) out.tips = tips;
+    if (mainImageUrls) out.mainImageUrls = mainImageUrls.slice(0, 3);
 
     return out;
   };
@@ -216,6 +220,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               sourceId: incoming.sourceId,
               gifUrl: incoming.gifUrl,
               mainImageUrl: incoming.mainImageUrl,
+              mainImageUrls: incoming.mainImageUrls,
               mainVideoUrl: incoming.mainVideoUrl,
             });
             added += 1;
@@ -344,7 +349,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
-                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainVideoUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
+                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#7E9B86]">Apply bulk value</button>
@@ -395,8 +400,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
                   <td className="p-2">
                     <div className="space-y-1">
-                      {e.mainImageUrl && <img src={e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
+                      {(e.mainImageUrls?.[0] || e.mainImageUrl) && <img src={e.mainImageUrls?.[0] || e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
                       <textarea value={e.mainImageUrl ?? ''} onChange={x=>patch(e.id,{mainImageUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="main image URL" />
+                      <textarea value={list(e.mainImageUrls)} onChange={x=>patch(e.id,{mainImageUrls:split(x.target.value).slice(0, 3), mainImageUrl:split(x.target.value)[0] ?? e.mainImageUrl})} rows={3} className="w-52 border rounded-lg p-1 resize-none" placeholder="up to 3 main image URLs, one per line" />
                       <label className="block w-52 rounded-lg bg-stone-100 py-1.5 text-center text-[11px] font-semibold text-stone-600 cursor-pointer">
                         {uploadingId === e.id ? 'Uploading...' : 'Upload image'}
                         <input type="file" accept="image/*" className="hidden" disabled={uploadingId === e.id} onChange={x => { void uploadImage(e.id, x.target.files?.[0]); x.currentTarget.value = ''; }} />

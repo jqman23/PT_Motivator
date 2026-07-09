@@ -214,6 +214,10 @@ function cleanType(value: unknown) {
   return String(value ?? '').toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
 }
 
+function cleanStringArray(value: unknown, limit = 3) {
+  return Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean).slice(0, limit) : undefined;
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -295,6 +299,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         sourceId: item.sourceId,
         gifUrl: item.gifUrl,
         mainImageUrl: item.mainImageUrl,
+        mainImageUrls: item.mainImageUrls,
         mainVideoUrl: item.mainVideoUrl,
         dbMatches: Array.isArray(item.dbMatches) ? item.dbMatches.slice(0, 3) : [],
       }))
@@ -349,6 +354,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
           reason: String(ex.reason ?? 'Imported from JSON').trim(),
           origin: 'patient_added' as const,
           mainImageUrl: String(ex.mainImageUrl ?? ex.imageUrl ?? ex.photoUrl ?? '').trim() || undefined,
+          mainImageUrls: cleanStringArray(ex.mainImageUrls ?? ex.imageUrls ?? ex.photoUrls),
           mainVideoUrl: String(ex.mainVideoUrl ?? ex.videoUrl ?? ex.youtubeUrl ?? '').trim() || undefined,
         };
       }).filter(item => item.name),
