@@ -83,9 +83,9 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start gap-2">
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-start gap-2 min-w-0">
+                              <div className="flex items-baseline gap-2 min-w-0">
                                 <h4 className="min-w-0 truncate text-sm font-bold text-stone-800 leading-snug">{ex.name}</h4>
-                                <span className="flex-shrink-0 text-[9px] font-black uppercase tracking-[0.14em]" style={{ color: typeTheme.accent, lineHeight: 1, transform: 'translateY(1px)' }}>
+                                <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent }}>
                                   {getExerciseTypeMark(ex.cat)}
                                 </span>
                               </div>
