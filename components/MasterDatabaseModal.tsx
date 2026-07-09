@@ -40,6 +40,20 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const list = (v: unknown) => Array.isArray(v) ? v.join('\n') : String(v ?? '');
   const split = (v: string) => v.split(/\n|,/).map(x => x.trim()).filter(Boolean);
   const cleanType = (v: string) => v.toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
+  const asString = (v: unknown) => typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '';
+  const normalizeName = (v: unknown) => asString(v).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+  const importedList = (v: unknown) => Array.isArray(v) ? v.map(asString).filter(Boolean) : asString(v) ? split(asString(v)) : undefined;
+  const uniqueExerciseId = (name: string, used: Set<string>) => {
+    const slug = normalizeName(name).replace(/\s+/g, '-').slice(0, 36) || 'exercise';
+    let id = `custom-${slug}-${Date.now().toString(36)}`;
+    let suffix = 1;
+    while (used.has(id)) {
+      id = `custom-${slug}-${Date.now().toString(36)}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(id);
+    return id;
+  };
   const currentCat = (id: string) => layout.find(c => c.exerciseIds.includes(id))?.id ?? '';
   const typeOptions = useMemo(() => Array.from(new Set(draft.map(e => e.cat).filter(Boolean))).sort(), [draft]);
 
@@ -116,6 +130,103 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       alert(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploadingId(null);
+    }
+  };
+
+  const normalizeImportedExercise = (raw: unknown): Partial<Exercise> & { id?: string } | null => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const item = raw as Record<string, unknown>;
+    const name = asString(item.name ?? item.title ?? item.exerciseName);
+    if (!name) return null;
+
+    const out: Partial<Exercise> & { id?: string } = { name };
+    const id = asString(item.id);
+    if (id) out.id = id;
+
+    const stringFields: Array<keyof Exercise> = ['cue', 'sets', 'imageSearch', 'gifUrl', 'mainImageUrl', 'mainVideoUrl', 'sourceId'];
+    stringFields.forEach(fieldName => {
+      const value = asString(item[fieldName]);
+      if (value) (out as Record<string, unknown>)[fieldName] = value;
+    });
+    const typeValue = cleanType(asString(item.type ?? item.cat));
+    if (typeValue) out.cat = typeValue;
+    if (typeof item.optional === 'boolean') out.optional = item.optional;
+    if (['hep', 'patient_added', 'exercisedb', 'api_ninjas'].includes(asString(item.origin))) out.origin = asString(item.origin) as NonNullable<Exercise['origin']>;
+
+    const videoIds = importedList(item.videoIds);
+    const videoTitles = importedList(item.videoTitles);
+    const tips = importedList(item.tips ?? item.instructions);
+    if (videoIds) out.videoIds = videoIds;
+    if (videoTitles) out.videoTitles = videoTitles;
+    if (tips) out.tips = tips;
+
+    return out;
+  };
+
+  const importJsonToDraft = () => {
+    try {
+      const parsed = JSON.parse(json);
+      const rawItems: unknown[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed.exercises)
+          ? parsed.exercises
+          : parsed.name
+            ? [parsed]
+            : [];
+      if (!rawItems.length) {
+        alert('No exercises found in JSON.');
+        return;
+      }
+
+      setDraft(prev => {
+        const usedIds = new Set(prev.map(ex => ex.id));
+        let updated = 0;
+        let added = 0;
+        const next = [...prev];
+
+        rawItems.forEach(raw => {
+          const incoming = normalizeImportedExercise(raw);
+          if (!incoming?.name) return;
+
+          const sourceId = incoming.sourceId;
+          const incomingName = normalizeName(incoming.name);
+          let index = incoming.id ? next.findIndex(ex => ex.id === incoming.id) : -1;
+          if (index < 0 && sourceId) index = next.findIndex(ex => ex.sourceId === sourceId);
+          if (index < 0) index = next.findIndex(ex => normalizeName(ex.name) === incomingName);
+
+          if (index >= 0) {
+            const { id: _ignoredId, ...patch } = incoming;
+            next[index] = { ...next[index], ...patch, id: next[index].id };
+            updated += 1;
+          } else {
+            const id = incoming.id && !usedIds.has(incoming.id) ? incoming.id : uniqueExerciseId(incoming.name, usedIds);
+            usedIds.add(id);
+            next.push({
+              id,
+              cat: incoming.cat ?? 'mobility',
+              name: incoming.name,
+              cue: incoming.cue ?? '',
+              sets: incoming.sets,
+              videoIds: incoming.videoIds ?? [],
+              videoTitles: incoming.videoTitles ?? [],
+              imageSearch: incoming.imageSearch ?? incoming.name,
+              tips: incoming.tips ?? [],
+              optional: incoming.optional,
+              origin: incoming.origin ?? 'patient_added',
+              sourceId: incoming.sourceId,
+              gifUrl: incoming.gifUrl,
+              mainImageUrl: incoming.mainImageUrl,
+              mainVideoUrl: incoming.mainVideoUrl,
+            });
+            added += 1;
+          }
+        });
+
+        window.setTimeout(() => alert(`Merged JSON into draft: updated ${updated}, added ${added}. Click Save database to commit.`), 0);
+        return next;
+      });
+    } catch (err) {
+      alert(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -248,7 +359,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
             <button onClick={() => setJson(JSON.stringify(draft,null,2))} className="w-full rounded-xl bg-white border py-2 text-xs font-semibold">Export JSON</button>
             {json && <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} className="w-full font-mono text-[10px] rounded-xl border p-2" />}
-            {json && <button onClick={() => setDraft(JSON.parse(json))} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Import JSON to draft</button>}
+            {json && <button onClick={importJsonToDraft} className="w-full rounded-xl bg-stone-100 py-2 text-xs font-semibold">Merge JSON into draft</button>}
 
             <button onClick={fillGifs} disabled={gifLoading} className="w-full rounded-xl bg-[#E4ECE6] py-2 text-xs font-semibold text-[#5f7d67] disabled:opacity-50">
               {gifLoading ? 'Finding GIFs…' : 'Overwrite selected GIFs from ExerciseDB'}
