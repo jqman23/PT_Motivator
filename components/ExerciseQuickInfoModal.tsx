@@ -104,6 +104,16 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     }
   };
 
+  const clearMedia = async (field: 'mainImageUrl' | 'mainVideoUrl') => {
+    setError('');
+    try {
+      await saveExercisePatch(exercise.id, { [field]: undefined });
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove media');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onPointerDown={onClose}>
       <div className="bg-[#F6F1E7] w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88dvh] overflow-y-auto" onPointerDown={e => e.stopPropagation()}>
@@ -121,6 +131,14 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
             <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
               {embedUrl ? (
                 <div className="relative aspect-video">
+                  {hasPrimaryVideo && (
+                    <button
+                      onClick={() => clearMedia('mainVideoUrl')}
+                      className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                    >
+                      Remove video
+                    </button>
+                  )}
                   <iframe
                     src={embedUrl}
                     title={`${exercise.name} main video`}
@@ -130,13 +148,33 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                   />
                 </div>
               ) : imageUrl ? (
-                <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
+                <div className="relative">
+                  {hasPrimaryImage && (
+                    <button
+                      onClick={() => clearMedia('mainImageUrl')}
+                      className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                  <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
+                </div>
               ) : null}
             </div>
           )}
 
           {imageUrl && embedUrl && (
-            <img src={imageUrl} alt={`${exercise.name} reference`} className="w-full rounded-2xl aspect-video object-cover bg-stone-100 border border-stone-100" />
+            <div className="relative">
+              {hasPrimaryImage && (
+                <button
+                  onClick={() => clearMedia('mainImageUrl')}
+                  className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                >
+                  Remove photo
+                </button>
+              )}
+              <img src={imageUrl} alt={`${exercise.name} reference`} className="w-full rounded-2xl aspect-video object-cover bg-stone-100 border border-stone-100" />
+            </div>
           )}
 
           {(!hasPrimaryImage || !hasPrimaryVideo) && (
