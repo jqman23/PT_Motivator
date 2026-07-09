@@ -43,8 +43,15 @@ function slugCategory(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'category';
 }
 
-function catFor(categoryName?: string): Exercise['cat'] {
-  return /strength|raise|squat|rdl|resistance/i.test(categoryName ?? '') ? 'strength' : 'mobility';
+function cleanType(value?: string): Exercise['cat'] {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
+}
+
+function catFor(item: { categoryName?: string; type?: string; cat?: string; name?: string }): Exercise['cat'] {
+  const explicit = cleanType(item.type ?? item.cat);
+  if (explicit) return explicit;
+  const text = `${item.categoryName ?? ''} ${item.name ?? ''}`;
+  return /strength|raise|squat|rdl|resistance/i.test(text) ? 'strength' : 'mobility';
 }
 
 function pickKeys(source: SmartHealthChanges | null, keys: string[]) {
@@ -149,7 +156,7 @@ export default function SmartAddPortal() {
         newExerciseIds.push(id);
         return {
           id,
-          cat: catFor(item.categoryName),
+          cat: catFor(item),
           name: item.name.trim(),
           cue: item.cue?.trim() || item.sets?.trim() || 'AI added exercise — review with your PT.',
           sets: item.sets?.trim() || undefined,

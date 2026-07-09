@@ -1,4 +1,4 @@
-export type Category = 'mobility' | 'strength';
+export type Category = string;
 
 export interface Exercise {
   id: string;

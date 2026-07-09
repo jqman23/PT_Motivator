@@ -210,6 +210,10 @@ function normalizeCategoryText(value: string) {
   return value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function cleanType(value: unknown) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -280,6 +284,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
       .map((item: SmartNewExercise) => ({
         name: String(item.name ?? '').trim(),
         categoryName: resolveCategoryName(item.categoryName),
+        type: cleanType(item.type ?? item.cat),
         sets: String(item.sets ?? '').trim(),
         cue: String(item.cue ?? '').trim(),
         tips: Array.isArray(item.tips) ? item.tips.map(tip => String(tip).trim()).filter(Boolean).slice(0, 6) : [],
@@ -333,6 +338,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         return {
           name: String(ex.name ?? ex.exerciseName ?? '').trim(),
           categoryName: String(ex.categoryName ?? ex.category ?? categoryNames[0] ?? '').trim(),
+          type: cleanType(ex.type ?? ex.cat),
           sets: String(ex.sets ?? ex.dosage ?? ex.prescription ?? '').trim(),
           cue: String(ex.cue ?? ex.instructions ?? ex.setup ?? '').trim(),
           tips: Array.isArray(ex.tips) ? ex.tips.map(tip => String(tip).trim()).filter(Boolean) : [],

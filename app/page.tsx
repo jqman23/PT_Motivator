@@ -570,7 +570,7 @@ export default function Home() {
             </div>
 
             <section className="mb-5"><HealthTracker today={selectedDate} /></section>
-            <section className="mb-5"><WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={changeDate} /></section>
+            <section className="mb-5"><WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} layout={layout} onSelectDate={changeDate} /></section>
             <div className="mb-5 rounded-2xl border border-stone-100 bg-white p-3 shadow-sm"><DayControls bottom /></div>
             <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>&ldquo;{getDailyQuote()}&rdquo;</p>
           </>

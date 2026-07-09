@@ -13,6 +13,7 @@ type HealthRow = { date: string; pain?: number; energy?: number; mood?: number; 
 type LogRow = { date: string; exercise_id: string; completed: boolean };
 type Range = '1W' | '2W' | '1M' | '3M';
 type ReportTab = 'overview' | 'pt';
+const TYPE_COLORS = ['#7E9B86', '#C17B4F', '#5B9BD5', '#7C3AED', '#0D9488', '#E11D48', '#D97706', '#475569'];
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function offsetDate(base: string, days: number): string {
@@ -105,7 +106,7 @@ function MultiLineChart({ series, max = 10 }: {
 }
 
 function WeeklyBarChart({ weeks }: {
-  weeks: Array<{ label: string; mobility: number; strength: number }>;
+  weeks: Array<{ label: string; groups: Array<{ type: string; value: number; color: string }> }>;
 }) {
   if (!weeks.length) return (
     <div className="h-24 flex items-center justify-center">
@@ -115,7 +116,8 @@ function WeeklyBarChart({ weeks }: {
   const W = 280, H = 88, ml = 28, mr = 8, mt = 8, mb = 24;
   const cw = W - ml - mr, ch = H - mt - mb;
   const colW = cw / weeks.length;
-  const bw = Math.max(4, Math.min(14, colW * 0.3));
+  const groupCount = Math.max(1, Math.max(...weeks.map(week => week.groups.length)));
+  const bw = Math.max(3, Math.min(10, colW * 0.65 / groupCount));
   const gap = 2;
   const py = (v: number) => mt + ch - (v / 100) * ch;
   return (
@@ -128,12 +130,14 @@ function WeeklyBarChart({ weeks }: {
       ))}
       {weeks.map((w, i) => {
         const cx = ml + i * colW + colW / 2;
-        const mobH = (w.mobility / 100) * ch;
-        const strH = (w.strength / 100) * ch;
+        const totalBarsW = w.groups.length * bw + Math.max(0, w.groups.length - 1) * gap;
+        const startX = cx - totalBarsW / 2;
         return (
           <g key={i}>
-            <rect x={cx - bw - gap} y={py(w.mobility)} width={bw} height={mobH} fill="#7E9B86" rx="2" />
-            <rect x={cx + gap} y={py(w.strength)} width={bw} height={strH} fill="#C17B4F" rx="2" />
+            {w.groups.map((group, gi) => {
+              const h = (group.value / 100) * ch;
+              return <rect key={group.type} x={startX + gi * (bw + gap)} y={py(group.value)} width={bw} height={h} fill={group.color} rx="2" />;
+            })}
             <text x={cx} y={H - 6} textAnchor="middle" fontSize="8" fill="#a8a29e">{w.label}</text>
           </g>
         );
@@ -183,20 +187,29 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
       if (!logMap[row.date]) logMap[row.date] = {};
       logMap[row.date][row.exercise_id] = row.completed;
     }
-    const mobItems = EXERCISES.filter(e => e.cat === 'mobility' && !e.optional);
-    const strItems = EXERCISES.filter(e => e.cat === 'strength' && !e.optional);
+    const typeGroups = Array.from(EXERCISES.filter(e => !e.optional).reduce((map, exercise) => {
+      const type = exercise.cat?.trim() || 'untyped';
+      map.set(type, [...(map.get(type) ?? []), exercise]);
+      return map;
+    }, new Map<string, typeof EXERCISES>()).entries()).sort(([a], [b]) => a.localeCompare(b)).map(([type, items], index) => ({
+      type,
+      items,
+      color: TYPE_COLORS[index % TYPE_COLORS.length],
+    }));
     const allDates = datesInRange(startDate, today);
-    const weeks: Array<{ label: string; mobility: number; strength: number }> = [];
+    const weeks: Array<{ label: string; groups: Array<{ type: string; value: number; color: string }> }> = [];
     for (let i = 0; i < allDates.length; i += 7) {
       const wDates = allDates.slice(i, i + 7);
-      let mD = 0, mT = 0, sD = 0, sT = 0;
-      for (const d of wDates) {
-        const dl = logMap[d] || {};
-        mobItems.forEach(e => { mT++; if (dl[e.id]) mD++; });
-        strItems.forEach(e => { sT++; if (dl[e.id]) sD++; });
-      }
       const label = new Date(wDates[0] + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      weeks.push({ label, mobility: mT ? Math.round((mD / mT) * 100) : 0, strength: sT ? Math.round((sD / sT) * 100) : 0 });
+      const groups = typeGroups.map(group => {
+        let done = 0, total = 0;
+        for (const d of wDates) {
+          const dl = logMap[d] || {};
+          group.items.forEach(e => { total++; if (dl[e.id]) done++; });
+        }
+        return { type: group.type, color: group.color, value: total ? Math.round((done / total) * 100) : 0 };
+      });
+      weeks.push({ label, groups });
     }
     return weeks;
   }, [logData, startDate, today]);

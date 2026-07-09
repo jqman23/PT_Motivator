@@ -8,8 +8,7 @@ type HealthMap = Record<string, { sleep_hours?: number; sleep_quality?: number; 
 type PTSession = { date: string; note?: string };
 
 interface DaySummary {
-  mobilityFrac: number;
-  strengthFrac: number;
+  groups: Array<{ type: string; done: number; total: number; frac: number; color: string }>;
   hasHealth: boolean;
   health: HealthMap[string];
   noteCount: number;
@@ -26,6 +25,7 @@ interface Props {
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function ymd(y: number, m: number, d: number) { return `${y}-${pad(m)}-${pad(d)}`; }
+const TYPE_COLORS = ['#7E9B86', '#C17B4F', '#5B9BD5', '#7C3AED', '#0D9488', '#E11D48', '#D97706', '#475569'];
 
 export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions, exercises }: Props) {
   const [viewYear, setViewYear] = useState(() => parseInt(selectedDate.split('-')[0]));
@@ -60,17 +60,24 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
     }).finally(() => setLoading(false));
   }, [viewYear, viewMonth]);
 
-  const mobilityItems = exercises.filter(e => e.cat === 'mobility' && !e.optional);
-  const strengthItems = exercises.filter(e => e.cat === 'strength' && !e.optional);
+  const typeGroups = Array.from(exercises.filter(e => !e.optional).reduce((map, exercise) => {
+    const type = exercise.cat?.trim() || 'untyped';
+    map.set(type, [...(map.get(type) ?? []), exercise]);
+    return map;
+  }, new Map<string, Exercise[]>()).entries()).sort(([a], [b]) => a.localeCompare(b)).map(([type, items], index) => ({
+    type,
+    items,
+    color: TYPE_COLORS[index % TYPE_COLORS.length],
+  }));
 
   function getDaySummary(ds: string): DaySummary {
     const dayLog = log[ds] || {};
-    const mobDone = mobilityItems.filter(e => dayLog[e.id]).length;
-    const strDone = strengthItems.filter(e => dayLog[e.id]).length;
     const h = health[ds];
     return {
-      mobilityFrac: mobilityItems.length ? mobDone / mobilityItems.length : 0,
-      strengthFrac: strengthItems.length ? strDone / strengthItems.length : 0,
+      groups: typeGroups.map(group => {
+        const done = group.items.filter(e => dayLog[e.id]).length;
+        return { type: group.type, done, total: group.items.length, frac: group.items.length ? done / group.items.length : 0, color: group.color };
+      }),
       hasHealth: !!h && Object.values(h).some(v => v != null),
       health: h ?? {},
       noteCount: 0,
@@ -124,8 +131,9 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
         </div>
 
         <div className="flex items-center justify-center gap-3 px-4 py-2 bg-stone-50 border-b border-stone-100 flex-wrap">
-          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#7E9B86]"/><span className="text-[10px] text-stone-500 font-medium">Mobility</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#C17B4F]"/><span className="text-[10px] text-stone-500 font-medium">Strength</span></div>
+          {typeGroups.slice(0, 4).map(group => (
+            <div key={group.type} className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full" style={{ background: group.color }}/><span className="text-[10px] text-stone-500 font-medium capitalize">{group.type}</span></div>
+          ))}
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#5B9BD5]"/><span className="text-[10px] text-stone-500 font-medium">Health log</span></div>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#D9A94B' }}/>
@@ -147,7 +155,8 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
             const isToday = ds === today;
             const isSelected = ds === selectedDate;
             const summary = getDaySummary(ds);
-            const hasAnyData = summary.mobilityFrac > 0 || summary.strengthFrac > 0 || summary.hasHealth;
+            const activeGroups = summary.groups.filter(group => group.frac > 0);
+            const hasAnyData = activeGroups.length > 0 || summary.hasHealth;
             const ptSession = ptSessions?.find(s => s.date === ds);
             const isPTSession = !!ptSession;
             const showPTDot = isPTSession && !hasAnyData;
@@ -172,16 +181,11 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 }`}>{day}</span>
 
                 <div className="flex gap-0.5 justify-center min-h-[10px]">
-                  {summary.mobilityFrac > 0 && (
-                    <div className="w-2 h-2 rounded-full relative overflow-hidden bg-stone-200 flex-shrink-0">
-                      <div className="absolute bottom-0 left-0 right-0 bg-[#7E9B86]" style={{ height: `${summary.mobilityFrac * 100}%` }} />
+                  {activeGroups.slice(0, 3).map(group => (
+                    <div key={group.type} className="w-2 h-2 rounded-full relative overflow-hidden bg-stone-200 flex-shrink-0">
+                      <div className="absolute bottom-0 left-0 right-0" style={{ height: `${group.frac * 100}%`, background: group.color }} />
                     </div>
-                  )}
-                  {summary.strengthFrac > 0 && (
-                    <div className="w-2 h-2 rounded-full relative overflow-hidden bg-stone-200 flex-shrink-0">
-                      <div className="absolute bottom-0 left-0 right-0 bg-[#C17B4F]" style={{ height: `${summary.strengthFrac * 100}%` }} />
-                    </div>
-                  )}
+                  ))}
                   {summary.hasHealth && (
                     <div className="w-2 h-2 rounded-full bg-[#5B9BD5] flex-shrink-0" />
                   )}
@@ -212,19 +216,18 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 )}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="text-xs text-stone-500">
-                  <span className="font-semibold text-[#7E9B86]">{Math.round(hovered.mobilityFrac * mobilityItems.length)}/{mobilityItems.length}</span> mobility
-                </span>
-                <span className="text-xs text-stone-500">
-                  <span className="font-semibold text-[#C17B4F]">{Math.round(hovered.strengthFrac * strengthItems.length)}/{strengthItems.length}</span> strength
-                </span>
+                {hovered.groups.map(group => (
+                  <span key={group.type} className="text-xs text-stone-500">
+                    <span className="font-semibold" style={{ color: group.color }}>{group.done}/{group.total}</span> {group.type}
+                  </span>
+                ))}
                 {hovered.hasHealth && <>
                   {hovered.health.pain != null && <span className="text-xs text-stone-500">Pain: <span className="font-semibold">{hovered.health.pain}/10</span></span>}
                   {hovered.health.energy != null && <span className="text-xs text-stone-500">Energy: <span className="font-semibold">{hovered.health.energy}/10</span></span>}
                   {hovered.health.mood != null && <span className="text-xs text-stone-500">Mood: <span className="font-semibold">{hovered.health.mood}/10</span></span>}
                   {hovered.health.sleep_hours != null && <span className="text-xs text-stone-500">Sleep: <span className="font-semibold">{hovered.health.sleep_hours}h</span></span>}
                 </>}
-                {!hoveredPTSession && !hovered.hasHealth && hovered.mobilityFrac === 0 && hovered.strengthFrac === 0 && (
+                {!hoveredPTSession && !hovered.hasHealth && hovered.groups.every(group => group.done === 0) && (
                   <span className="text-xs text-stone-400 italic">No activity logged</span>
                 )}
               </div>

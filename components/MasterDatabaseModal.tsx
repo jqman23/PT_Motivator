@@ -38,14 +38,16 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
   const list = (v: unknown) => Array.isArray(v) ? v.join('\n') : String(v ?? '');
   const split = (v: string) => v.split(/\n|,/).map(x => x.trim()).filter(Boolean);
+  const cleanType = (v: string) => v.toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
   const currentCat = (id: string) => layout.find(c => c.exerciseIds.includes(id))?.id ?? '';
+  const typeOptions = useMemo(() => Array.from(new Set(draft.map(e => e.cat).filter(Boolean))).sort(), [draft]);
 
   const bulk = () => setDraft(prev => prev.map(e => {
     if (!target.includes(e.id)) return e;
 
     let next: unknown = value;
     if (field === 'optional') next = /true|yes|1/i.test(value);
-    if (field === 'cat') next = value === 'strength' ? 'strength' : 'mobility';
+    if (field === 'cat') next = cleanType(value) || 'mobility';
     if (['videoIds','videoTitles','tips'].includes(field)) next = split(value);
 
     return { ...e, [field]: next } as Exercise;
@@ -64,6 +66,15 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       ? Array.from(new Set([...c.exerciseIds, id]))
       : c.exerciseIds.filter(x => x !== id),
   })));
+
+  const deleteTarget = () => {
+    if (!target.length) return;
+    const names = draft.filter(e => target.includes(e.id)).slice(0, 5).map(e => e.name).join(', ');
+    if (!window.confirm(`Delete ${target.length} exercise${target.length === 1 ? '' : 's'} from the master database${names ? `?\n\n${names}` : '?'}`)) return;
+    setDraft(prev => prev.filter(e => !target.includes(e.id)));
+    onLayoutChange(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => !target.includes(id)) })));
+    setSelected({});
+  };
 
   const save = () => {
     onLibraryChange(draft);
@@ -201,6 +212,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             </button>
             {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
 
+            <button onClick={deleteTarget} className="w-full rounded-xl py-2 text-xs font-semibold bg-red-50 text-red-600 border border-red-100">Delete target exercises</button>
             <button onClick={save} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#D9A94B]">{saved ? '✓ Saved' : 'Save database'}</button>
           </aside>
 
@@ -217,7 +229,14 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   <td className="p-2"><textarea value={e.name} onChange={x=>patch(e.id,{name:x.target.value})} rows={2} className="w-40 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2"><textarea value={e.cue} onChange={x=>patch(e.id,{cue:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2"><textarea value={e.sets ?? ''} onChange={x=>patch(e.id,{sets:x.target.value})} rows={2} className="w-28 border rounded-lg p-1 resize-none" /></td>
-                  <td className="p-2"><select value={e.cat} onChange={x=>patch(e.id,{cat:x.target.value as Exercise['cat']})} className="border rounded-lg p-1 bg-white"><option>mobility</option><option>strength</option></select></td>
+                  <td className="p-2">
+                    <input
+                      value={e.cat}
+                      onChange={x=>patch(e.id,{cat:cleanType(x.target.value)})}
+                      list="master-exercise-types"
+                      className="w-28 border rounded-lg p-1 bg-white"
+                    />
+                  </td>
                   <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
                   <td className="p-2"><textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
@@ -227,6 +246,9 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                 </tr>
               ))}</tbody>
             </table>
+            <datalist id="master-exercise-types">
+              {typeOptions.map(type => <option key={type} value={type} />)}
+            </datalist>
           </div>
         </div>
       </div>

@@ -21,6 +21,8 @@ export type SmartDbMatch = {
 export type SmartNewExercise = {
   name: string;
   categoryName?: string;
+  type?: string;
+  cat?: string;
   sets?: string;
   cue?: string;
   note?: string;

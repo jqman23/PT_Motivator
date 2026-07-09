@@ -38,7 +38,7 @@ export function makeCustomExercise(opts: {
   const name = opts.name.trim();
   return {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    cat: opts.cat,
+    cat: opts.cat.trim() || 'mobility',
     name,
     cue: opts.cue.trim(),
     sets: opts.sets?.trim() || undefined,

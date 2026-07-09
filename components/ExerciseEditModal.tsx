@@ -31,7 +31,7 @@ function fieldLabel(key: string) {
     name: 'Name',
     cue: 'Short cue',
     sets: 'Sets / reps',
-    cat: 'Category',
+    cat: 'Type',
     optional: 'Optional',
     origin: 'Origin',
     sourceId: 'Source ID',
@@ -48,6 +48,10 @@ function previewValue(value: unknown) {
   if (Array.isArray(value)) return value.join(' · ');
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return String(value ?? '');
+}
+
+function cleanType(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
 }
 
 export default function ExerciseEditModal({ exercise, onClose }: Props) {
@@ -308,16 +312,18 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Sets / reps</label>
             <input value={sets} onChange={e => setSets(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
 
-            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Category</label>
-            <div className="flex gap-2">
-              {(['mobility', 'strength'] as const).map(value => (
-                <button key={value} onClick={() => setCat(value)} className="flex-1 text-xs font-semibold py-2.5 rounded-xl capitalize" style={{
-                  background: cat === value ? (value === 'strength' ? '#F4E3D6' : '#E4ECE6') : '#f5f5f4',
-                  color: cat === value ? (value === 'strength' ? '#C17B4F' : '#7E9B86') : '#a8a29e',
-                  touchAction: 'manipulation',
-                }}>{value}</button>
-              ))}
-            </div>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Type</label>
+            <input
+              value={cat}
+              onChange={e => setCat(cleanType(e.target.value))}
+              list="exercise-edit-types"
+              placeholder="mobility, strength, aerobic..."
+              className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white"
+              style={{ fontSize: 16, colorScheme: 'light' }}
+            />
+            <datalist id="exercise-edit-types">
+              {['mobility', 'strength', 'balance', 'aerobic', 'upper body'].map(type => <option key={type} value={type} />)}
+            </datalist>
 
             <label className="flex items-center gap-2 text-xs font-semibold text-stone-500 py-1">
               <input type="checkbox" checked={optional} onChange={e => setOptional(e.target.checked)} />

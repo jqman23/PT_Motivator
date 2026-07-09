@@ -63,6 +63,7 @@ const looksLikeJson = (input: string) => {
   const clean = cleanJsonInput(input);
   return clean.startsWith('{') || clean.startsWith('[') || clean.includes('```json') || clean.includes('```JSON');
 };
+const cleanType = (value: unknown) => asString(value).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
 const normalizeCategoryText = (value: string) => value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 
 function splitTopLevelObjects(input: string): string[] {
@@ -142,8 +143,7 @@ function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { item
     const reps = asString(item.reps ?? item.repCount);
     const sets = explicitSets || (reps ? reps : undefined);
     const categoryName = resolveCategoryName(item.categoryName ?? item.category);
-    const catText = asString(item.cat ?? item.type ?? item.category).toLowerCase();
-    const cat: Exercise['cat'] = catText.includes('strength') ? 'strength' : 'mobility';
+    const cat = cleanType(item.type ?? item.cat) || 'mobility';
     const originText = asString(item.origin ?? item.source).toLowerCase();
     const origin = ORIGIN_OPTIONS.some(opt => opt.value === originText) ? originText as NonNullable<Exercise['origin']> : 'patient_added';
     const tips = asStringArray(item.tips ?? item.helpfulTips ?? item.instructions ?? item.cues);
@@ -216,6 +216,7 @@ export default function LibraryModal({
     const customIds = new Set(customExercises.map(e => e.id));
     return [...builtIns, ...customExercises].map(e => ({ ...e, isCustom: customIds.has(e.id) }));
   }, [builtIns, customExercises]);
+  const typeOptions = useMemo(() => Array.from(new Set(all.map(e => e.cat).filter(Boolean))).sort(), [all]);
 
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
   const createLabel = importedMeta ? (addToCatId ? 'Create imported & add' : 'Create imported') : (addToCatId ? 'Create manual & add' : 'Create manually');
@@ -316,7 +317,7 @@ export default function LibraryModal({
     clearSourceResults();
   };
 
-  const inferCategory = (exercise: ExternalExerciseResult): Exercise['cat'] => {
+  const inferType = (exercise: ExternalExerciseResult): Exercise['cat'] => {
     const text = [
       exercise.name,
       ...('bodyParts' in exercise ? (exercise.bodyParts ?? []) : []),
@@ -408,7 +409,7 @@ export default function LibraryModal({
       setCue([targetText, equipmentText].filter(Boolean).join(' · '));
       setImageSearch([titleName, bodyText, equipmentText].filter(Boolean).join(' '));
       setTipsText(exercise.instructions?.join('\n') ?? '');
-      setCat(inferCategory(exercise));
+      setCat(inferType(exercise));
       setOrigin('exercisedb');
       setImportedMeta({ source: 'exercisedb', sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
       setSourceId(exercise.exerciseId);
@@ -464,11 +465,17 @@ export default function LibraryModal({
       <input value={imageSearch} onChange={e => setImageSearch(e.target.value)} placeholder="Media search terms" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       {sourceSelect}
       <textarea value={tipsText} onChange={e => setTipsText(e.target.value)} placeholder="Instructions / tips — one per line" rows={4} className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none resize-none" style={{ fontSize: 16, colorScheme: 'light' }} />
-      <div className="flex gap-2 mb-3">
-        {(['mobility', 'strength'] as const).map(c => (
-          <button key={c} onClick={() => setCat(c)} className="flex-1 text-xs font-semibold py-2 rounded-lg capitalize" style={{ background: cat === c ? (c === 'strength' ? '#F4E3D6' : '#E4ECE6') : '#f5f5f4', color: cat === c ? (c === 'strength' ? '#C17B4F' : '#7E9B86') : '#a8a29e' }}>{c}</button>
-        ))}
-      </div>
+      <input
+        value={cat}
+        onChange={e => setCat(cleanType(e.target.value))}
+        list="library-exercise-types"
+        placeholder="Type metadata e.g. mobility, strength, aerobic"
+        className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-3 focus:outline-none"
+        style={{ fontSize: 16, colorScheme: 'light' }}
+      />
+      <datalist id="library-exercise-types">
+        {typeOptions.map(type => <option key={type} value={type} />)}
+      </datalist>
     </>
   );
 

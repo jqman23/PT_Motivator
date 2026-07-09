@@ -27,13 +27,13 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
   const gifUrl = cleanText(raw.gifUrl, 400);
-  const cat = cleanText(raw.cat, 20);
+  const cat = cleanText(raw.type ?? raw.cat, 40).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
   const origin = cleanText(raw.origin, 40);
 
   if (name) patch.name = name;
   if (cue) patch.cue = cue;
   if (sets) patch.sets = sets;
-  if (cat === 'mobility' || cat === 'strength') patch.cat = cat;
+  if (cat) patch.cat = cat;
   if (typeof raw.optional === 'boolean') patch.optional = raw.optional;
   if (imageSearch) patch.imageSearch = imageSearch;
   if (sourceId) patch.sourceId = sourceId;
@@ -89,13 +89,13 @@ export async function POST(req: NextRequest) {
       'Use the standard name and terminology when confident.',
       'Correct obvious source mistakes only when confidence is high.',
       'If the source describes an intentional variation, keep the useful variation details.',
-      'Fill every field you can confidently fill: name, cue, sets, cat, imageSearch, tips.',
+      'Fill every field you can confidently fill: name, cue, sets, type, imageSearch, tips.',
       'Cue is the SHORT cue field: one compact sentence, max 180 characters, not full instructions.',
       'Put detailed setup, sequence steps, control notes, and optional refinements in tips instead of cue.',
       'Tips should be short, useful bullets with one idea per item.',
       'Do not add unsupported benefits, claims, mechanics, or random tips.',
       'If confidence is low for a field, leave that field blank.',
-      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","cat":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
+      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance

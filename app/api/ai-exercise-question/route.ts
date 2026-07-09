@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       'Use the app list and database matches as context, not as strict limits.',
       'Respect the user-described setup and movement details. Do not overwrite them with generic form advice.',
       'When unclear, ask one short clarifying question and return 2-3 short option labels.',
-      'Return compact JSON only: {"answer":"","options":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"mobility","imageSearch":"","confidence":"","nextStep":"","tips":[]}}. Omit confirmedExercise if not confident.'
+      'Return compact JSON only: {"answer":"","options":[],"confirmedExercise":{"name":"","cue":"","sets":"","type":"mobility","imageSearch":"","confidence":"","nextStep":"","tips":[]}}. Omit confirmedExercise if not confident.'
     ].join(' ');
 
     const { data, model, attemptedModels } = await callGroqChat(apiKey, 'ask', {
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
           name: cleanText(confirmed.name, 120),
           cue: cleanText(confirmed.cue, 520),
           sets: cleanText(confirmed.sets, 180),
-          cat: cleanText(confirmed.cat, 20) === 'strength' ? 'strength' : 'mobility',
+          cat: cleanText(confirmed.type ?? confirmed.cat, 40).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim() || 'mobility',
           imageSearch: cleanText(confirmed.imageSearch, 180),
           confidence: cleanText(confirmed.confidence, 80),
           nextStep: cleanText(confirmed.nextStep, 220),

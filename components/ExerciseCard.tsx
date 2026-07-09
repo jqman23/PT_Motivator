@@ -56,14 +56,12 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
   const suppressNextClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiping = useRef(false);
-  const isStrength = exercise.cat === 'strength';
-
   const cardColor = done
-    ? isStrength ? 'bg-[#F4E3D6] border-[#C17B4F]/25' : 'bg-[#E4ECE6] border-[#7E9B86]/25'
+    ? 'bg-[#E4ECE6] border-[#7E9B86]/25'
     : 'bg-white border-stone-100';
 
   const checkColor = done
-    ? isStrength ? 'bg-[#C17B4F] border-[#C17B4F]' : 'bg-[#7E9B86] border-[#7E9B86]'
+    ? 'bg-[#7E9B86] border-[#7E9B86]'
     : 'bg-white border-stone-200';
 
   const closeSwipe = () => {
@@ -320,7 +318,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               onClick={() => setShowNotes(true)}
               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
                 note
-                  ? isStrength ? 'bg-[#C17B4F]/20 text-[#C17B4F]' : 'bg-[#7E9B86]/20 text-[#7E9B86]'
+                  ? 'bg-[#7E9B86]/20 text-[#7E9B86]'
                   : 'bg-stone-100 text-stone-400 hover:bg-stone-200'
               }`}
               title="Add note"
