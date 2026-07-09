@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/media';
 import type { VideoResult } from '@/app/api/yt-search/route';
+
+const MEDIA_SWIPE_REVEAL = 52;
+const MEDIA_SWIPE_THRESHOLD = 28;
 
 async function saveExercisePatch(exerciseId: string, patch: Partial<Exercise>) {
   const res = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
@@ -54,6 +57,12 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
   const [manualVideoUrl, setManualVideoUrl] = useState('');
   const [error, setError] = useState('');
   const [showMainVideo, setShowMainVideo] = useState(false);
+  const [imageSwipeX, setImageSwipeX] = useState(0);
+  const [imageSwipeOpen, setImageSwipeOpen] = useState(false);
+  const [videoSwipeX, setVideoSwipeX] = useState(0);
+  const [videoSwipeOpen, setVideoSwipeOpen] = useState(false);
+  const imageTouchStart = useRef<{ x: number; y: number } | null>(null);
+  const videoTouchStart = useRef<{ x: number; y: number } | null>(null);
 
   const uploadImage = async (file?: File | null) => {
     if (!file) return;
@@ -115,6 +124,39 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     }
   };
 
+  const swipeHandlers = (
+    kind: 'image' | 'video',
+    swipeOpen: boolean,
+    setSwipeX: (value: number) => void,
+    setSwipeOpen: (value: boolean) => void,
+    touchStart: React.MutableRefObject<{ x: number; y: number } | null>,
+  ) => ({
+    onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === 'mouse') return;
+      touchStart.current = { x: e.clientX, y: e.clientY };
+    },
+    onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === 'mouse' || !touchStart.current) return;
+      const dx = e.clientX - touchStart.current.x;
+      const dy = e.clientY - touchStart.current.y;
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+        const base = swipeOpen ? -MEDIA_SWIPE_REVEAL : 0;
+        setSwipeX(Math.min(0, Math.max(-MEDIA_SWIPE_REVEAL, base + dx)));
+      }
+    },
+    onPointerUp: () => {
+      touchStart.current = null;
+      const current = kind === 'image' ? imageSwipeX : videoSwipeX;
+      const shouldOpen = current < -MEDIA_SWIPE_THRESHOLD;
+      setSwipeOpen(shouldOpen);
+      setSwipeX(shouldOpen ? -MEDIA_SWIPE_REVEAL : 0);
+    },
+    onPointerCancel: () => {
+      touchStart.current = null;
+      setSwipeX(swipeOpen ? -MEDIA_SWIPE_REVEAL : 0);
+    },
+  });
+
   return (
     <div className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:p-4" onPointerDown={onClose}>
       <div className="bg-[#F6F1E7] w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88dvh] overflow-y-auto" onPointerDown={e => e.stopPropagation()}>
@@ -142,8 +184,19 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           {error && <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{error}</p>}
 
           {showMainVideo && embedUrl && (
-            <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
-              <div className="relative aspect-video">
+            <div className="relative overflow-hidden rounded-2xl bg-red-500 shadow-sm">
+              <button
+                onClick={() => clearMedia('mainVideoUrl')}
+                className="absolute inset-y-0 right-0 z-0 flex w-[52px] items-center justify-center text-2xl font-bold text-white sm:hidden"
+                style={{ touchAction: 'manipulation' }}
+              >
+                ×
+              </button>
+              <div
+                className="relative aspect-video bg-black transition-transform duration-150"
+                style={{ transform: `translateX(${videoSwipeX}px)`, touchAction: 'pan-y' }}
+                {...swipeHandlers('video', videoSwipeOpen, setVideoSwipeX, setVideoSwipeOpen, videoTouchStart)}
+              >
                 <button
                   onClick={() => setShowMainVideo(false)}
                   className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
@@ -153,7 +206,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                 {hasPrimaryVideo && (
                   <button
                     onClick={() => clearMedia('mainVideoUrl')}
-                    className="absolute left-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                    className="absolute left-2 top-2 z-10 hidden rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur sm:block"
                   >
                     Remove video
                   </button>
@@ -170,12 +223,23 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           )}
 
           {imageUrl && (
-            <div className="overflow-hidden rounded-2xl bg-black shadow-sm">
-              <div className="relative">
+            <div className="relative overflow-hidden rounded-2xl bg-red-500 shadow-sm">
+              <button
+                onClick={() => clearMedia('mainImageUrl')}
+                className="absolute inset-y-0 right-0 z-0 flex w-[52px] items-center justify-center text-2xl font-bold text-white sm:hidden"
+                style={{ touchAction: 'manipulation' }}
+              >
+                ×
+              </button>
+              <div
+                className="relative bg-black transition-transform duration-150"
+                style={{ transform: `translateX(${imageSwipeX}px)`, touchAction: 'pan-y' }}
+                {...swipeHandlers('image', imageSwipeOpen, setImageSwipeX, setImageSwipeOpen, imageTouchStart)}
+              >
                 {hasPrimaryImage && (
                   <button
                     onClick={() => clearMedia('mainImageUrl')}
-                    className="absolute right-2 top-2 z-10 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur"
+                    className="absolute right-2 top-2 z-10 hidden rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur sm:block"
                   >
                     Remove photo
                   </button>
