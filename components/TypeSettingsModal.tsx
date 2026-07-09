@@ -10,40 +10,172 @@ interface Props {
   onClose: () => void;
 }
 
-type EmojiGroup = { label: string; items: string[] };
+type EmojiItem = { emoji: string; keywords: string[] };
+type EmojiGroup = { label: string; items: EmojiItem[] };
+
+const emojiItem = (emoji: string, keywords: string | string[]): EmojiItem => ({
+  emoji,
+  keywords: Array.isArray(keywords) ? keywords : keywords.split('|').map(k => k.trim()).filter(Boolean),
+});
 
 const EMOJI_GROUPS: EmojiGroup[] = [
   { label: 'Recent', items: [] },
   { label: 'Cardio', items: [
-    '❤️','💖','💗','💓','💞','💘','💝','💟','🫀','🫁','💨','🔥','⚡','💦','🏃','🏃‍♀️','🏃‍♂️',
-    '🚴','🚴‍♀️','🚴‍♂️','🏁','🎽','⛷️','🏊','🏊‍♀️','🏊‍♂️','🫶','🫰','💪','⏱️','⌛','📈'
+    emojiItem('❤️', 'heart|cardio|pulse'),
+    emojiItem('🫀', 'heart|cardio|pulse|heart rate'),
+    emojiItem('🏃', 'run|jog|treadmill|cardio'),
+    emojiItem('🏃‍♀️', 'run|jog|treadmill|cardio'),
+    emojiItem('🏃‍♂️', 'run|jog|treadmill|cardio'),
+    emojiItem('🚴', 'bike|cycle|cardio'),
+    emojiItem('🚴‍♀️', 'bike|cycle|cardio'),
+    emojiItem('🚴‍♂️', 'bike|cycle|cardio'),
+    emojiItem('🏊', 'swim|cardio'),
+    emojiItem('🏊‍♀️', 'swim|cardio'),
+    emojiItem('🏊‍♂️', 'swim|cardio'),
+    emojiItem('🏁', 'goal|finish|race'),
+    emojiItem('🎽', 'run|race|cardio'),
+    emojiItem('🔥', 'burn|intense|cardio'),
+    emojiItem('⚡', 'speed|interval|cardio'),
+    emojiItem('💦', 'sweat|cardio'),
+    emojiItem('⏱️', 'timer|interval|hiit'),
+    emojiItem('⌛', 'timer|interval'),
+    emojiItem('📈', 'progress|cardio'),
   ] },
   { label: 'Workout', items: [
-    '🏋️','🏋️‍♀️','🏋️‍♂️','🏃','🏃‍♀️','🏃‍♂️','🚶','🚶‍♀️','🚶‍♂️','🚴','🚴‍♀️','🚴‍♂️',
-    '🧘','🧘‍♀️','🧘‍♂️','🤸','🤸‍♀️','🤸‍♂️','🤾','🤾‍♀️','🤾‍♂️','🤼','🤼‍♀️','🤼‍♂️',
-    '⛹️','⛹️‍♀️','⛹️‍♂️','🏌️','🏌️‍♀️','🏌️‍♂️','🧎','🧎‍♀️','🧎‍♂️','🧍','🧍‍♀️','🧍‍♂️',
-    '⏱️','⏲️','⌛','⛳','🎯','🔁','↔️','⬆️','⬇️','➡️','⬅️','🔄','🔃','▶️','⏯️'
+    emojiItem('🏋️', 'weights|gym|lift'),
+    emojiItem('🏋️‍♀️', 'weights|gym|lift'),
+    emojiItem('🏋️‍♂️', 'weights|gym|lift'),
+    emojiItem('🚶', 'walk|walking|warmup|treadmill'),
+    emojiItem('🚶‍♀️', 'walk|walking|warmup|treadmill'),
+    emojiItem('🚶‍♂️', 'walk|walking|warmup|treadmill'),
+    emojiItem('🧘', 'stretch|mobility|yoga'),
+    emojiItem('🤸', 'mobility|agility|warmup'),
+    emojiItem('🤼', 'core|conditioning'),
+    emojiItem('⛹️', 'sport|conditioning'),
+    emojiItem('🧎', 'kneel|ground|stretch'),
+    emojiItem('🧍', 'stand|posture'),
+    emojiItem('🔁', 'repeat|cycle'),
+    emojiItem('↔️', 'side|range|mobility'),
+    emojiItem('⬆️', 'up|progress'),
+    emojiItem('⬇️', 'down|regress'),
+    emojiItem('➡️', 'forward|advance'),
+    emojiItem('⬅️', 'back|reverse'),
+    emojiItem('🔄', 'repeat|rotate'),
+    emojiItem('▶️', 'play|start'),
   ] },
   { label: 'Body', items: [
-    '💪','🦵','🦶','🖐️','✋','👣','👀','👂','👃','👄','🫀','🫁','🧠','🦴','🦷','🫁','🫀',
-    '👐','👏','🤝','🙏','🫶','🤲','🫳','🫴','🫰','👌','✊','👍','👎','🤙','☝️','✌️','🤘',
-    '🦾','🦿','💋','👋','🫥','😮','😶','😵','🫠','🥵','🥶'
+    emojiItem('💪', 'arm|strength|upper body'),
+    emojiItem('🦵', 'leg|lower body'),
+    emojiItem('🦶', 'foot|ankle|toe'),
+    emojiItem('🧠', 'brain|balance|coordination'),
+    emojiItem('🦴', 'bone|skeleton'),
+    emojiItem('🦾', 'arm|prosthetic|strength'),
+    emojiItem('🦿', 'leg|prosthetic|strength'),
+    emojiItem('🖐️', 'hand|wrist'),
+    emojiItem('✋', 'hand|palm'),
+    emojiItem('👣', 'foot|steps|gait'),
+    emojiItem('👀', 'vision|balance'),
+    emojiItem('👂', 'hearing|balance'),
+    emojiItem('👃', 'breathing|nose'),
+    emojiItem('👐', 'hands|open'),
+    emojiItem('👏', 'hands|activation'),
+    emojiItem('🤝', 'assist|support'),
+    emojiItem('🙏', 'stretch|mobility'),
+    emojiItem('🤙', 'hand|cue'),
+    emojiItem('☝️', 'point|one'),
+    emojiItem('✌️', 'two|peace'),
+    emojiItem('🤘', 'strong|hand'),
   ] },
   { label: 'Medical', items: [
-    '🩺','💊','🩹','🧴','🧼','🪥','🪒','🧻','🧻','🧊','🔥','🩻','🦽','🦼','🩼','🪑','🛏️',
-    '🧰','🧯','📋','📈','📉','🧪','🧫','🔬','🧬','💉','🩸','🩺','🏥','🚑','🏨','⚕️','🧑‍⚕️'
+    emojiItem('🩺', 'medical|doctor|rehab'),
+    emojiItem('💊', 'meds|pill'),
+    emojiItem('🩹', 'bandage|tape'),
+    emojiItem('🧊', 'ice|cold|cryo'),
+    emojiItem('🏥', 'hospital|clinic'),
+    emojiItem('🚑', 'ambulance'),
+    emojiItem('⚕️', 'medical'),
+    emojiItem('🩻', 'xray|scan'),
+    emojiItem('🦽', 'wheelchair'),
+    emojiItem('🩼', 'crutch'),
+    emojiItem('🧴', 'lotion|cream'),
+    emojiItem('📋', 'clipboard|chart'),
+    emojiItem('📈', 'progress|tracking'),
+    emojiItem('📉', 'decline|tracking'),
+    emojiItem('💉', 'needle'),
+    emojiItem('🩸', 'blood'),
   ] },
   { label: 'Equipment', items: [
-    '🏃','🛤️','🪜','🪢','🪝','🪚','🛞','🏑','🏒','🏸','🏓','🎾','⚽','🏀','🏐','🥎','🪀',
-    '🏋️','🪈','🧱','🪵','🪛','🪚','🧲','🧩','🧸','🪑','🛋️','🛌','🧎','🧍','🏟️','🏟️',
-    '🛹','🛼','⛸️','🎳','🎯','🪆','🧷','🪝','🪤','🧰','🧳','🧯','🪧'
+    emojiItem('🪜', 'stairs|stair master|stepmill|steps'),
+    emojiItem('🏃', 'treadmill|cardio'),
+    emojiItem('🏋️', 'weights|gym'),
+    emojiItem('🚴', 'bike erg|cycle'),
+    emojiItem('🛞', 'wheel|cycle'),
+    emojiItem('🪢', 'band|strap'),
+    emojiItem('🪝', 'anchor|hook'),
+    emojiItem('🧲', 'resistance|magnet'),
+    emojiItem('🪑', 'chair|box'),
+    emojiItem('🛋️', 'couch|support'),
+    emojiItem('🛌', 'bed|rest'),
+    emojiItem('🎳', 'roll|lane'),
+    emojiItem('🛹', 'balance|board'),
+    emojiItem('🛼', 'balance|skate'),
+    emojiItem('⛸️', 'balance|skate'),
+    emojiItem('🏟️', 'stadium|cardio'),
+    emojiItem('🧰', 'kit|tools'),
+    emojiItem('🧳', 'carry|travel'),
+    emojiItem('🪧', 'sign|cue'),
   ] },
   { label: 'Objects', items: [
-    '🪞','🪟','🪟','🧰','🧲','🧪','📱','💻','⌚','📺','📷','📹','🎥','📌','📍','🗂️','🗒️',
-    '📎','🖊️','✏️','📐','📏','🧷','🪜','🧯','🧯','🪣','🧴','🧹','🧼','🪥','🪒','🛒',
-    '🪑','🛋️','🛏️','🪟','🪔','🧯','🧯','🧻','🧻','🛁','🚰','🚽','🧽','🪮'
+    emojiItem('🪞', 'mirror|posture'),
+    emojiItem('🪟', 'window|frame'),
+    emojiItem('📱', 'phone|mobile'),
+    emojiItem('💻', 'laptop|desktop'),
+    emojiItem('⌚', 'watch|timer'),
+    emojiItem('📺', 'screen|video'),
+    emojiItem('📷', 'photo|camera'),
+    emojiItem('📹', 'video|camera'),
+    emojiItem('🎥', 'video|film'),
+    emojiItem('📌', 'pin|marker'),
+    emojiItem('📍', 'location|marker'),
+    emojiItem('🗂️', 'files|folder'),
+    emojiItem('🗒️', 'notes|paper'),
+    emojiItem('📎', 'clip|paperclip'),
+    emojiItem('🖊️', 'pen'),
+    emojiItem('✏️', 'pencil'),
+    emojiItem('📐', 'measure|angle'),
+    emojiItem('📏', 'measure|length'),
+    emojiItem('🪣', 'bucket'),
+    emojiItem('🧹', 'clean|broom'),
+    emojiItem('🧼', 'clean|soap'),
+    emojiItem('🛒', 'cart'),
+    emojiItem('🛁', 'bath'),
+    emojiItem('🚰', 'water'),
+    emojiItem('🚽', 'toilet'),
+    emojiItem('🧽', 'sponge'),
+    emojiItem('🪮', 'comb'),
   ] },
-  { label: 'Symbols', items: ['✅','❗','⭐','💥','💯','🔁','➡️','⬆️','⬇️','⬅️','↔️','⚙️','➕','➖','✳️','⚡','🔷','🔶','🔸','🔹','💠','🔺','🔻','🔴','🟢','🟡','🔵','🟣'] },
+  { label: 'Symbols', items: [
+    emojiItem('✅', 'check|done'),
+    emojiItem('❗', 'alert|important'),
+    emojiItem('⭐', 'star|favorite'),
+    emojiItem('💯', 'perfect'),
+    emojiItem('➕', 'add|plus'),
+    emojiItem('➖', 'remove|minus'),
+    emojiItem('⚙️', 'settings|gear'),
+    emojiItem('💥', 'impact'),
+    emojiItem('🔷', 'blue|diamond'),
+    emojiItem('🔶', 'orange|diamond'),
+    emojiItem('🔸', 'small|diamond'),
+    emojiItem('🔹', 'small|diamond'),
+    emojiItem('💠', 'diamond'),
+    emojiItem('🔺', 'up|triangle'),
+    emojiItem('🔻', 'down|triangle'),
+    emojiItem('🔴', 'red'),
+    emojiItem('🟢', 'green'),
+    emojiItem('🟡', 'yellow'),
+    emojiItem('🔵', 'blue'),
+    emojiItem('🟣', 'purple'),
+  ] },
 ];
 
 function loadRecentEmojis(): string[] {
@@ -107,8 +239,8 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
     const groups = EMOJI_GROUPS.map(group => ({
       ...group,
       items: group.label === 'Recent'
-        ? recent
-        : group.items.filter(emoji => !q || emoji.includes(q) || emoji === q),
+        ? recent.map(emoji => ({ emoji, keywords: [emoji] }))
+        : group.items.filter(item => !q || item.emoji.includes(q) || item.keywords.some(keyword => keyword.toLowerCase().includes(q))),
     })).filter(group => group.items.length > 0 || group.label === 'Recent');
     return groups;
   }, [emojiQuery, recent]);
@@ -220,14 +352,14 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
                       )}
                     </div>
                     <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5">
-                      {group.items.map(emoji => (
+                      {group.items.map(item => (
                         <button
-                          key={`${group.label}-${emoji}`}
-                          onClick={() => { setEmoji(activeType, emoji); setPickerType(null); }}
+                          key={`${group.label}-${item.emoji}`}
+                          onClick={() => { setEmoji(activeType, item.emoji); setPickerType(null); }}
                           className="h-11 rounded-xl border border-stone-100 bg-white text-xl flex items-center justify-center hover:bg-stone-50"
-                          title={emoji}
+                          title={item.keywords.join(', ')}
                         >
-                          {emoji}
+                          {item.emoji}
                         </button>
                       ))}
                     </div>
