@@ -21,3 +21,14 @@ export function getExerciseTypeTheme(value?: string) {
   const palette = COLOR_PALETTE[tone] ?? COLOR_PALETTE.green;
   return { type, tone, ...palette };
 }
+
+export function getExerciseTypeMark(value?: string) {
+  const type = normalizeExerciseType(value).toLowerCase();
+  const letters = type
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map(part => part[0] ?? '')
+    .join('')
+    .slice(0, 2);
+  return (letters || type.slice(0, 2) || '??').toUpperCase();
+}

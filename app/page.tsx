@@ -137,8 +137,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllDone, setSaveAllDone] = useState(false);
-  const [confirmClearDay, setConfirmClearDay] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  const [hiddenDoneByDate, setHiddenDoneByDate] = useState<Record<string, string[]>>({});
 
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -203,6 +202,26 @@ export default function Home() {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('pt-hidden-done-by-date');
+      if (stored) {
+        const parsed = JSON.parse(stored) as Record<string, unknown>;
+        const next: Record<string, string[]> = {};
+        for (const [date, value] of Object.entries(parsed)) {
+          if (Array.isArray(value)) next[date] = value.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+        }
+        setHiddenDoneByDate(next);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pt-hidden-done-by-date', JSON.stringify(hiddenDoneByDate));
+    } catch {}
+  }, [hiddenDoneByDate]);
 
   const requestDailySummary = useCallback(async (force = false) => {
     const summaryKey = 'pt-summary-shown';
@@ -346,7 +365,6 @@ export default function Home() {
     setSelectedDate(date);
     localStorage.setItem('pt-selected-date', date);
     setNotes({});
-    setConfirmClearDay(false);
   };
   const handleDateChange = (dir: -1 | 1) => {
     const next = offsetDate(selectedDate, dir);
@@ -391,19 +409,28 @@ export default function Home() {
     try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, exerciseId, note }) }); }
     catch (err) { console.error(err); }
   };
-  const handleClearDay = async () => {
-    setClearing(true);
-    setConfirmClearDay(false);
-    try {
-      await Promise.all([
-        fetch(`/api/log?date=${selectedDate}`, { method: 'DELETE' }),
-        fetch(`/api/notes?date=${selectedDate}`, { method: 'DELETE' }),
-        fetch(`/api/health?date=${selectedDate}`, { method: 'DELETE' }),
-      ]);
-      setLog(prev => ({ ...prev, [selectedDate]: {} }));
-      setNotes({});
-    } catch (err) { console.error(err); }
-    finally { setClearing(false); }
+  const hiddenDoneIds = hiddenDoneByDate[selectedDate] ?? [];
+  const hiddenDoneSet = useMemo(() => new Set(hiddenDoneIds), [hiddenDoneIds]);
+  const isDayHidden = hiddenDoneIds.length > 0;
+  const doneIdsForDay = useMemo(
+    () => Object.entries(log[selectedDate] || {}).filter(([, done]) => done).map(([exerciseId]) => exerciseId),
+    [log, selectedDate]
+  );
+  const toggleHiddenDone = () => {
+    if (isDayHidden) {
+      setHiddenDoneByDate(prev => {
+        const next = { ...prev };
+        delete next[selectedDate];
+        return next;
+      });
+      return;
+    }
+
+    if (!doneIdsForDay.length) return;
+    setHiddenDoneByDate(prev => ({
+      ...prev,
+      [selectedDate]: doneIdsForDay,
+    }));
   };
 
   const renameCat = (catId: string, name: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c)); setRenamingCat(null); };
@@ -507,7 +534,7 @@ export default function Home() {
           <div className="mt-2 flex items-center justify-center gap-2">
             {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
             <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
-            {!confirmClearDay && <button onClick={() => setConfirmClearDay(true)} className="text-xs font-medium px-3 py-1 rounded-full" style={{ color: '#a8a29e', background: '#f5f5f4', touchAction: 'manipulation' }}>{clearing ? 'Clearing…' : '× Clear'}</button>}
+            <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="text-xs font-medium px-3 py-1 rounded-full disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
             <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="w-8 h-8 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
               {summaryLoading ? <span className="text-sm leading-none">…</span> : (
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" style={{ color: '#D9A94B' }} aria-hidden="true">
@@ -517,7 +544,6 @@ export default function Home() {
               )}
             </button>
           </div>
-          {confirmClearDay && <div className="mt-2 flex justify-center"><div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}><span className="text-xs font-semibold" style={{ color: '#991b1b' }}>Are you sure? Clear ALL data for {displayForDate(selectedDate)}?</span><button onClick={handleClearDay} className="text-xs font-bold px-2.5 py-1 rounded-lg text-white" style={{ background: '#ef4444', touchAction: 'manipulation' }}>Yes, clear</button><button onClick={() => setConfirmClearDay(false)} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ color: '#78716c', background: '#f5f5f4', touchAction: 'manipulation' }}>Cancel</button></div></div>}
         </div>
 
         {showCalendar && <CalendarModal today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} onSelectDate={d => changeDate(d)} onClose={() => setShowCalendar(false)} />}
@@ -564,7 +590,7 @@ export default function Home() {
                     <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
                     <div className="relative flex-shrink-0"><button onClick={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)} className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: palette.accent, touchAction: 'manipulation' }} title="Change color" />{colorMenuCat === cat.id && <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">{COLOR_KEYS.map(c => <button key={c} onClick={() => changeColor(cat.id, c)} className="w-6 h-6 rounded-full" style={{ background: COLOR_PALETTE[c].accent, boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div>}</div>
                   </div>
-                  {!isCollapsed && <div className="space-y-2">{catExercises.map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
+                  {!isCollapsed && <div className="space-y-2">{catExercises.filter(ex => !hiddenDoneSet.has(ex.id)).map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
                   {isCollapsed && <button onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))} className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed" style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}>{done}/{total} done · tap to expand</button>}
                 </section>
               );

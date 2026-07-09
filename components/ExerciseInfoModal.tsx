@@ -2,7 +2,7 @@
 
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
-import { getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
+import { getExerciseTypeMark, getExerciseTypeTheme } from '@/lib/exerciseTypes';
 import { youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
@@ -85,15 +85,8 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start gap-2 flex-wrap">
                                 <h4 className="text-sm font-bold text-stone-800 leading-snug">{ex.name}</h4>
-                                <span
-                                  className="rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest"
-                                  style={{
-                                    background: typeTheme.light,
-                                    color: typeTheme.accent,
-                                    borderColor: `${typeTheme.accent}22`,
-                                  }}
-                                >
-                                  {normalizeExerciseType(ex.cat)}
+                                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: typeTheme.accent }}>
+                                  {getExerciseTypeMark(ex.cat)}
                                 </span>
                               </div>
                             </div>

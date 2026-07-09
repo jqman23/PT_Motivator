@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
-import { getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
+import { getExerciseTypeMark, getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
@@ -302,7 +302,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className={`text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
                 {exercise.name}
               </span>
@@ -310,16 +310,14 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setTypeDraft(normalizeExerciseType(exercise.cat)); setShowTypePicker(true); }}
-                className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                className="inline-flex items-baseline rounded px-0.5 text-[10px] font-black uppercase tracking-widest leading-none transition-colors"
                 style={{
-                  background: typeTheme.light,
                   color: typeTheme.accent,
-                  borderColor: `${typeTheme.accent}22`,
                   touchAction: 'manipulation',
                 }}
                 title="Change type"
               >
-                {normalizeExerciseType(exercise.cat)}
+                {getExerciseTypeMark(exercise.cat)}
               </button>
             </div>
             <p className="text-xs text-stone-400 mt-0.5 leading-snug">{exercise.cue}</p>
