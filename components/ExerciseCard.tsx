@@ -305,11 +305,11 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
 
           <div className="flex-1 min-w-0">
             <div className="relative min-w-0 pr-12">
-              <div className="flex items-baseline gap-1 min-w-0">
-                <span className={`min-w-0 truncate text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+              <div className={`min-w-0 truncate text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+                <span className="whitespace-nowrap">
                   {exercise.name}
+                  {exercise.optional && <span className="ml-1 text-xs text-stone-400">(optional)</span>}
                 </span>
-                {exercise.optional && <span className="flex-shrink-0 text-xs text-stone-400 leading-tight">(optional)</span>}
               </div>
               <button
                 type="button"
