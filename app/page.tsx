@@ -139,7 +139,7 @@ export default function Home() {
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllDone, setSaveAllDone] = useState(false);
   const [hiddenDoneByDate, setHiddenDoneByDate] = useState<Record<string, string[]>>({});
-  const [typeFilter, setTypeFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [showTypeFilterMenu, setShowTypeFilterMenu] = useState(false);
 
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
@@ -186,7 +186,7 @@ export default function Home() {
     () => Array.from(new Set(allExercises.map(ex => normalizeExerciseType(ex.cat)))).sort((a, b) => a.localeCompare(b)),
     [allExercises]
   );
-  const typeFilterActive = !!typeFilter.trim();
+  const typeFilterActive = typeFilter.length > 0;
   const layoutExercises = useMemo(() =>
     layout.flatMap(cat => cat.exerciseIds
       .map(id => exerciseMap[id] ? { ...exerciseMap[id], categoryName: cat.name, categoryColor: cat.color } : null)
@@ -556,15 +556,15 @@ export default function Home() {
                   touchAction: 'manipulation',
                 }}
               >
-                Type
+                {typeFilterActive ? `Type (${typeFilter.length})` : 'Type'}
               </button>
               {showTypeFilterMenu && (
-                <div className="absolute left-0 top-full mt-2 z-20 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-stone-100 bg-white shadow-xl p-2">
+                <div className="fixed left-3 right-3 top-[calc(100dvh-18rem)] z-30 rounded-2xl border border-stone-100 bg-white shadow-2xl p-2 overflow-hidden sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:overflow-visible">
                   <div className="flex items-center justify-between gap-2 px-1 pb-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
                     {typeFilterActive && (
                       <button
-                        onClick={() => { setTypeFilter(''); setShowTypeFilterMenu(false); }}
+                        onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
                         className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
                         style={{ touchAction: 'manipulation' }}
                       >
@@ -574,8 +574,8 @@ export default function Home() {
                   </div>
                   <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
                     <button
-                      onClick={() => { setTypeFilter(''); setShowTypeFilterMenu(false); }}
-                      className="rounded-lg border px-2 py-2 text-left text-xs font-semibold"
+                      onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
+                      className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
                       style={{
                         borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
                         color: !typeFilterActive ? '#7E9B86' : '#78716c',
@@ -588,12 +588,12 @@ export default function Home() {
                     {typeOptions.map(type => (
                       <button
                         key={type}
-                        onClick={() => { setTypeFilter(type); setShowTypeFilterMenu(false); }}
-                        className="rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize"
+                        onClick={() => setTypeFilter(prev => prev.includes(type) ? prev.filter(item => item !== type) : [...prev, type])}
+                        className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize truncate"
                         style={{
-                          borderColor: typeFilter === type ? '#7E9B86' : '#e7e5e4',
-                          color: typeFilter === type ? '#7E9B86' : '#78716c',
-                          background: typeFilter === type ? '#E4ECE6' : '#fff',
+                          borderColor: typeFilter.includes(type) ? '#7E9B86' : '#e7e5e4',
+                          color: typeFilter.includes(type) ? '#7E9B86' : '#78716c',
+                          background: typeFilter.includes(type) ? '#E4ECE6' : '#fff',
                           touchAction: 'manipulation',
                         }}
                       >
@@ -649,7 +649,7 @@ export default function Home() {
               const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
               const isCollapsed = !!collapsed[cat.id];
               const catExercises: Exercise[] = cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean);
-              const visibleCatExercises = typeFilterActive ? catExercises.filter(ex => normalizeExerciseType(ex.cat) === typeFilter) : catExercises;
+              const visibleCatExercises = typeFilterActive ? catExercises.filter(ex => typeFilter.includes(normalizeExerciseType(ex.cat))) : catExercises;
               const done = visibleCatExercises.filter(e => dayLog[e.id]).length;
               const total = visibleCatExercises.length;
               const isRenaming = renamingCat === cat.id;

@@ -317,7 +317,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
                 className="absolute right-0 top-0 inline-flex items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
                 style={{
                   color: typeTheme.accent,
-                  transform: 'translateY(-1px)',
+                  transform: 'translateY(-3px)',
                   touchAction: 'manipulation',
                 }}
                 title="Change or add type"
