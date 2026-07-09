@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
-import { getExerciseTypeMark, getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
+import { ExerciseTypeMeta, getExerciseTypeDisplay, getExerciseTypeMark, getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
 import VideoModal from './VideoModal';
 import NotesModal from './NotesModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
@@ -19,6 +19,7 @@ interface Props {
   onNoteSave: (note: string) => void;
   onMoveExercise?: (exerciseId: string, direction: -1 | 1) => Promise<boolean> | boolean;
   typeOptions: string[];
+  typeMeta: ExerciseTypeMeta;
 }
 
 const SWIPE_REVEAL = 92;
@@ -40,7 +41,7 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
-export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave, onMoveExercise, typeOptions }: Props) {
+export default function ExerciseCard({ exercise, done, note, today, onToggle, onNoteSave, onMoveExercise, typeOptions, typeMeta }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
@@ -68,6 +69,7 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
     ? 'bg-[#7E9B86] border-[#7E9B86]'
     : 'bg-white border-stone-200';
   const typeTheme = getExerciseTypeTheme(exercise.cat);
+  const typeDisplay = getExerciseTypeDisplay(exercise.cat, typeMeta);
 
   const closeSwipe = () => {
     setSwipeX(0);
@@ -317,12 +319,15 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
                 }}
                 title="Change or add type"
               >
-                {getExerciseTypeMark(exercise.cat)}
+                <span className="inline-flex items-center gap-0.5">
+                  {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                  <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
+                </span>
               </button>
             </div>
-            <p className="text-xs text-stone-400 mt-0.5 leading-snug">{exercise.cue}</p>
+            <p className="mt-0.5 text-xs leading-[1.2] text-stone-400 sm:mt-0.5 sm:leading-snug">{exercise.cue}</p>
             {note && (
-              <p className="text-xs text-stone-500 mt-1 italic leading-snug line-clamp-1">📝 {note}</p>
+              <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
             )}
             {showMoveControls && (
               <div className="sm:hidden mt-2 flex items-center gap-1.5">

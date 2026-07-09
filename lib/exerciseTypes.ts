@@ -2,6 +2,8 @@ import { COLOR_PALETTE } from './layout';
 
 const TYPE_TONES = ['green', 'orange', 'blue', 'purple', 'teal', 'rose', 'amber', 'slate', 'indigo', 'lime'] as const;
 
+export type ExerciseTypeMeta = Record<string, { letters?: string; emoji?: string }>;
+
 export function normalizeExerciseType(value?: string) {
   return (value || 'untyped').trim() || 'untyped';
 }
@@ -28,4 +30,23 @@ export function getExerciseTypeMark(value?: string) {
     .replace(/[^a-z0-9]+/gi, '')
     .slice(0, 3);
   return (letters || type.slice(0, 3) || '???').toUpperCase();
+}
+
+export function getExerciseTypeMetaKey(value?: string) {
+  return normalizeExerciseType(value).toLowerCase();
+}
+
+export function getExerciseTypeDisplay(value?: string, meta?: ExerciseTypeMeta) {
+  const key = getExerciseTypeMetaKey(value);
+  const custom = meta?.[key];
+  return {
+    letters: (custom?.letters?.trim() || getExerciseTypeMark(value)).toUpperCase().slice(0, 3),
+    emoji: custom?.emoji?.trim() || '',
+    key,
+  };
+}
+
+export function defaultExerciseTypeMeta(value?: string) {
+  const letters = getExerciseTypeMark(value);
+  return { letters, emoji: '' };
 }

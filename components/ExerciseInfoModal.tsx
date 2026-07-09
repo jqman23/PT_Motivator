@@ -2,12 +2,13 @@
 
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
-import { getExerciseTypeMark, getExerciseTypeTheme } from '@/lib/exerciseTypes';
+import { ExerciseTypeMeta, getExerciseTypeDisplay, getExerciseTypeTheme } from '@/lib/exerciseTypes';
 import { youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
   layout: CategoryConfig[];
   exerciseMap: Record<string, Exercise>;
+  typeMeta: ExerciseTypeMeta;
   onClose: () => void;
 }
 
@@ -19,7 +20,7 @@ function sourceLabel(ex: Exercise) {
   return 'Added';
 }
 
-export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Props) {
+export default function ExerciseInfoModal({ layout, exerciseMap, typeMeta, onClose }: Props) {
   const sections = layout.map(cat => ({
     cat,
     exercises: cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean),
@@ -61,6 +62,7 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                 <div className="space-y-2">
                   {exercises.map(ex => {
                     const typeTheme = getExerciseTypeTheme(ex.cat);
+                    const typeDisplay = getExerciseTypeDisplay(ex.cat, typeMeta);
                     return (
                     <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
                       <div className="flex items-start gap-3">
@@ -86,7 +88,10 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                               <div className="flex items-baseline gap-2 min-w-0">
                                 <h4 className="min-w-0 truncate text-sm font-bold text-stone-800 leading-snug">{ex.name}</h4>
                                 <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent }}>
-                                  {getExerciseTypeMark(ex.cat)}
+                                  <span className="inline-flex items-center gap-0.5">
+                                    {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                                    <span>{typeDisplay.letters}</span>
+                                  </span>
                                 </span>
                               </div>
                             </div>

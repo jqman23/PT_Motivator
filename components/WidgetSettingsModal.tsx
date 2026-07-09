@@ -18,10 +18,11 @@ export type WidgetPrefs = Record<WidgetKey, boolean>;
 interface Props {
   prefs: WidgetPrefs;
   onChange: (prefs: WidgetPrefs) => void;
+  onOpenTypes: () => void;
   onClose: () => void;
 }
 
-export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props) {
+export default function WidgetSettingsModal({ prefs, onChange, onOpenTypes, onClose }: Props) {
   const toggle = (key: WidgetKey) => onChange({ ...prefs, [key]: !prefs[key] });
 
   return (
@@ -89,6 +90,23 @@ export default function WidgetSettingsModal({ prefs, onChange, onClose }: Props)
               </button>
             );
           })}
+
+          <button
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+              onOpenTypes();
+            }}
+            className="w-full bg-white rounded-xl border border-stone-100 px-3 py-3 flex items-center justify-between gap-3 text-left"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-stone-800">Exercise types</p>
+              <p className="text-xs text-stone-400 mt-0.5">Set the 3-letter mark and emoji for each type.</p>
+            </div>
+            <span className="text-xs font-semibold text-stone-400 flex-shrink-0">Open</span>
+          </button>
         </div>
       </div>
     </div>

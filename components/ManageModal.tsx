@@ -27,6 +27,7 @@ function DragHandle() {
 }
 
 export default function ManageModal({ layout, exerciseMap, onChange, onRequestAddExercise, onDeleteExercise, onClose }: Props) {
+  const initialLayoutRef = useRef<CategoryConfig[] | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
@@ -34,6 +35,19 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
 
   const catSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const exRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    if (!initialLayoutRef.current) {
+      initialLayoutRef.current = layout.map(cat => ({ ...cat, exerciseIds: [...cat.exerciseIds] }));
+    }
+  }, [layout]);
+
+  const cancelAndClose = () => {
+    if (initialLayoutRef.current) {
+      onChange(initialLayoutRef.current.map(cat => ({ ...cat, exerciseIds: [...cat.exerciseIds] })));
+    }
+    onClose();
+  };
 
   const commitDrop = (current: NonNullable<Drag>) => {
     if (!dropTarget) { setDropTarget(null); return; }
@@ -174,7 +188,7 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm sm:px-4 sm:py-8"
-      onClick={onClose}
+      onClick={cancelAndClose}
     >
       <div
         className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col"
@@ -187,7 +201,7 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
             <h2 className="font-serif text-lg font-semibold text-stone-800">Reorder &amp; edit</h2>
             <p className="text-[11px] text-stone-400">Drag the <span className="font-semibold">≡</span> handle to move things</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
+          <button onClick={cancelAndClose} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
 
         {/* Body */}
@@ -348,7 +362,16 @@ export default function ManageModal({ layout, exerciseMap, onChange, onRequestAd
         </div>
 
         <div className="px-4 py-3 border-t border-stone-200 flex-shrink-0">
-          <button onClick={onClose} className="w-full py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>Done</button>
+          <button
+            onClick={() => {
+              initialLayoutRef.current = null;
+              onClose();
+            }}
+            className="w-full py-2.5 text-sm font-semibold text-white rounded-xl"
+            style={{ background: '#7E9B86' }}
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>

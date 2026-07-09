@@ -19,7 +19,8 @@ import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
-import { normalizeExerciseType } from '@/lib/exerciseTypes';
+import TypeSettingsModal from '@/components/TypeSettingsModal';
+import { ExerciseTypeMeta, normalizeExerciseType } from '@/lib/exerciseTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -138,6 +139,8 @@ export default function Home() {
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllDone, setSaveAllDone] = useState(false);
   const [hiddenDoneByDate, setHiddenDoneByDate] = useState<Record<string, string[]>>({});
+  const [typeFilter, setTypeFilter] = useState('');
+  const [showTypeFilterMenu, setShowTypeFilterMenu] = useState(false);
 
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -165,6 +168,7 @@ export default function Home() {
   const [showTreatments, setShowTreatments] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showWidgetSettings, setShowWidgetSettings] = useState(false);
+  const [showTypeSettings, setShowTypeSettings] = useState(false);
   const [showMasterDatabase, setShowMasterDatabase] = useState(false);
   const [showPTReport, setShowPTReport] = useState(false);
   const [showAiCoach, setShowAiCoach] = useState(false);
@@ -172,6 +176,7 @@ export default function Home() {
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
+  const [typeMeta, setTypeMeta] = useState<ExerciseTypeMeta>({});
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -181,6 +186,7 @@ export default function Home() {
     () => Array.from(new Set(allExercises.map(ex => normalizeExerciseType(ex.cat)))).sort((a, b) => a.localeCompare(b)),
     [allExercises]
   );
+  const typeFilterActive = !!typeFilter.trim();
   const layoutExercises = useMemo(() =>
     layout.flatMap(cat => cat.exerciseIds
       .map(id => exerciseMap[id] ? { ...exerciseMap[id], categoryName: cat.name, categoryColor: cat.color } : null)
@@ -271,6 +277,7 @@ export default function Home() {
     fetch('/api/config?key=appTitle').then(r => r.json()).then(data => { if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value); }).catch(console.error);
     fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => { if (Array.isArray(data.value)) setPtSessions(data.value.map((item: string | PTSession) => typeof item === 'string' ? { date: item, note: '' } : item)); }).catch(console.error);
     fetch('/api/config?key=widgetPrefs').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...data.value }); }).catch(console.error);
+    fetch('/api/config?key=exerciseTypeMeta').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setTypeMeta(data.value as ExerciseTypeMeta); }).catch(console.error);
 
     void requestDailySummary(false);
   }, [requestDailySummary]);
@@ -329,6 +336,10 @@ export default function Home() {
   const updateWidgetPrefs = useCallback((next: WidgetPrefs) => {
     setWidgetPrefs(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'widgetPrefs', value: next }) }).catch(console.error);
+  }, []);
+  const updateTypeMeta = useCallback((next: ExerciseTypeMeta) => {
+    setTypeMeta(next);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseTypeMeta', value: next }) }).catch(console.error);
   }, []);
 
   const moveExerciseInLayout = useCallback(async (exerciseId: string, direction: -1 | 1) => {
@@ -534,7 +545,65 @@ export default function Home() {
           <div className="mt-2 flex items-center justify-center gap-2">
             {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
             <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
-            <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="text-xs font-medium px-3 py-1 rounded-full disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
+            <div className="relative">
+              <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="text-xs font-medium px-3 py-1 rounded-full disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
+              <button
+                onClick={() => setShowTypeFilterMenu(prev => !prev)}
+                className="ml-2 text-xs font-medium px-3 py-1 rounded-full"
+                style={{
+                  color: typeFilterActive ? '#7E9B86' : '#a8a29e',
+                  background: typeFilterActive ? '#E4ECE6' : '#f5f5f4',
+                  touchAction: 'manipulation',
+                }}
+              >
+                Type
+              </button>
+              {showTypeFilterMenu && (
+                <div className="absolute left-0 top-full mt-2 z-20 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-stone-100 bg-white shadow-xl p-2">
+                  <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
+                    {typeFilterActive && (
+                      <button
+                        onClick={() => { setTypeFilter(''); setShowTypeFilterMenu(false); }}
+                        className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
+                        style={{ touchAction: 'manipulation' }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
+                    <button
+                      onClick={() => { setTypeFilter(''); setShowTypeFilterMenu(false); }}
+                      className="rounded-lg border px-2 py-2 text-left text-xs font-semibold"
+                      style={{
+                        borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
+                        color: !typeFilterActive ? '#7E9B86' : '#78716c',
+                        background: !typeFilterActive ? '#E4ECE6' : '#fff',
+                        touchAction: 'manipulation',
+                      }}
+                    >
+                      All types
+                    </button>
+                    {typeOptions.map(type => (
+                      <button
+                        key={type}
+                        onClick={() => { setTypeFilter(type); setShowTypeFilterMenu(false); }}
+                        className="rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize"
+                        style={{
+                          borderColor: typeFilter === type ? '#7E9B86' : '#e7e5e4',
+                          color: typeFilter === type ? '#7E9B86' : '#78716c',
+                          background: typeFilter === type ? '#E4ECE6' : '#fff',
+                          touchAction: 'manipulation',
+                        }}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="w-8 h-8 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
               {summaryLoading ? <span className="text-sm leading-none">…</span> : (
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" style={{ color: '#D9A94B' }} aria-hidden="true">
@@ -550,8 +619,9 @@ export default function Home() {
         {showPTSessions && <PTSessionsModal sessions={ptSessions} today={today} onChange={updatePtSessions} onClose={() => setShowPTSessions(false)} />}
         {showReporting && <ReportingModal today={today} ptSessions={ptSessions} onClose={() => setShowReporting(false)} />}
         {showTreatments && <TreatmentsModal today={today} selectedDate={selectedDate} onClose={() => setShowTreatments(false)} />}
-        {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} onClose={() => setShowInfo(false)} />}
-        {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onClose={() => setShowWidgetSettings(false)} />}
+        {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} typeMeta={typeMeta} onClose={() => setShowInfo(false)} />}
+        {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onOpenTypes={() => { setShowTypeSettings(true); }} onClose={() => setShowWidgetSettings(false)} />}
+        {showTypeSettings && <TypeSettingsModal types={typeOptions} meta={typeMeta} onChange={updateTypeMeta} onClose={() => setShowTypeSettings(false)} />}
         {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
         {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} onClose={() => setShowAiCoach(false)} />}
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
@@ -579,9 +649,11 @@ export default function Home() {
               const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
               const isCollapsed = !!collapsed[cat.id];
               const catExercises: Exercise[] = cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean);
-              const done = catExercises.filter(e => dayLog[e.id]).length;
-              const total = catExercises.length;
+              const visibleCatExercises = typeFilterActive ? catExercises.filter(ex => normalizeExerciseType(ex.cat) === typeFilter) : catExercises;
+              const done = visibleCatExercises.filter(e => dayLog[e.id]).length;
+              const total = visibleCatExercises.length;
               const isRenaming = renamingCat === cat.id;
+              if (typeFilterActive && visibleCatExercises.length === 0) return null;
               return (
                 <section key={cat.id} className="mb-5">
                   <div className="flex items-center gap-1.5 mb-2.5">
@@ -590,7 +662,7 @@ export default function Home() {
                     <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
                     <div className="relative flex-shrink-0"><button onClick={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)} className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: palette.accent, touchAction: 'manipulation' }} title="Change color" />{colorMenuCat === cat.id && <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">{COLOR_KEYS.map(c => <button key={c} onClick={() => changeColor(cat.id, c)} className="w-6 h-6 rounded-full" style={{ background: COLOR_PALETTE[c].accent, boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div>}</div>
                   </div>
-                  {!isCollapsed && <div className="space-y-2">{catExercises.filter(ex => !hiddenDoneSet.has(ex.id)).map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
+                  {!isCollapsed && <div className="space-y-2">{visibleCatExercises.filter(ex => !hiddenDoneSet.has(ex.id)).map(ex => <ExerciseCard key={ex.id} exercise={ex} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} typeMeta={typeMeta} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
                   {isCollapsed && <button onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))} className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed" style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}>{done}/{total} done · tap to expand</button>}
                 </section>
               );
