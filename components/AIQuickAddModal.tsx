@@ -231,6 +231,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         const candidate = normalizeCategoryText(name);
         return candidate.includes(normalized) || normalized.includes(candidate);
       })
+      ?? raw
       ?? fallback;
   };
 

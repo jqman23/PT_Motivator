@@ -86,6 +86,10 @@ function makeDefaultLayout(): CategoryConfig[] {
   ];
 }
 
+function slugCategory(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'category';
+}
+
 function dateStr(d: Date) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
@@ -417,12 +421,26 @@ export default function Home() {
   const importExercises = (items: { exercise: Exercise; categoryName?: string }[]) => {
     const additions = items.map(({ exercise }) => ({ ...exercise, origin: exercise.origin ?? 'patient_added' }));
     updateExerciseLibrary([...exerciseLibrary, ...additions]);
-    updateLayout(layout.map(cat => {
-      const ids = items
-        .filter(({ categoryName }) => categoryName === cat.name || (!categoryName && libraryCatId === cat.id))
-        .map(({ exercise }) => exercise.id);
-      return ids.length ? { ...cat, exerciseIds: Array.from(new Set([...cat.exerciseIds, ...ids])) } : cat;
-    }));
+    const nextLayout = [...layout];
+    items.forEach(({ exercise, categoryName }) => {
+      const trimmedName = categoryName?.trim();
+      let targetIndex = trimmedName ? nextLayout.findIndex(cat => cat.name === trimmedName) : -1;
+      if (targetIndex < 0 && trimmedName) {
+        targetIndex = nextLayout.length;
+        nextLayout.push({
+          id: `cat-${slugCategory(trimmedName)}-${Date.now()}-${targetIndex}`,
+          name: trimmedName,
+          color: COLOR_KEYS[targetIndex % COLOR_KEYS.length],
+          exerciseIds: [],
+        });
+      }
+      if (targetIndex < 0 && libraryCatId) targetIndex = nextLayout.findIndex(cat => cat.id === libraryCatId);
+      if (targetIndex >= 0) {
+        const target = nextLayout[targetIndex];
+        nextLayout[targetIndex] = { ...target, exerciseIds: Array.from(new Set([...target.exerciseIds, exercise.id])) };
+      }
+    });
+    updateLayout(nextLayout);
   };
   const updateExercise = (nextExercise: Exercise) => updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
   const deleteCustom = (exId: string) => {

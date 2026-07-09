@@ -125,7 +125,8 @@ function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { item
       ?? layoutNames.find(name => {
         const candidate = normalizeCategoryText(name);
         return candidate.includes(normalized) || normalized.includes(candidate);
-      });
+      })
+      ?? raw;
   };
 
   const items: ParsedJsonExercise[] = [];

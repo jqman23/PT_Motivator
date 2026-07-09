@@ -37,6 +37,12 @@ function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'exercise';
 }
 
+const CATEGORY_COLORS = ['green', 'orange', 'blue', 'purple', 'teal', 'rose', 'amber', 'slate', 'indigo', 'lime'] as const;
+
+function slugCategory(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'category';
+}
+
 function catFor(categoryName?: string): Exercise['cat'] {
   return /strength|raise|squat|rdl|resistance/i.test(categoryName ?? '') ? 'strength' : 'mobility';
 }
@@ -157,9 +163,22 @@ export default function SmartAddPortal() {
         };
       });
       const nextLibrary = [...library, ...additions];
-      const nextLayout = layout.map(cat => {
-        const ids = additions.filter((_, idx) => (proposal.newExercises[idx].categoryName || layout[0]?.name) === cat.name).map(ex => ex.id);
-        return ids.length ? { ...cat, exerciseIds: Array.from(new Set([...cat.exerciseIds, ...ids])) } : cat;
+      const nextLayout = [...layout];
+      additions.forEach((exercise, idx) => {
+        const categoryName = proposal.newExercises[idx].categoryName?.trim() || layout[0]?.name;
+        if (!categoryName) return;
+        let targetIndex = nextLayout.findIndex(cat => cat.name === categoryName);
+        if (targetIndex < 0) {
+          targetIndex = nextLayout.length;
+          nextLayout.push({
+            id: `cat-${slugCategory(categoryName)}-${Date.now()}-${targetIndex}`,
+            name: categoryName,
+            color: CATEGORY_COLORS[targetIndex % CATEGORY_COLORS.length],
+            exerciseIds: [],
+          });
+        }
+        const target = nextLayout[targetIndex];
+        nextLayout[targetIndex] = { ...target, exerciseIds: Array.from(new Set([...target.exerciseIds, exercise.id])) };
       });
       setLibrary(nextLibrary);
       setLayout(nextLayout);
