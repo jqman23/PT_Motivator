@@ -53,6 +53,13 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
     return SESSION_KINDS.indexOf(normalizeKind(a.kind)) - SESSION_KINDS.indexOf(normalizeKind(b.kind));
   });
 
+  const grouped = sorted.reduce<Array<{ date: string; sessions: PTSession[] }>>((groups, session) => {
+    const current = groups[groups.length - 1];
+    if (current?.date === session.date) current.sessions.push(session);
+    else groups.push({ date: session.date, sessions: [session] });
+    return groups;
+  }, []);
+
   const hasSession = (date: string, kind: PTSessionKind) =>
     sessions.some(s => s.date === date && normalizeKind(s.kind) === kind);
 
@@ -155,48 +162,59 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
               <p className="text-xs text-stone-400 italic text-center">No PT or training sessions logged yet.<br />Add your first one above.</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {sorted.map(session => {
-                const kind = normalizeKind(session.kind);
-                return (
-                  <div key={sessionKey(session)} className="px-3 py-2.5 rounded-xl bg-stone-50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="text-sm font-semibold text-stone-700 truncate">{formatDate(session.date)}</p>
-                          <span
-                            className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
-                            style={kindStyle(kind)}
-                          >
-                            {kindLabel(kind)}
-                          </span>
-                        </div>
-                        {session.date === today && <p className="text-[10px] font-medium" style={{ color: kind === 'training' ? '#4f46e5' : '#D9A94B' }}>Today</p>}
-                      </div>
-                      <button
-                        onClick={() => remove(session.date, kind)}
-                        className="w-6 h-6 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-400 flex-shrink-0 transition-colors"
-                      >
-                        ×
-                      </button>
+            <div className="space-y-3">
+              {grouped.map(group => (
+                <div key={group.date} className="rounded-2xl bg-stone-50 border border-stone-100 overflow-hidden">
+                  <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-stone-100 bg-white/60">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-stone-700 truncate">{formatDate(group.date)}</p>
+                      {group.date === today && <p className="text-[10px] font-medium" style={{ color: '#D9A94B' }}>Today</p>}
                     </div>
-
-                    <textarea
-                      value={session.note ?? ''}
-                      onChange={e => updateNote(session.date, kind, e.target.value)}
-                      placeholder={`${kindLabel(kind)} note…`}
-                      rows={2}
-                      className="mt-2 w-full text-xs resize-none rounded-lg border px-2.5 py-2 focus:outline-none focus:ring-1"
-                      style={{
-                        color: '#44403c',
-                        borderColor: '#e7e5e4',
-                        background: '#ffffff',
-                        boxSizing: 'border-box',
-                      }}
-                    />
+                    {group.sessions.length > 1 && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-stone-400 flex-shrink-0">{group.sessions.length} sessions</span>
+                    )}
                   </div>
-                );
-              })}
+
+                  <div className="divide-y divide-stone-100">
+                    {group.sessions.map(session => {
+                      const kind = normalizeKind(session.kind);
+                      return (
+                        <div key={sessionKey(session)} className="px-3 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
+                              style={kindStyle(kind)}
+                            >
+                              {kindLabel(kind)}
+                            </span>
+                            <div className="flex-1" />
+                            <button
+                              onClick={() => remove(session.date, kind)}
+                              className="w-6 h-6 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-400 flex-shrink-0 transition-colors"
+                            >
+                              ×
+                            </button>
+                          </div>
+
+                          <textarea
+                            value={session.note ?? ''}
+                            onChange={e => updateNote(session.date, kind, e.target.value)}
+                            placeholder={`${kindLabel(kind)} note…`}
+                            rows={2}
+                            className="mt-2 w-full text-xs resize-none rounded-lg border px-2.5 py-2 focus:outline-none focus:ring-1"
+                            style={{
+                              color: '#44403c',
+                              borderColor: '#e7e5e4',
+                              background: '#ffffff',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
