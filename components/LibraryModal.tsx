@@ -199,7 +199,7 @@ export default function LibraryModal({
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
   const createLabel = importedMeta ? (addToCatId ? 'Create imported & add' : 'Create imported') : (addToCatId ? 'Create manual & add' : 'Create manually');
   const sourceMessageIsError = /failed|could not|unavailable|missing key/i.test(sourceMessage);
-  const bulkMessageIsError = /invalid|missing|must be/i.test(bulkMessage);
+  const bulkMessageIsError = /invalid|missing|must be|paste/i.test(bulkMessage);
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
     if (e.sourceId === 'ai-added' || e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
@@ -254,9 +254,16 @@ export default function LibraryModal({
     return true;
   };
 
+  const loadJsonFromTextWindow = () => {
+    if (!query.trim()) {
+      setBulkMessage('Paste JSON in the text window first.');
+      return;
+    }
+    if (!importJsonExercises(query)) setBulkMessage('Paste valid exercise JSON, then tap Load JSON.');
+  };
+
   const beginCreate = () => {
     const seed = query.trim();
-    if (seed && importJsonExercises(seed)) return;
     resetForm();
     setCreating(true);
     if (seed.length > 1) {
@@ -470,7 +477,7 @@ export default function LibraryModal({
       <div className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()} style={{ maxHeight: '92dvh' }}>
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0"><div className="min-w-0"><h2 className="font-serif text-lg font-semibold text-stone-800 truncate">{targetCat ? `Add to ${targetCat.name}` : 'Exercise library'}</h2><p className="text-[11px] text-stone-400">{targetCat ? 'Tap an exercise to add or remove it' : 'Your editable exercise library'}</p></div><button onClick={() => { resetForm(); onClose(); }} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button></div>
 
-        {!creating && !editing && <div className="px-3 pt-3 flex-shrink-0"><input value={query} onChange={e => { setQuery(e.target.value); setBulkMessage(''); }} onKeyDown={e => { if (e.key === 'Enter' && importJsonExercises(query)) e.preventDefault(); }} placeholder="Search exercises or paste JSON…" className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300" style={{ fontSize: 16, colorScheme: 'light' }} />{bulkMessage && <p className="text-[11px] mt-1.5 px-1" style={{ color: bulkMessageIsError ? '#ef4444' : '#7E9B86' }}>{bulkMessage}</p>}</div>}
+        {!creating && !editing && <div className="px-3 pt-3 flex-shrink-0"><textarea value={query} onChange={e => { setQuery(e.target.value); setBulkMessage(''); }} placeholder="Search, type a new exercise, or paste JSON…" rows={3} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300 resize-none" style={{ fontSize: 16, colorScheme: 'light' }} /><div className="mt-2 grid grid-cols-2 gap-2"><button onClick={beginCreate} disabled={!query.trim()} className="py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-50" style={{ background: '#C17B4F' }}>Create / Search</button><button onClick={loadJsonFromTextWindow} disabled={!query.trim()} className="py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-50" style={{ background: '#7E9B86' }}>Load JSON</button></div>{bulkMessage && <p className="text-[11px] mt-1.5 px-1" style={{ color: bulkMessageIsError ? '#ef4444' : '#7E9B86' }}>{bulkMessage}</p>}</div>}
 
         {!creating && !editing && (
           <div className="overflow-y-auto px-3 py-3 flex-1"><div className="space-y-1.5">
@@ -484,9 +491,9 @@ export default function LibraryModal({
           </div></div>
         )}
 
-        <div className="px-3 py-3 border-t border-stone-200 flex-shrink-0">
-          {editing ? <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Edit exercise</p>{sourceSearchBox}{formFields}<div className="flex gap-2"><button onClick={submitEdit} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>Save changes</button><button onClick={resetForm} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button></div></div> : creating ? <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">New exercise</p>{sourceSearchBox}{formFields}<p className="text-[10px] text-stone-400 -mt-1 mb-2">Source lookup is optional. This button always creates from the fields above.</p><div className="flex gap-2"><button onClick={submitCreate} disabled={!name.trim()} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-60" style={{ background: importedMeta ? '#7E9B86' : '#C17B4F' }}>{createLabel}</button><button onClick={() => { setCreating(false); resetForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button></div></div> : <button onClick={beginCreate} className="w-full py-3 rounded-xl border-2 border-dashed border-stone-300 text-sm font-semibold text-stone-400 hover:border-stone-400 hover:text-stone-500">＋ Create new exercise</button>}
-        </div>
+        {(editing || creating) && <div className="px-3 py-3 border-t border-stone-200 flex-shrink-0">
+          {editing ? <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Edit exercise</p>{sourceSearchBox}{formFields}<div className="flex gap-2"><button onClick={submitEdit} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: '#7E9B86' }}>Save changes</button><button onClick={resetForm} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button></div></div> : <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">New exercise</p>{sourceSearchBox}{formFields}<p className="text-[10px] text-stone-400 -mt-1 mb-2">Source lookup is optional. This button always creates from the fields above.</p><div className="flex gap-2"><button onClick={submitCreate} disabled={!name.trim()} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-60" style={{ background: importedMeta ? '#7E9B86' : '#C17B4F' }}>{createLabel}</button><button onClick={() => { setCreating(false); resetForm(); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100">Cancel</button></div></div>}
+        </div>}
       </div>
     </div>
   );
