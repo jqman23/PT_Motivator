@@ -25,6 +25,19 @@ import { ExerciseTypeMeta, normalizeExerciseType } from '@/lib/exerciseTypes';
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
 type PTSession = { date: string; note?: string };
+type UndoSnapshot = {
+  label: string;
+  selectedDate: string;
+  log: LogMap;
+  notes: NotesMap;
+  hiddenDoneByDate: Record<string, string[]>;
+  layout: CategoryConfig[];
+  exerciseLibrary: Exercise[];
+  appTitle: string;
+  ptSessions: PTSession[];
+  widgetPrefs: WidgetPrefs;
+  typeMeta: ExerciseTypeMeta;
+};
 
 const QUOTES = [
   "You showed up. That's already half the work.",
@@ -109,12 +122,13 @@ function displayForDate(ds: string) {
   return new Date(ds + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function IconButton({ title, onClick, children, active, label, accent }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean; label?: string; accent?: boolean }) {
+function IconButton({ title, onClick, children, active, label, accent, disabled }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean; label?: string; accent?: boolean; disabled?: boolean }) {
   const lblStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 };
   return (
     <button
       onClick={onClick}
-      className="w-9 h-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm flex-shrink-0 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+      disabled={disabled}
+      className="w-9 h-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm flex-shrink-0 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-35 disabled:hover:shadow-sm disabled:hover:translate-y-0"
       style={{
         touchAction: 'manipulation',
         background: accent ? '#1F2F46' : active ? '#FBF5E8' : 'white',
@@ -177,9 +191,13 @@ export default function Home() {
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
   const [typeMeta, setTypeMeta] = useState<ExerciseTypeMeta>({});
+  const [undoMessage, setUndoMessage] = useState('');
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressUndoRef = useRef(false);
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
   const typeOptions = useMemo(
@@ -316,31 +334,107 @@ export default function Home() {
     Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false));
   }, [loadLog, loadNotes, selectedDate]);
 
-  const updateLayout = useCallback((next: CategoryConfig[]) => {
+  const captureUndo = useCallback((label: string) => {
+    if (suppressUndoRef.current) return;
+    undoSnapshotRef.current = {
+      label,
+      selectedDate,
+      log,
+      notes,
+      hiddenDoneByDate,
+      layout,
+      exerciseLibrary,
+      appTitle,
+      ptSessions,
+      widgetPrefs,
+      typeMeta,
+    };
+    setUndoMessage(`Undo: ${label}`);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => {
+      setUndoMessage('');
+    }, 2000);
+  }, [appTitle, exerciseLibrary, hiddenDoneByDate, layout, log, notes, ptSessions, selectedDate, typeMeta, widgetPrefs]);
+
+  const undoLastAction = useCallback(async () => {
+    const snapshot = undoSnapshotRef.current;
+    if (!snapshot) return;
+    undoSnapshotRef.current = null;
+    suppressUndoRef.current = true;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    try {
+      setSelectedDate(snapshot.selectedDate);
+      localStorage.setItem('pt-selected-date', snapshot.selectedDate);
+      setLog(snapshot.log);
+      setNotes(snapshot.notes);
+      setHiddenDoneByDate(snapshot.hiddenDoneByDate);
+      setLayout(snapshot.layout);
+      setExerciseLibrary(snapshot.exerciseLibrary);
+      setAppTitle(snapshot.appTitle);
+      setPtSessions(snapshot.ptSessions);
+      setWidgetPrefs(snapshot.widgetPrefs);
+      setTypeMeta(snapshot.typeMeta);
+
+      await Promise.all([
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: snapshot.layout }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: snapshot.exerciseLibrary }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'appTitle', value: snapshot.appTitle }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ptSessions', value: snapshot.ptSessions }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'widgetPrefs', value: snapshot.widgetPrefs }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseTypeMeta', value: snapshot.typeMeta }) }),
+        fetch('/api/save-day', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: snapshot.selectedDate,
+            log: snapshot.exerciseLibrary.map(ex => ({ exerciseId: ex.id, completed: snapshot.log[snapshot.selectedDate]?.[ex.id] ?? false })),
+            notes: Object.entries(snapshot.notes).map(([exerciseId, note]) => ({ exerciseId, note })),
+          }),
+        }),
+      ]);
+
+      setUndoMessage(`Undid: ${snapshot.label}`);
+      undoTimerRef.current = setTimeout(() => {
+        setUndoMessage('');
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      suppressUndoRef.current = false;
+    }
+  }, []);
+
+  const updateLayout = useCallback((next: CategoryConfig[], undoLabel = 'layout change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     setLayout(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: next }) }).catch(console.error);
-  }, []);
-  const updateExerciseLibrary = useCallback((next: Exercise[]) => {
+  }, [captureUndo]);
+  const updateExerciseLibrary = useCallback((next: Exercise[], undoLabel = 'exercise library change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     setExerciseLibrary(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: next }) }).catch(console.error);
-  }, []);
-  const updateAppTitle = useCallback((next: string) => {
+  }, [captureUndo]);
+  const updateAppTitle = useCallback((next: string, undoLabel = 'app title change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     const clean = next.trim() || 'Ankle PT';
     setAppTitle(clean);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'appTitle', value: clean }) }).catch(console.error);
-  }, []);
-  const updatePtSessions = useCallback((next: PTSession[]) => {
+  }, [captureUndo]);
+  const updatePtSessions = useCallback((next: PTSession[], undoLabel = 'PT sessions change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     setPtSessions(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ptSessions', value: next }) }).catch(console.error);
-  }, []);
-  const updateWidgetPrefs = useCallback((next: WidgetPrefs) => {
+  }, [captureUndo]);
+  const updateWidgetPrefs = useCallback((next: WidgetPrefs, undoLabel = 'widget settings change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     setWidgetPrefs(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'widgetPrefs', value: next }) }).catch(console.error);
-  }, []);
-  const updateTypeMeta = useCallback((next: ExerciseTypeMeta) => {
+  }, [captureUndo]);
+  const updateTypeMeta = useCallback((next: ExerciseTypeMeta, undoLabel = 'type settings change', skipUndo = false) => {
+    if (!skipUndo) captureUndo(undoLabel);
     setTypeMeta(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseTypeMeta', value: next }) }).catch(console.error);
-  }, []);
+  }, [captureUndo]);
 
   const moveExerciseInLayout = useCallback(async (exerciseId: string, direction: -1 | 1) => {
     let moved = false;
@@ -357,6 +451,7 @@ export default function Home() {
     });
 
     if (!moved) return false;
+    captureUndo('reordered exercise');
     setLayout(nextLayout);
     try {
       const res = await fetch('/api/config', {
@@ -370,7 +465,7 @@ export default function Home() {
       setLayout(previousLayout);
       throw err;
     }
-  }, [layout]);
+  }, [captureUndo, layout]);
 
   const changeDate = (date: string) => {
     setSelectedDate(date);
@@ -406,6 +501,7 @@ export default function Home() {
   const handleToggle = async (exerciseId: string) => {
     const current = log[selectedDate]?.[exerciseId] ?? false;
     const next = !current;
+    captureUndo(`${next ? 'checked off' : 'unchecked'} exercise`);
     setLog(prev => ({ ...prev, [selectedDate]: { ...(prev[selectedDate] || {}), [exerciseId]: next } }));
     setSaving(true);
     try {
@@ -416,6 +512,7 @@ export default function Home() {
   };
 
   const handleNoteSave = async (exerciseId: string, note: string) => {
+    captureUndo(note.trim() ? 'edited note' : 'cleared note');
     setNotes(prev => ({ ...prev, [exerciseId]: note }));
     try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, exerciseId, note }) }); }
     catch (err) { console.error(err); }
@@ -429,6 +526,7 @@ export default function Home() {
   );
   const toggleHiddenDone = () => {
     if (isDayHidden) {
+      captureUndo('unhid exercises');
       setHiddenDoneByDate(prev => {
         const next = { ...prev };
         delete next[selectedDate];
@@ -438,32 +536,34 @@ export default function Home() {
     }
 
     if (!doneIdsForDay.length) return;
+    captureUndo('hid completed exercises');
     setHiddenDoneByDate(prev => ({
       ...prev,
       [selectedDate]: doneIdsForDay,
     }));
   };
 
-  const renameCat = (catId: string, name: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c)); setRenamingCat(null); };
-  const changeColor = (catId: string, color: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c)); setColorMenuCat(null); };
+  const renameCat = (catId: string, name: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, name } : c), 'renamed category'); setRenamingCat(null); };
+  const changeColor = (catId: string, color: string) => { updateLayout(layout.map(c => c.id === catId ? { ...c, color } : c), 'changed category color'); setColorMenuCat(null); };
   const addNewCategory = () => {
     if (!newCatName.trim()) return;
-    updateLayout([...layout, { id: `cat-${Date.now()}`, name: newCatName.trim(), color: newCatColor, exerciseIds: [] }]);
+    updateLayout([...layout, { id: `cat-${Date.now()}`, name: newCatName.trim(), color: newCatColor, exerciseIds: [] }], 'added category');
     setNewCatName('');
     setAddingCategory(false);
   };
   const addExToCategory = (exId: string, catId: string) => {
     const currentCat = layout.find(c => c.exerciseIds.includes(exId));
     if (currentCat?.id === catId) {
-      updateLayout(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c));
+      updateLayout(layout.map(c => c.id === catId ? { ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) } : c), 'removed exercise from category');
       return;
     }
-    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })).map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c));
+    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })).map(c => c.id === catId ? { ...c, exerciseIds: [...c.exerciseIds, exId] } : c), 'moved exercise to category');
   };
-  const createCustom = (ex: Exercise) => updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }]);
+  const createCustom = (ex: Exercise) => updateExerciseLibrary([...exerciseLibrary, { ...ex, origin: ex.origin ?? 'patient_added' }], 'added exercise');
   const importExercises = (items: { exercise: Exercise; categoryName?: string }[]) => {
     const additions = items.map(({ exercise }) => ({ ...exercise, origin: exercise.origin ?? 'patient_added' }));
-    updateExerciseLibrary([...exerciseLibrary, ...additions]);
+    captureUndo('imported exercises');
+    updateExerciseLibrary([...exerciseLibrary, ...additions], 'imported exercises', true);
     const nextLayout = [...layout];
     items.forEach(({ exercise, categoryName }) => {
       const trimmedName = categoryName?.trim();
@@ -483,12 +583,13 @@ export default function Home() {
         nextLayout[targetIndex] = { ...target, exerciseIds: Array.from(new Set([...target.exerciseIds, exercise.id])) };
       }
     });
-    updateLayout(nextLayout);
+    updateLayout(nextLayout, 'imported category mappings', true);
   };
-  const updateExercise = (nextExercise: Exercise) => updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex));
+  const updateExercise = (nextExercise: Exercise) => updateExerciseLibrary(exerciseLibrary.map(ex => ex.id === nextExercise.id ? nextExercise : ex), 'edited exercise');
   const deleteCustom = (exId: string) => {
-    updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId));
-    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })));
+    captureUndo('deleted exercise');
+    updateExerciseLibrary(exerciseLibrary.filter(e => e.id !== exId), 'deleted exercise', true);
+    updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })), 'removed exercise from categories', true);
   };
   const openLibraryFor = (catId: string) => { setLibraryCatId(catId); setShowLibrary(true); };
 
@@ -527,10 +628,12 @@ export default function Home() {
               {widgetPrefs.ptSessions && <IconButton title="PT sessions" label="PT" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="3.5" r="2"/><path d="M10 5.5v5"/><path d="M10 8L6.5 5.5"/><path d="M10 8L13.5 5.5"/><path d="M10 10.5L7.5 15"/><path d="M10 10.5L12.5 15"/></svg></IconButton>}
               {widgetPrefs.reporting && <IconButton title="Progress report" label="stats" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
               {widgetPrefs.ptReport && <IconButton title="PT PDF report" label="PDF" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
+              <IconButton title="Undo last change" label="undo" onClick={() => { void undoLastAction(); }} disabled={!undoSnapshotRef.current}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 7H3v4"/><path d="M3 11c1.5-3.5 4.2-5.5 8-5.5 3.9 0 6.8 2.6 6.8 6.1S14.8 18 11 18c-2.3 0-4.4-.8-5.7-2.2"/></svg></IconButton>
               {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" label="DB" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
               <IconButton title="Widget settings" label="settings" accent onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
             </div>
           </div>
+          {undoMessage && <p className="mt-1 text-right text-[10px] text-stone-400">{undoMessage}</p>}
 
           <h1 className="sm:hidden text-center font-serif text-3xl font-semibold text-stone-800 mt-3">{appTitle}</h1>
           {dailySummary && summaryVisible && (
