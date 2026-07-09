@@ -151,8 +151,6 @@ export default function Home() {
   const [notes, setNotes] = useState<NotesMap>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savingAll, setSavingAll] = useState(false);
-  const [saveAllDone, setSaveAllDone] = useState(false);
   const [hiddenDoneByDate, setHiddenDoneByDate] = useState<Record<string, string[]>>({});
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [showTypeFilterMenu, setShowTypeFilterMenu] = useState(false);
@@ -487,26 +485,6 @@ export default function Home() {
     changeDate(next);
   };
 
-  const handleSaveAll = async () => {
-    setSavingAll(true);
-    setSaveAllDone(false);
-    try {
-      const dayLog = log[selectedDate] || {};
-      await fetch('/api/save-day', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: selectedDate,
-          log: allExercises.map(ex => ({ exerciseId: ex.id, completed: dayLog[ex.id] ?? false })),
-          notes: Object.entries(notes).map(([exerciseId, note]) => ({ exerciseId, note })),
-        }),
-      });
-      setSaveAllDone(true);
-      setTimeout(() => setSaveAllDone(false), 3000);
-    } catch (err) { console.error(err); }
-    finally { setSavingAll(false); }
-  };
-
   const handleToggle = async (exerciseId: string) => {
     const current = log[selectedDate]?.[exerciseId] ?? false;
     const next = !current;
@@ -670,7 +648,6 @@ export default function Home() {
           <div className="mt-2 flex justify-center">
             <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-white/65 p-1 shadow-sm ring-1 ring-stone-200/70 [-ms-overflow-style:none] [scrollbar-width:none]">
               {!isToday && <button onClick={() => changeDate(today)} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>Today</button>}
-              <button onClick={handleSaveAll} disabled={savingAll} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving' : saveAllDone ? 'Saved' : 'Save day'}</button>
               <div className="relative flex shrink-0 items-center gap-1.5">
                 <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
                 <button
@@ -685,49 +662,57 @@ export default function Home() {
                   {typeFilterActive ? `Type (${typeFilter.length})` : 'Type'}
                 </button>
                 {showTypeFilterMenu && (
-                  <div className="fixed left-3 right-3 top-[calc(100dvh-18rem)] z-30 rounded-2xl border border-stone-100 bg-white shadow-2xl p-2 overflow-hidden sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:overflow-visible">
-                    <div className="flex items-center justify-between gap-2 px-1 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
-                      {typeFilterActive && (
+                  <>
+                    <button
+                      type="button"
+                      className="fixed inset-0 z-20 cursor-default bg-transparent"
+                      onClick={() => setShowTypeFilterMenu(false)}
+                      aria-label="Close type filter"
+                    />
+                    <div className="fixed left-4 right-4 top-[10.75rem] z-30 rounded-2xl border border-stone-100 bg-white p-2 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
+                      <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
+                        {typeFilterActive && (
+                          <button
+                            onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
+                            className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
+                            style={{ touchAction: 'manipulation' }}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto">
                         <button
                           onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
-                          className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
-                          style={{ touchAction: 'manipulation' }}
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
-                      <button
-                        onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
-                        className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
-                        style={{
-                          borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
-                          color: !typeFilterActive ? '#7E9B86' : '#78716c',
-                          background: !typeFilterActive ? '#E4ECE6' : '#fff',
-                          touchAction: 'manipulation',
-                        }}
-                      >
-                        All types
-                      </button>
-                      {typeOptions.map(type => (
-                        <button
-                          key={type}
-                          onClick={() => setTypeFilter(prev => prev.includes(type) ? prev.filter(item => item !== type) : [...prev, type])}
-                          className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize truncate"
+                          className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
                           style={{
-                            borderColor: typeFilter.includes(type) ? '#7E9B86' : '#e7e5e4',
-                            color: typeFilter.includes(type) ? '#7E9B86' : '#78716c',
-                            background: typeFilter.includes(type) ? '#E4ECE6' : '#fff',
+                            borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
+                            color: !typeFilterActive ? '#7E9B86' : '#78716c',
+                            background: !typeFilterActive ? '#E4ECE6' : '#fff',
                             touchAction: 'manipulation',
                           }}
                         >
-                          {type}
+                          All types
                         </button>
-                      ))}
+                        {typeOptions.map(type => (
+                          <button
+                            key={type}
+                            onClick={() => setTypeFilter(prev => prev.includes(type) ? prev.filter(item => item !== type) : [...prev, type])}
+                            className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold capitalize truncate"
+                            style={{
+                              borderColor: typeFilter.includes(type) ? '#7E9B86' : '#e7e5e4',
+                              color: typeFilter.includes(type) ? '#7E9B86' : '#78716c',
+                              background: typeFilter.includes(type) ? '#E4ECE6' : '#fff',
+                              touchAction: 'manipulation',
+                            }}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
               <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="h-7 w-7 shrink-0 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
