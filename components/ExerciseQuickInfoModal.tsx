@@ -193,17 +193,27 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           <div>
             <div className="flex items-center gap-2">
               <h2 className="font-serif text-xl font-semibold text-stone-800">{localExercise.name}</h2>
-              {hasPrimaryVideo && (
+              <div className="flex items-center gap-1 sm:hidden">
+                {canAddPhoto && (
+                  <label className="inline-flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full bg-white text-[#7E9B86] shadow-sm border border-stone-100" title="Add photo">
+                    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3.5" y="5" width="13" height="10" rx="2" />
+                      <path d="M6.5 12.5l2.4-2.6 2 2.1 1.7-1.7 1.9 2.2" />
+                      <circle cx="7" cy="8" r="1" />
+                    </svg>
+                    <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+                  </label>
+                )}
                 <button
-                  onPointerDown={e => { e.stopPropagation(); setShowMainVideo(prev => !prev); }}
+                  onPointerDown={e => { e.stopPropagation(); if (hasPrimaryVideo) setShowMainVideo(prev => !prev); else setVideoSearchOpen(prev => !prev); }}
                   className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#C17B4F] shadow-sm border border-stone-100"
-                  title="Show main video"
+                  title={hasPrimaryVideo ? 'Show main video' : 'Add video'}
                 >
                   <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 ml-0.5" fill="currentColor">
-                    <polygon points="5,3 17,10 5,17" />
+                    {hasPrimaryVideo ? <polygon points="5,3 17,10 5,17" /> : <path d="M4 6.5h7.5l3 3v1l-3 3H4z" />}
                   </svg>
                 </button>
-              )}
+              </div>
             </div>
             <p className="text-xs text-stone-500 mt-1">{localExercise.cue}</p>
           </div>
@@ -295,7 +305,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           )}
 
           {(canAddPhoto || !hasPrimaryVideo) && (
-            <div className="flex flex-wrap gap-2">
+            <div className="hidden sm:flex flex-wrap gap-2">
               {canAddPhoto && (
                 <label className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-200 bg-white active:bg-stone-50" title="Add photo">
                   <span className="flex flex-col items-center justify-center leading-none">

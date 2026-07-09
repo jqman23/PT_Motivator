@@ -387,8 +387,8 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
               </button>
             </div>
             {(exercise.mainImageUrls?.[0] || exercise.mainImageUrl) && (
-              <div className="mt-3 overflow-hidden rounded-xl border border-stone-200 bg-white/70">
-                <div className="flex items-center gap-2 px-2 py-2 overflow-x-auto">
+              <div className="mt-2 overflow-hidden rounded-xl border border-stone-200 bg-white">
+                <div className="flex items-center gap-2 px-2 py-2">
                   <img
                     src={exercise.mainImageUrls?.[0] || exercise.mainImageUrl || ''}
                     alt={`${exercise.name} preview`}
