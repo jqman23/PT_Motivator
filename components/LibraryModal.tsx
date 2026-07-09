@@ -29,6 +29,7 @@ type ApiNinjasResult = {
 type ExternalExerciseResult = ExerciseDbResult | ApiNinjasResult;
 type JsonExerciseInput = Record<string, unknown>;
 type ParsedJsonExercise = { exercise: Exercise; categoryName?: string };
+type ParsedJsonImport = { items: ParsedJsonExercise[]; layout?: CategoryConfig[]; error?: string };
 
 interface Props {
   builtIns: Exercise[];
@@ -65,6 +66,7 @@ const looksLikeJson = (input: string) => {
 };
 const cleanType = (value: unknown) => asString(value).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
 const normalizeCategoryText = (value: string) => value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+const slugCategory = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'category';
 
 function splitTopLevelObjects(input: string): string[] {
   const objects: string[] = [];
@@ -99,17 +101,94 @@ function splitTopLevelObjects(input: string): string[] {
   return objects;
 }
 
-function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { items: ParsedJsonExercise[]; error?: string } | null {
+function resolveLayoutCategoryName(value: unknown, layout: CategoryConfig[]) {
+  const raw = asString(value);
+  if (!raw) return undefined;
+  const normalized = normalizeCategoryText(raw);
+  return layout.map(cat => cat.name).find(name => normalizeCategoryText(name) === normalized)
+    ?? layout.map(cat => cat.name).find(name => {
+      const candidate = normalizeCategoryText(name);
+      return candidate.includes(normalized) || normalized.includes(candidate);
+    })
+    ?? raw;
+}
+
+function parseLayoutJson(value: unknown, layout: CategoryConfig[]): CategoryConfig[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = value
+    .map((item, index) => {
+      if (!isObject(item)) return null;
+      const name = resolveLayoutCategoryName(item.name ?? item.categoryName ?? item.category, layout) ?? `Category ${index + 1}`;
+      const id = asString(item.id) || `cat-${slugCategory(name)}-${Date.now()}-${index}`;
+      const color = asString(item.color) || layout[index % Math.max(layout.length, 1)]?.color || 'green';
+      const exerciseIds = asStringArray(item.exerciseIds ?? item.ids ?? item.exercises);
+      return { id, name, color, exerciseIds };
+    })
+    .filter((item): item is CategoryConfig => Boolean(item));
+  return parsed.length ? parsed : undefined;
+}
+
+function exerciseFromJson(item: JsonExerciseInput, index: number): ParsedJsonExercise | { error: string } {
+  const name = asString(item.name ?? item.title ?? item.exerciseName);
+  if (!name) return { error: `Exercise ${index + 1} is missing a name.` };
+
+  const cue = asString(item.cue ?? item.shortCue ?? item.description ?? item.note);
+  const explicitSets = asString(item.sets ?? item.setRepScheme ?? item.dosage);
+  const reps = asString(item.reps ?? item.repCount);
+  const sets = explicitSets || (reps ? reps : undefined);
+  const categoryName = asString(item.categoryName ?? item.category) || undefined;
+  const cat = cleanType(item.type ?? item.cat) || 'mobility';
+  const originText = asString(item.origin ?? item.source).toLowerCase();
+  const origin = ORIGIN_OPTIONS.some(opt => opt.value === originText) ? originText as NonNullable<Exercise['origin']> : 'patient_added';
+  const tips = asStringArray(item.tips ?? item.helpfulTips ?? item.instructions ?? item.cues);
+  const importedId = asString(item.id);
+  const videoIds = asStringArray(item.videoIds);
+  const videoTitles = asStringArray(item.videoTitles);
+
+  const generated = makeCustomExercise({
+    name,
+    cue,
+    sets,
+    cat,
+    imageSearch: asString(item.imageSearch ?? item.mediaSearch ?? item.searchTerms) || name,
+    tips,
+    origin,
+    sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
+    gifUrl: asString(item.gifUrl) || undefined,
+    mainImageUrl: asString(item.mainImageUrl ?? item.imageUrl ?? item.photoUrl) || undefined,
+    mainImageUrls: asStringArray(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls).slice(0, 3),
+    mainVideoUrl: asString(item.mainVideoUrl ?? item.videoUrl ?? item.youtubeUrl) || undefined,
+  });
+
+  const exercise: Exercise = {
+    ...generated,
+    ...(importedId ? { id: importedId } : {}),
+    videoIds,
+    videoTitles,
+    ...(typeof item.optional === 'boolean' ? { optional: item.optional } : {}),
+  };
+
+  return { exercise, categoryName };
+}
+
+function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): ParsedJsonImport | null {
   const clean = cleanJsonInput(input);
   if (!looksLikeJson(clean)) return null;
 
   let rawItems: unknown[] = [];
+  let layoutImport: CategoryConfig[] | undefined;
+
   try {
     const parsed = JSON.parse(clean);
-    rawItems = Array.isArray(parsed) ? parsed : [parsed];
+    if (isObject(parsed) && (Array.isArray(parsed.exercises) || Array.isArray(parsed.layout))) {
+      rawItems = Array.isArray(parsed.exercises) ? parsed.exercises : [];
+      layoutImport = parseLayoutJson(parsed.layout, layout);
+    } else {
+      rawItems = Array.isArray(parsed) ? parsed : [parsed];
+    }
   } catch {
     const objectChunks = splitTopLevelObjects(clean);
-    if (objectChunks.length === 0) return { items: [], error: 'Invalid JSON. Paste one exercise object, an array, or multiple objects.' };
+    if (objectChunks.length === 0) return { items: [], error: 'Invalid JSON. Paste one exercise object, an array, multiple objects, or a full export.' };
     try {
       rawItems = objectChunks.map(chunk => JSON.parse(chunk));
     } catch {
@@ -117,57 +196,20 @@ function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { item
     }
   }
 
-  const layoutNames = layout.map(cat => cat.name);
-  const resolveCategoryName = (value: unknown) => {
-    const raw = asString(value);
-    if (!raw) return undefined;
-    const normalized = normalizeCategoryText(raw);
-    return layoutNames.find(name => normalizeCategoryText(name) === normalized)
-      ?? layoutNames.find(name => {
-        const candidate = normalizeCategoryText(name);
-        return candidate.includes(normalized) || normalized.includes(candidate);
-      })
-      ?? raw;
-  };
-
   const items: ParsedJsonExercise[] = [];
   for (let index = 0; index < rawItems.length; index += 1) {
     const item = rawItems[index];
     if (!isObject(item)) return { items: [], error: `Exercise ${index + 1} must be a JSON object.` };
-
-    const name = asString(item.name ?? item.title ?? item.exerciseName);
-    if (!name) return { items: [], error: `Exercise ${index + 1} is missing a name.` };
-
-    const cue = asString(item.cue ?? item.shortCue ?? item.description ?? item.note);
-    const explicitSets = asString(item.sets ?? item.setRepScheme ?? item.dosage);
-    const reps = asString(item.reps ?? item.repCount);
-    const sets = explicitSets || (reps ? reps : undefined);
-    const categoryName = resolveCategoryName(item.categoryName ?? item.category);
-    const cat = cleanType(item.type ?? item.cat) || 'mobility';
-    const originText = asString(item.origin ?? item.source).toLowerCase();
-    const origin = ORIGIN_OPTIONS.some(opt => opt.value === originText) ? originText as NonNullable<Exercise['origin']> : 'patient_added';
-    const tips = asStringArray(item.tips ?? item.helpfulTips ?? item.instructions ?? item.cues);
-
+    const parsedExercise = exerciseFromJson(item, index);
+    if ('error' in parsedExercise) return { items: [], error: parsedExercise.error };
     items.push({
-      exercise: makeCustomExercise({
-        name,
-        cue,
-        sets,
-        cat,
-        imageSearch: asString(item.imageSearch ?? item.mediaSearch ?? item.searchTerms) || name,
-        tips,
-        origin,
-        sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
-        gifUrl: asString(item.gifUrl) || undefined,
-        mainImageUrl: asString(item.mainImageUrl ?? item.imageUrl ?? item.photoUrl) || undefined,
-        mainImageUrls: asStringArray(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls).slice(0, 3),
-        mainVideoUrl: asString(item.mainVideoUrl ?? item.videoUrl ?? item.youtubeUrl) || undefined,
-      }),
-      categoryName,
+      ...parsedExercise,
+      categoryName: resolveLayoutCategoryName(parsedExercise.categoryName, layout) ?? parsedExercise.categoryName,
     });
   }
 
-  return { items };
+  if (items.length === 0 && !layoutImport) return { items: [], error: 'JSON did not include exercises or layout categories.' };
+  return { items, layout: layoutImport };
 }
 
 export default function LibraryModal({
@@ -226,7 +268,7 @@ export default function LibraryModal({
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
   const createLabel = importedMeta ? (addToCatId ? 'Create imported & add' : 'Create imported') : (addToCatId ? 'Create manual & add' : 'Create manually');
   const sourceMessageIsError = /failed|could not|unavailable|missing key/i.test(sourceMessage);
-  const bulkMessageIsError = /invalid|missing|must be|paste/i.test(bulkMessage);
+  const bulkMessageIsError = /invalid|missing|must be|paste|failed/i.test(bulkMessage);
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
     if (e.sourceId === 'ai-added' || e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
@@ -265,13 +307,84 @@ export default function LibraryModal({
     setEditing(null);
   };
 
-  const importJsonExercises = (input: string) => {
+  const applyStructuredJsonImport = async (parsed: ParsedJsonImport) => {
+    const libraryById = new Map<string, Exercise>();
+    for (const exercise of [...builtIns, ...customExercises]) libraryById.set(exercise.id, exercise);
+    parsed.items.forEach(({ exercise }) => {
+      const existing = libraryById.get(exercise.id);
+      libraryById.set(exercise.id, { ...existing, ...exercise, origin: exercise.origin ?? existing?.origin ?? 'patient_added' });
+    });
+
+    let nextLayout = layout.map(category => ({ ...category, exerciseIds: [...category.exerciseIds] }));
+    const assignments: Array<{ exerciseId: string; categoryName: string; color?: string; id?: string }> = [];
+
+    if (parsed.layout) {
+      parsed.layout.forEach(category => {
+        category.exerciseIds.forEach(exerciseId => {
+          assignments.push({ exerciseId, categoryName: category.name, color: category.color, id: category.id });
+        });
+      });
+    }
+
+    parsed.items.forEach(({ exercise, categoryName }) => {
+      if (categoryName) assignments.push({ exerciseId: exercise.id, categoryName });
+    });
+
+    const movedIds = new Set(assignments.map(item => item.exerciseId));
+    nextLayout = nextLayout.map(category => ({ ...category, exerciseIds: category.exerciseIds.filter(id => !movedIds.has(id)) }));
+
+    const findCategoryIndex = (name: string, id?: string) => {
+      const normalized = normalizeCategoryText(name);
+      return nextLayout.findIndex(category => category.id === id || normalizeCategoryText(category.name) === normalized);
+    };
+
+    assignments.forEach(({ exerciseId, categoryName, color, id }) => {
+      if (!exerciseId || !categoryName) return;
+      let targetIndex = findCategoryIndex(categoryName, id);
+      if (targetIndex < 0) {
+        targetIndex = nextLayout.length;
+        nextLayout.push({
+          id: id && !nextLayout.some(category => category.id === id) ? id : `cat-${slugCategory(categoryName)}-${Date.now()}-${targetIndex}`,
+          name: categoryName,
+          color: color || 'green',
+          exerciseIds: [],
+        });
+      }
+      const target = nextLayout[targetIndex];
+      nextLayout[targetIndex] = { ...target, color: target.color || color || 'green', exerciseIds: Array.from(new Set([...target.exerciseIds, exerciseId])) };
+    });
+
+    const nextLibrary = Array.from(libraryById.values());
+    await Promise.all([
+      fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: nextLibrary }) }),
+      fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: nextLayout }) }),
+    ]);
+
+    setQuery('');
+    setBulkMessage(`Imported ${parsed.items.length} exercise${parsed.items.length === 1 ? '' : 's'} and reassigned ${movedIds.size} layout item${movedIds.size === 1 ? '' : 's'}. Reloading…`);
+    resetForm();
+    setCreating(false);
+    window.setTimeout(() => window.location.reload(), 350);
+  };
+
+  const importJsonExercises = async (input: string) => {
     const parsed = parseExerciseJsonInput(input, layout);
     if (!parsed) return false;
     if (parsed.error) {
       setBulkMessage(parsed.error);
       return true;
     }
+
+    const hasLayoutReassignment = Boolean(parsed.layout) || parsed.items.some(item => item.categoryName);
+    if (hasLayoutReassignment) {
+      try {
+        await applyStructuredJsonImport(parsed);
+      } catch {
+        setBulkMessage('JSON import failed while saving layout reassignment.');
+      }
+      return true;
+    }
+
     if (onImportExercises) {
       onImportExercises(parsed.items);
     } else {
@@ -294,7 +407,9 @@ export default function LibraryModal({
       setBulkMessage('Paste JSON in the text window first.');
       return;
     }
-    if (!importJsonExercises(query)) setBulkMessage('Paste valid exercise JSON, then tap Load JSON.');
+    void importJsonExercises(query).then(handled => {
+      if (!handled) setBulkMessage('Paste valid exercise JSON, then tap Load JSON.');
+    });
   };
 
   const beginCreate = () => {
