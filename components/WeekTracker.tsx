@@ -26,7 +26,8 @@ type WeekGroup = {
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const TYPE_COLORS = ['#7E9B86', '#C17B4F', '#5B9BD5', '#7C3AED', '#0D9488', '#E11D48', '#D97706', '#475569'];
-const PREF_KEY = 'pt-week-tracker-prefs';
+const PREF_KEY = 'weekTrackerPrefs';
+const LEGACY_PREF_KEY = 'pt-week-tracker-prefs';
 
 function todayStr(d: Date): string {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -56,10 +57,14 @@ function normalizeType(value?: string) {
 
 type WeekPrefs = { mode: WeekMode; hidden: Record<WeekMode, string[]>; goals: Record<WeekMode, Record<string, number>> };
 
-function loadPrefs(): WeekPrefs {
-  if (typeof window === 'undefined') return { mode: 'type', hidden: { type: [], category: [] }, goals: { type: {}, category: {} } };
+function defaultPrefs(): WeekPrefs {
+  return { mode: 'type', hidden: { type: [], category: [] }, goals: { type: {}, category: {} } };
+}
+
+function readLocalPrefs(): WeekPrefs {
+  if (typeof window === 'undefined') return defaultPrefs();
   try {
-    const parsed = JSON.parse(localStorage.getItem(PREF_KEY) || '{}') as Partial<WeekPrefs>;
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_PREF_KEY) || '{}') as Partial<WeekPrefs>;
     return {
       mode: parsed.mode === 'category' ? 'category' : 'type',
       hidden: {
@@ -72,7 +77,7 @@ function loadPrefs(): WeekPrefs {
       },
     };
   } catch {
-    return { mode: 'type', hidden: { type: [], category: [] }, goals: { type: {}, category: {} } };
+    return defaultPrefs();
   }
 }
 
@@ -83,17 +88,65 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
   const [hidden, setHidden] = useState<Record<WeekMode, string[]>>({ type: [], category: [] });
   const [goals, setGoals] = useState<Record<WeekMode, Record<string, number>>>({ type: {}, category: {} });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   useEffect(() => {
-    const prefs = loadPrefs();
-    setMode(prefs.mode);
-    setHidden(prefs.hidden);
-    setGoals(prefs.goals);
+    let cancelled = false;
+    const applyPrefs = (prefs: WeekPrefs) => {
+      if (cancelled) return;
+      setMode(prefs.mode);
+      setHidden(prefs.hidden);
+      setGoals(prefs.goals);
+      setPrefsLoaded(true);
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/config?key=${encodeURIComponent(PREF_KEY)}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (data?.value && typeof data.value === 'object') {
+          const value = data.value as Partial<WeekPrefs>;
+          applyPrefs({
+            mode: value.mode === 'category' ? 'category' : 'type',
+            hidden: {
+              type: Array.isArray(value.hidden?.type) ? value.hidden.type : [],
+              category: Array.isArray(value.hidden?.category) ? value.hidden.category : [],
+            },
+            goals: {
+              type: value.goals?.type && typeof value.goals.type === 'object' ? value.goals.type : {},
+              category: value.goals?.category && typeof value.goals.category === 'object' ? value.goals.category : {},
+            },
+          });
+          return;
+        }
+      } catch {
+        // fall through to local migration
+      }
+
+      const localPrefs = readLocalPrefs();
+      applyPrefs(localPrefs);
+      void fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: PREF_KEY, value: localPrefs }),
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(PREF_KEY, JSON.stringify({ mode, hidden, goals }));
-  }, [mode, hidden, goals]);
+    if (!prefsLoaded) return;
+    const value = { mode, hidden, goals };
+    localStorage.setItem(LEGACY_PREF_KEY, JSON.stringify(value));
+    void fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: PREF_KEY, value }),
+    });
+  }, [mode, hidden, goals, prefsLoaded]);
 
   const groups = useMemo<WeekGroup[]>(() => {
     if (mode === 'category') {

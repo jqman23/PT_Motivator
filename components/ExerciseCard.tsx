@@ -308,8 +308,8 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="relative min-w-0 pr-12">
-              <div className={`min-w-0 truncate text-sm font-semibold leading-tight ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+            <div className="flex items-baseline gap-1.5 min-w-0">
+              <div className={`min-w-0 truncate text-sm font-semibold leading-none ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
                 <span className="whitespace-nowrap">
                   {exercise.name}
                   {exercise.optional && <span className="ml-1 text-xs text-stone-400">(optional)</span>}
@@ -319,10 +319,9 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setTypeDraft(normalizeExerciseType(exercise.cat)); setShowTypePicker(true); }}
-                  className="absolute right-0 top-0 inline-flex items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
+                  className="inline-flex flex-shrink-0 items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
                   style={{
                     color: typeTheme.accent,
-                    transform: 'translateY(-3px)',
                     touchAction: 'manipulation',
                   }}
                   title="Change or add type"
