@@ -413,9 +413,17 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
                   <td className="p-2">
                     <div className="space-y-1">
-                      {(e.mainImageUrls?.[0] || e.mainImageUrl) && <img src={e.mainImageUrls?.[0] || e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
-                      <textarea value={e.mainImageUrl ?? ''} onChange={x=>patch(e.id,{mainImageUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="main image URL" />
-                      <textarea value={list(e.mainImageUrls)} onChange={x=>patch(e.id,{mainImageUrls:split(x.target.value).slice(0, 3), mainImageUrl:split(x.target.value)[0] ?? e.mainImageUrl})} rows={3} className="w-52 border rounded-lg p-1 resize-none" placeholder="up to 3 main image URLs, one per line" />
+                      {((e.mainImageUrls?.[0] || e.mainImageUrl)) && <img src={e.mainImageUrls?.[0] || e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
+                      <textarea
+                        value={list(Array.from(new Set([...(e.mainImageUrls ?? []), e.mainImageUrl].filter((url): url is string => !!url?.trim()))).slice(0, 3))}
+                        onChange={x => {
+                          const nextPhotos = split(x.target.value).slice(0, 3);
+                          patch(e.id, { mainImageUrls: nextPhotos, mainImageUrl: nextPhotos[0] });
+                        }}
+                        rows={3}
+                        className="w-52 border rounded-lg p-1 resize-none"
+                        placeholder="up to 3 main photo URLs, one per line"
+                      />
                       <label className="block w-52 rounded-lg bg-stone-100 py-1.5 text-center text-[11px] font-semibold text-stone-600 cursor-pointer">
                         {uploadingId === e.id ? 'Uploading...' : 'Upload image'}
                         <input type="file" accept="image/*" className="hidden" disabled={uploadingId === e.id} onChange={x => { void uploadImage(e.id, x.target.files?.[0]); x.currentTarget.value = ''; }} />

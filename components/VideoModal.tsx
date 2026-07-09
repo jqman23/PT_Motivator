@@ -166,16 +166,19 @@ export default function VideoModal({ exercise, onClose }: Props) {
             <div className="divide-y divide-stone-50">
               {/* If playing, show remaining videos below the player */}
               {(playingId ? allVideos.filter(v => v.id !== playingId) : allVideos).map(video => (
+                (() => {
+                  const isFeatured = mainVideo?.id === video.id;
+                  return (
                 <button
                   key={video.id}
                   onPointerDown={() => setPlayingId(video.id)}
-                  className="w-full flex gap-3 items-center px-4 py-3 hover:bg-stone-50 active:bg-stone-100 transition-colors text-left"
+                  className={`w-full flex gap-3 items-center px-4 py-3 hover:bg-stone-50 active:bg-stone-100 transition-colors text-left ${isFeatured ? 'bg-[#F8F1E6]' : ''}`}
                   style={{ touchAction: 'manipulation' }}
                 >
                   {/* Thumbnail */}
                   <div
-                    className="relative flex-shrink-0 rounded-xl overflow-hidden bg-stone-100"
-                    style={{ width: 108, height: 61 }}
+                    className={`relative flex-shrink-0 rounded-xl overflow-hidden bg-stone-100 ${isFeatured ? 'ring-2 ring-[#C17B4F]/30' : ''}`}
+                    style={{ width: isFeatured ? 124 : 108, height: isFeatured ? 70 : 61 }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -198,10 +201,19 @@ export default function VideoModal({ exercise, onClose }: Props) {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-stone-700 leading-snug line-clamp-2">{video.title}</p>
-                    <p className="text-[11px] text-stone-400 mt-0.5 truncate">{video.channel}{mainVideo?.id === video.id ? ' · Featured' : ''}</p>
+                    <p className={`font-semibold text-stone-800 leading-snug line-clamp-2 ${isFeatured ? 'text-sm' : 'text-xs'}`}>{video.title}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <p className="text-[11px] text-stone-400 truncate">{video.channel}</p>
+                      {isFeatured && (
+                        <span className="shrink-0 rounded-full bg-[#C17B4F] px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
+                          Featured
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
+                  );
+                })()
               ))}
             </div>
           )}

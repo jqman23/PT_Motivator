@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/media';
 import type { VideoResult } from '@/app/api/yt-search/route';
@@ -50,16 +50,19 @@ const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject)
 });
 
 export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
-  const embedUrl = youtubeEmbedUrl(exercise.mainVideoUrl);
-  const photos = primaryPhotos(exercise);
+  const [localExercise, setLocalExercise] = useState(exercise);
+  useEffect(() => setLocalExercise(exercise), [exercise.id]);
+
+  const embedUrl = youtubeEmbedUrl(localExercise.mainVideoUrl);
+  const photos = primaryPhotos(localExercise);
   const [activePhoto, setActivePhoto] = useState(0);
-  const imageUrl = photos[activePhoto] || exercise.gifUrl || youtubeThumbnailUrl(exercise.mainVideoUrl);
+  const imageUrl = photos[activePhoto] || localExercise.gifUrl || youtubeThumbnailUrl(localExercise.mainVideoUrl);
   const hasPrimaryImage = photos.length > 0;
   const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
-  const hasPrimaryVideo = !!exercise.mainVideoUrl;
+  const hasPrimaryVideo = !!localExercise.mainVideoUrl;
   const [uploading, setUploading] = useState(false);
   const [videoSearchOpen, setVideoSearchOpen] = useState(false);
-  const [videoQuery, setVideoQuery] = useState(exercise.name);
+  const [videoQuery, setVideoQuery] = useState(localExercise.name);
   const [videoResults, setVideoResults] = useState<VideoResult[]>([]);
   const [videoLoading, setVideoLoading] = useState(false);
   const [manualVideoUrl, setManualVideoUrl] = useState('');
@@ -87,7 +90,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
       const nextPhotos = [...photos, data.url].slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
-      window.location.reload();
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not upload image');
     } finally {
@@ -117,7 +120,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     setError('');
     try {
       await saveExercisePatch(exercise.id, { mainVideoUrl: url });
-      window.location.reload();
+      setLocalExercise(prev => ({ ...prev, mainVideoUrl: url }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save video');
     }
@@ -128,7 +131,10 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     try {
       const nextPhotos = photos.filter((_, i) => i !== index).slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
-      window.location.reload();
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
+      setActivePhoto(current => Math.max(0, Math.min(current, nextPhotos.length - 1)));
+      setImageSwipeX(0);
+      setImageSwipeOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove photo');
     }
@@ -138,7 +144,10 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     setError('');
     try {
       await saveExercisePatch(exercise.id, { [field]: undefined });
-      window.location.reload();
+      setLocalExercise(prev => ({ ...prev, [field]: undefined }));
+      setShowMainVideo(false);
+      setVideoSwipeX(0);
+      setVideoSwipeOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove media');
     }
@@ -183,7 +192,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-serif text-xl font-semibold text-stone-800">{exercise.name}</h2>
+              <h2 className="font-serif text-xl font-semibold text-stone-800">{localExercise.name}</h2>
               {hasPrimaryVideo && (
                 <button
                   onPointerDown={e => { e.stopPropagation(); setShowMainVideo(prev => !prev); }}
@@ -196,7 +205,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                 </button>
               )}
             </div>
-            <p className="text-xs text-stone-500 mt-1">{exercise.cue}</p>
+            <p className="text-xs text-stone-500 mt-1">{localExercise.cue}</p>
           </div>
           <button onPointerDown={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 text-xl text-stone-500">×</button>
         </div>
@@ -233,7 +242,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                 )}
                 <iframe
                   src={embedUrl}
-                  title={`${exercise.name} main video`}
+                  title={`${localExercise.name} main video`}
                   allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
                   className="absolute inset-0 h-full w-full border-0"
@@ -265,7 +274,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                     Remove photo
                   </button>
                 )}
-                <img src={imageUrl} alt={`${exercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
+                <img src={imageUrl} alt={`${localExercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
               </div>
               </div>
               {photos.length > 1 && (
@@ -286,21 +295,20 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           )}
 
           {(canAddPhoto || !hasPrimaryVideo) && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-wrap gap-2">
               {canAddPhoto && (
-                <label className="min-h-24 rounded-xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center active:bg-stone-50 cursor-pointer">
-                  <span className="text-lg text-stone-300">＋</span>
-                  <span className="text-xs font-bold text-stone-700">{uploading ? 'Uploading...' : photos.length ? 'Add photo' : 'Add photo'}</span>
-                  <span className="text-[10px] text-stone-400 leading-tight">{photos.length}/3 added</span>
+                <label className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-200 bg-white active:bg-stone-50" title="Add photo">
+                  <span className="flex flex-col items-center justify-center leading-none">
+                    <span className="text-lg text-stone-300">＋</span>
+                    <span className="sr-only">{uploading ? 'Uploading image' : 'Add photo'}</span>
+                  </span>
                   <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
                 </label>
               )}
 
               {!hasPrimaryVideo && (
-                <button onClick={() => setVideoSearchOpen(prev => !prev)} className="min-h-24 rounded-xl border-2 border-dashed border-stone-200 bg-white flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center active:bg-stone-50">
+                <button onClick={() => setVideoSearchOpen(prev => !prev)} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-dashed border-stone-200 bg-white active:bg-stone-50" title="Add video">
                   <span className="text-lg text-stone-300">▶</span>
-                  <span className="text-xs font-bold text-stone-700">Add video</span>
-                  <span className="text-[10px] text-stone-400 leading-tight">Search or paste URL</span>
                 </button>
               )}
             </div>
@@ -333,13 +341,13 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
             </div>
           )}
 
-          {exercise.sets && <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Sets</p><p className="text-sm font-semibold text-stone-800 mt-1">{exercise.sets}</p></div>}
+          {localExercise.sets && <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Sets</p><p className="text-sm font-semibold text-stone-800 mt-1">{localExercise.sets}</p></div>}
           <div className="bg-white rounded-xl border border-stone-100 p-3">
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">How to do it</p>
-            <ul className="space-y-2">{exercise.tips.map((tip, i) => <li key={i} className="text-sm text-stone-700 leading-snug">• {tip}</li>)}</ul>
+            <ul className="space-y-2">{localExercise.tips.map((tip, i) => <li key={i} className="text-sm text-stone-700 leading-snug">• {tip}</li>)}</ul>
           </div>
-          {!!exercise.videoTitles?.length && <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Videos</p>{exercise.videoTitles.map((v, i) => <p key={i} className="text-xs text-stone-600">{i + 1}. {v}</p>)}</div>}
-          <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Image search</p><p className="text-xs text-stone-500 mt-1">{exercise.imageSearch}</p></div>
+          {!!localExercise.videoTitles?.length && <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Videos</p>{localExercise.videoTitles.map((v, i) => <p key={i} className="text-xs text-stone-600">{i + 1}. {v}</p>)}</div>}
+          <div className="bg-white rounded-xl border border-stone-100 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Image search</p><p className="text-xs text-stone-500 mt-1">{localExercise.imageSearch}</p></div>
         </div>
       </div>
     </div>
