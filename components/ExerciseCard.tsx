@@ -386,6 +386,21 @@ export default function ExerciseCard({ exercise, done, note, today, onToggle, on
                 Cancel
               </button>
             </div>
+            {(exercise.mainImageUrls?.[0] || exercise.mainImageUrl) && (
+              <div className="mt-3 overflow-hidden rounded-xl border border-stone-200 bg-white/70">
+                <div className="flex items-center gap-2 px-2 py-2 overflow-x-auto">
+                  <img
+                    src={exercise.mainImageUrls?.[0] || exercise.mainImageUrl || ''}
+                    alt={`${exercise.name} preview`}
+                    className="h-10 w-16 flex-shrink-0 rounded-lg object-cover bg-stone-100"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Main photo</p>
+                    <p className="text-[11px] text-stone-500 truncate">Shown at the top of the exercise</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
