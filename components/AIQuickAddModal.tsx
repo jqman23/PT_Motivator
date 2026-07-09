@@ -201,6 +201,11 @@ async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
   return matches.slice(0, 10);
 }
 
+function parseJsonFromText(text: string) {
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return JSON.parse(jsonMatch ? jsonMatch[1] : text.trim());
+}
+
 export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes, onClose, onApply }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -210,7 +215,6 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   const [currentHealth, setCurrentHealth] = useState<SmartHealthChanges | null>(null);
   const [manualExerciseId, setManualExerciseId] = useState('');
   const [manualNote, setManualNote] = useState('');
-  const [importText, setImportText] = useState('');
 
   const categoryNames = useMemo(() => layout.map(cat => cat.name), [layout]);
 
@@ -294,7 +298,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
   };
 
   const proposalFromImport = (raw: unknown): RawProposal => {
-    const parsed = raw as Record<string, unknown>;
+    const parsed = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
     const rawExercises = Array.isArray(raw)
       ? raw
       : Array.isArray(parsed.exercises)
@@ -305,7 +309,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
             ? [parsed]
             : [];
     return {
-      summary: Array.isArray(parsed.summary) ? parsed.summary as string[] : ['Imported from external ChatGPT output'],
+      summary: Array.isArray(parsed.summary) ? parsed.summary as string[] : ['Imported from JSON'],
       exerciseChanges: Array.isArray(parsed.exerciseChanges) ? parsed.exerciseChanges as SmartExerciseChange[] : [],
       newExercises: rawExercises.map(item => {
         const ex = item as Record<string, unknown>;
@@ -317,7 +321,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
           tips: Array.isArray(ex.tips) ? ex.tips.map(tip => String(tip).trim()).filter(Boolean) : [],
           note: String(ex.note ?? '').trim(),
           completed: typeof ex.completed === 'boolean' ? ex.completed : null,
-          reason: String(ex.reason ?? 'Imported from ChatGPT').trim(),
+          reason: String(ex.reason ?? 'Imported from JSON').trim(),
           origin: 'patient_added' as const,
         };
       }).filter(item => item.name),
@@ -327,22 +331,22 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     };
   };
 
-  const importExternalDraft = () => {
+  const loadJsonFromInput = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
     setError('');
-    const text = importText.trim();
-    if (!text) return;
+    setLoading(true);
     try {
-      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      const body = jsonMatch ? jsonMatch[1] : text;
-      const parsed = JSON.parse(body);
-      const draft = compactProposal(proposalFromImport(parsed), currentHealth);
+      const [parsed, health] = await Promise.all([Promise.resolve(parseJsonFromText(text)), loadHealth()]);
+      const draft = compactProposal(proposalFromImport(parsed), health);
       if (!draft.newExercises.length && !draft.exerciseChanges.length && !Object.keys(draft.healthChanges || {}).length) {
         throw new Error('No exercises or changes found in pasted JSON.');
       }
       setProposal(draft);
-      setImportText('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not parse pasted JSON');
+      setError(err instanceof Error ? err.message : 'Could not parse JSON from the text window');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -498,7 +502,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg font-semibold text-stone-800">AI add</h2>
-            <p className="text-[11px] text-stone-400">Describe what happened or what to create. Review before saving.</p>
+            <p className="text-[11px] text-stone-400">Describe what happened, paste JSON, or create manually. Review before saving.</p>
           </div>
           <button onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }} className="w-9 h-9 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
@@ -507,21 +511,22 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
           <div className="bg-white rounded-2xl border border-stone-100 p-3">
             <textarea
               value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Examples: Split seated mobility into 3 specific exercises. Or: Did calf stretch 2 x 60 sec, RDLs 3 x 8, pain 3."
+              onChange={e => { setInput(e.target.value); setError(''); }}
+              placeholder="Examples: Split seated mobility into 3 specific exercises. Or paste JSON here, then tap Load JSON."
               rows={5}
               className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"
               style={{ fontSize: 16, colorScheme: 'light' }}
             />
-            <p className="mt-1 text-[11px] text-stone-400">Tip: AI Add now checks ExerciseDB + API Ninjas first, then drafts changes you can review.</p>
-            <button onClick={e => { e.preventDefault(); e.stopPropagation(); analyze(); }} disabled={loading || !input.trim()} className="mt-2 w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
-              {loading ? 'Searching + reading…' : proposal ? 'Review draft update' : 'Review changes'}
-            </button>
-            <div className="mt-3 rounded-xl border border-[#E4ECE6] bg-[#F8FBF8] p-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86] mb-1">Paste ChatGPT JSON</p>
-              <textarea value={importText} onChange={e => setImportText(e.target.value)} placeholder='Paste JSON from ChatGPT here, e.g. {"name":"Single-leg calf raise off step","categoryName":"Strength day","sets":"3 x 10 each leg","cue":"Stand on one leg on a step...","tips":["Move slowly"]}' rows={3} className="w-full resize-none rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
-              <button onClick={e => { e.preventDefault(); e.stopPropagation(); importExternalDraft(); }} disabled={!importText.trim()} className="mt-1.5 w-full rounded-lg py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Load pasted draft</button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); void analyze(); }} disabled={loading || !input.trim()} className="py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>
+                {loading ? 'Working…' : proposal ? 'Review update' : 'Review changes'}
+              </button>
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); void loadJsonFromInput(); }} disabled={loading || !input.trim()} className="py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46' }}>
+                Load JSON
+              </button>
             </div>
+            <p className="mt-1 text-[11px] text-stone-400">Use the same box for normal AI text or JSON. Load JSON skips AI and turns the pasted JSON into a reviewable draft.</p>
+
             <div className="mt-3 grid gap-2 rounded-xl border border-stone-100 bg-stone-50 p-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Skip AI when you already know what to add</p>
               <div className="flex gap-1.5">
