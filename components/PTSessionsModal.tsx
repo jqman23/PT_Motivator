@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 type PTSession = {
   date: string;
+  kind?: 'pt' | 'training';
   note?: string;
 };
 
@@ -20,18 +21,33 @@ function formatDate(ds: string) {
   });
 }
 
+function kindLabel(kind?: PTSession['kind']) {
+  return kind === 'training' ? 'Training' : 'PT';
+}
+
+function kindStyle(kind?: PTSession['kind']) {
+  return kind === 'training'
+    ? { background: '#eef2ff', color: '#4f46e5' }
+    : { background: '#FBF5E8', color: '#D9A94B' };
+}
+
 export default function PTSessionsModal({ sessions, onChange, onClose, today }: Props) {
   const [inputDate, setInputDate] = useState(today);
+  const [inputKind, setInputKind] = useState<NonNullable<PTSession['kind']>>('pt');
 
   const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
 
   const add = (date: string) => {
     if (!sessions.some(s => s.date === date)) {
-      onChange([...sessions, { date, note: '' }]);
+      onChange([...sessions, { date, kind: inputKind, note: '' }]);
     }
   };
 
   const remove = (date: string) => onChange(sessions.filter(s => s.date !== date));
+
+  const updateKind = (date: string, kind: NonNullable<PTSession['kind']>) => {
+    onChange(sessions.map(s => s.date === date ? { ...s, kind } : s));
+  };
 
   const updateNote = (date: string, note: string) => {
     onChange(sessions.map(s => s.date === date ? { ...s, note } : s));
@@ -64,6 +80,18 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
 
         <div className="px-5 py-4 border-b border-stone-100 flex-shrink-0 space-y-2">
           <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Add session</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['pt', 'training'] as const).map(kind => (
+              <button
+                key={kind}
+                onClick={() => setInputKind(kind)}
+                className="rounded-xl px-3 py-2 text-xs font-bold"
+                style={inputKind === kind ? kindStyle(kind) : { background: '#fff', color: '#78716c', border: '1px solid #e7e5e4' }}
+              >
+                {kindLabel(kind)}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-2">
             <input
               type="date"
@@ -103,10 +131,17 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
                 <div key={session.date} className="px-3 py-2.5 rounded-xl bg-stone-50">
                   <div className="flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-stone-700 truncate">{formatDate(session.date)}</p>
-                      {session.date === today && (
-                        <p className="text-[10px] font-medium" style={{ color: '#D9A94B' }}>Today</p>
-                      )}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="text-sm font-semibold text-stone-700 truncate">{formatDate(session.date)}</p>
+                        <button
+                          onClick={() => updateKind(session.date, session.kind === 'training' ? 'pt' : 'training')}
+                          className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
+                          style={kindStyle(session.kind)}
+                        >
+                          {kindLabel(session.kind)}
+                        </button>
+                      </div>
+                      {session.date === today && <p className="text-[10px] font-medium" style={{ color: session.kind === 'training' ? '#4f46e5' : '#D9A94B' }}>Today</p>}
                     </div>
                     <button
                       onClick={() => remove(session.date)}

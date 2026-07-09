@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
 import { ExerciseTypeMeta, getExerciseTypeDisplay, getExerciseTypeTheme } from '@/lib/exerciseTypes';
@@ -21,10 +22,11 @@ function sourceLabel(ex: Exercise) {
 }
 
 export default function ExerciseInfoModal({ layout, exerciseMap, typeMeta, onClose }: Props) {
-  const sections = layout.map(cat => ({
+  const sections = useMemo(() => layout.map(cat => ({
     cat,
     exercises: cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean),
-  })).filter(section => section.exercises.length > 0);
+  })).filter(section => section.exercises.length > 0), [exerciseMap, layout]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   return (
     <div
@@ -51,80 +53,89 @@ export default function ExerciseInfoModal({ layout, exerciseMap, typeMeta, onClo
 
           {sections.map(({ cat, exercises }) => {
             const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
+            const isCollapsed = !!collapsed[cat.id];
             return (
               <section key={cat.id}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: palette.accent }} />
-                  <h3 className="font-serif text-sm font-semibold text-stone-800">{cat.name}</h3>
-                  <span className="text-[10px] text-stone-400">{exercises.length}</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
+                  className="flex w-full items-center gap-2 mb-2 text-left"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: palette.accent }} />
+                  <h3 className="font-serif text-sm font-semibold text-stone-800 flex-1 min-w-0 truncate">{cat.name}</h3>
+                  <span className="text-[10px] text-stone-400 flex-shrink-0">{exercises.length}</span>
+                  <span className="text-[10px] text-stone-400 flex-shrink-0">{isCollapsed ? 'Show' : 'Hide'}</span>
+                </button>
 
-                <div className="space-y-2">
-                  {exercises.map(ex => {
-                    const typeTheme = getExerciseTypeTheme(ex.cat);
-                    const typeDisplay = getExerciseTypeDisplay(ex.cat, typeMeta);
-                    return (
-                    <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
-                      <div className="flex items-start gap-3">
-                        {(ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || ex.mainVideoUrl) ? (
-                          <img
-                            src={ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || youtubeThumbnailUrl(ex.mainVideoUrl)}
-                            alt={`${ex.name} demo`}
-                            className="w-16 h-16 rounded-xl object-cover bg-stone-50 flex-shrink-0"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-xl bg-stone-100 flex-shrink-0 flex items-center justify-center text-stone-300">
-                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6">
-                              <circle cx="10" cy="5" r="2" />
-                              <path d="M10 7v5M6.5 10h7M8.5 12l-2 5M11.5 12l2 5" />
-                            </svg>
+                {!isCollapsed && (
+                  <div className="space-y-2">
+                    {exercises.map(ex => {
+                      const typeTheme = getExerciseTypeTheme(ex.cat);
+                      const typeDisplay = getExerciseTypeDisplay(ex.cat, typeMeta);
+                      return (
+                      <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          {(ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || ex.mainVideoUrl) ? (
+                            <img
+                              src={ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || youtubeThumbnailUrl(ex.mainVideoUrl)}
+                              alt={`${ex.name} demo`}
+                              className="w-16 h-16 rounded-xl object-cover bg-stone-50 flex-shrink-0"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-xl bg-stone-100 flex-shrink-0 flex items-center justify-center text-stone-300">
+                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6">
+                                <circle cx="10" cy="5" r="2" />
+                                <path d="M10 7v5M6.5 10h7M8.5 12l-2 5M11.5 12l2 5" />
+                              </svg>
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline gap-2 min-w-0">
+                                  <h4 className="min-w-0 truncate text-sm font-bold text-stone-800 leading-none">{ex.name}</h4>
+                                  <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent }}>
+                                    <span className="inline-flex items-center gap-0.5">
+                                      {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                                      <span>{typeDisplay.letters}</span>
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                              {ex.origin && (
+                                <span className="text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-400 flex-shrink-0">
+                                  {sourceLabel(ex)}
+                                </span>
+                              )}
+                            </div>
+
+                            {ex.sets && <p className="text-xs font-semibold text-stone-500 mt-1">{ex.sets}</p>}
+                            {ex.cue && <p className="text-xs text-stone-500 mt-1 leading-snug">{ex.cue}</p>}
                           </div>
+                        </div>
+
+                        {ex.tips && ex.tips.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {ex.tips.slice(0, 4).map((tip, idx) => (
+                              <li key={idx} className="text-[11px] text-stone-500 leading-snug flex gap-1.5">
+                                <span className="text-stone-300">•</span>
+                                <span>{tip}</span>
+                              </li>
+                            ))}
+                          </ul>
                         )}
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2 min-w-0">
-                                <h4 className="min-w-0 truncate text-sm font-bold text-stone-800 leading-none">{ex.name}</h4>
-                                <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent }}>
-                                  <span className="inline-flex items-center gap-0.5">
-                                    {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
-                                    <span>{typeDisplay.letters}</span>
-                                  </span>
-                                </span>
-                              </div>
-                            </div>
-                            {ex.origin && (
-                              <span className="text-[8px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-400 flex-shrink-0">
-                                {sourceLabel(ex)}
-                              </span>
-                            )}
-                          </div>
-
-                          {ex.sets && <p className="text-xs font-semibold text-stone-500 mt-1">{ex.sets}</p>}
-                          {ex.cue && <p className="text-xs text-stone-500 mt-1 leading-snug">{ex.cue}</p>}
-                        </div>
-                      </div>
-
-                      {ex.tips && ex.tips.length > 0 && (
-                        <ul className="mt-2 space-y-1">
-                          {ex.tips.slice(0, 4).map((tip, idx) => (
-                            <li key={idx} className="text-[11px] text-stone-500 leading-snug flex gap-1.5">
-                              <span className="text-stone-300">•</span>
-                              <span>{tip}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {ex.imageSearch && (
-                        <p className="mt-2 text-[10px] text-stone-400 truncate">Media search: {ex.imageSearch}</p>
-                      )}
-                    </article>
-                    );
-                  })}
-                </div>
+                        {ex.imageSearch && (
+                          <p className="mt-2 text-[10px] text-stone-400 truncate">Media search: {ex.imageSearch}</p>
+                        )}
+                      </article>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             );
           })}

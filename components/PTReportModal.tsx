@@ -6,7 +6,7 @@ import { CategoryConfig } from '@/lib/layout';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
-type PTSession = { date: string; note?: string };
+type PTSession = { date: string; kind?: 'pt' | 'training'; note?: string };
 
 type HealthRow = {
   date: string;
@@ -157,7 +157,7 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
     const energyAvg = avg(healthInRange.map(h => num(h.energy)));
     const moodAvg = avg(healthInRange.map(h => num(h.mood)));
     const sleepAvg = avg(healthInRange.map(h => num(h.sleep_hours)));
-    const ptInRange = ptSessions.filter(s => s.date >= startDate && s.date <= today);
+  const ptInRange = ptSessions.filter(s => s.date >= startDate && s.date <= today);
     const currentNotes = Object.entries(notes).filter(([, note]) => note.trim());
     const currentDone = allExercises.filter(ex => log[selectedDate]?.[ex.id]).length;
 
@@ -200,7 +200,7 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
       return `<li><strong>${displayDate(d)}:</strong><br/>${bits.join('<br/>')}</li>`;
     }).filter(Boolean).join('');
 
-    const ptHtml = ptInRange.map(s => `<li><strong>${displayDate(s.date)}:</strong> ${nl(s.note || 'PT session logged')}</li>`).join('');
+    const ptHtml = ptInRange.map(s => `<li><strong>${displayDate(s.date)}:</strong> ${escapeHtml(s.kind === 'training' ? 'Training session' : 'PT session')}${s.note?.trim() ? ` — ${nl(s.note)}` : ''}</li>`).join('');
     const noteHtml = currentNotes.map(([id, note]) => `<li><strong>${escapeHtml(exerciseMap[id]?.name ?? id)}:</strong> ${nl(note)}</li>`).join('');
 
     const section = (title: string, body: string) => `<section><h2>${title}</h2>${body}</section>`;

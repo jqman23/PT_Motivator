@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLogForRange, getNotesForDate, getConfig, setConfig } from '@/lib/db';
+import { getLogForRange, getNotesForDate, getHealthForDate, getConfig, setConfig } from '@/lib/db';
 import { callGroqChat, getGroqModelChain } from '@/lib/groq';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
@@ -47,10 +47,12 @@ export async function POST() {
       return NextResponse.json({ summary: null, date: yesterday, cacheDate: today, timeZone: APP_TIME_ZONE, model: DEFAULT_MODEL });
     }
 
-    const [logRows, noteRows, libraryData] = await Promise.all([
+    const [logRows, noteRows, healthRows, libraryData, ptSessions] = await Promise.all([
       getLogForRange(yesterday, yesterday),
       getNotesForDate(yesterday),
+      getHealthForDate(yesterday),
       getConfig('exerciseLibrary'),
+      getConfig('ptSessions'),
     ]);
 
     const completedIds = (logRows as Array<{ exercise_id: string; completed: boolean }>)
@@ -68,6 +70,10 @@ export async function POST() {
     const noteMap = Object.fromEntries(
       (noteRows as Array<{ exercise_id: string; note: string }>).map(r => [r.exercise_id, r.note])
     );
+    const health = (healthRows as Array<Record<string, unknown>>)[0] ?? null;
+    const session = Array.isArray(ptSessions)
+      ? (ptSessions as Array<{ date: string; kind?: string; note?: string }>).find(s => s.date === yesterday)
+      : null;
 
     const lines = completedIds.slice(0, 18).map(id => {
       const name = nameMap[id] || id;
@@ -75,18 +81,24 @@ export async function POST() {
       return note ? `${name}: ${note}` : name;
     });
 
-    const userText = `Date: ${yesterday}. Exercises completed (${completedIds.length}): ${lines.join(' | ')}`;
+    const userText = JSON.stringify({
+      date: yesterday,
+      completedCount: completedIds.length,
+      exercises: lines,
+      health,
+      session: session ? { kind: session.kind === 'training' ? 'training' : 'pt', note: session.note ?? '' } : null,
+    });
 
     const { data, model } = await callGroqChat(apiKey, 'summary', {
       messages: [
         {
           role: 'system',
-          content: 'Write exactly 1-2 sentences summarizing what this PT patient did yesterday. Tone: warm, grounded, direct — like a trusted coach, not a motivational poster. If they did something notable (high volume, a hike, a big effort), lead with that. Mention specific exercises or counts briefly. No clichés. No filler openers like "Yesterday you" or "Great job". Just say what happened and why it matters.',
+          content: 'Write exactly 1-2 sentences summarizing what happened yesterday. Tone: sharp, grounded, and specific — like a PT note written by someone who understands the pattern, not a motivational poster. Call out the meaningful detail: what was done, what stands out, and any signal from the session/health notes. If there was a PT or training session, mention it only if it changes the read. No clichés. No filler openers like "Yesterday you" or "Great job".',
         },
         { role: 'user', content: userText },
       ],
       temperature: 0.65,
-      max_completion_tokens: 90,
+      max_completion_tokens: 110,
     });
 
     const summary = (data?.choices?.[0]?.message?.content?.trim() ?? null) as string | null;

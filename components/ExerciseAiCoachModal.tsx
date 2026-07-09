@@ -34,6 +34,8 @@ type ApiNinjasResult = {
 
 interface Props {
   exercises: Exercise[];
+  selectedDate: string;
+  today: string;
   onClose: () => void;
 }
 
@@ -110,7 +112,7 @@ function fallbackCopy(text: string) {
   try { document.execCommand('copy'); } finally { textarea.remove(); }
 }
 
-export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
+export default function ExerciseAiCoachModal({ exercises, selectedDate, today, onClose }: Props) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [reply, setReply] = useState<AiReply | null>(null);
@@ -140,14 +142,16 @@ export default function ExerciseAiCoachModal({ exercises, onClose }: Props) {
       const res = await fetch('/api/ai-exercise-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: clean,
-          history: nextHistory,
-          clarificationCount: clarificationCountRef.current,
-          sourceMatches,
-          exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
-        }),
-      });
+          body: JSON.stringify({
+            question: clean,
+            history: nextHistory,
+            clarificationCount: clarificationCountRef.current,
+            sourceMatches,
+            selectedDate,
+            today,
+            exercises: exercises.map(ex => ({ id: ex.id, name: ex.name, cat: ex.cat, cue: ex.cue, sets: ex.sets, tips: ex.tips?.slice(0, 5) })).slice(0, 80),
+          }),
+        });
       const data = await res.json();
       if (!res.ok) throw new Error(errorMessage(res, data));
       const nextReply: AiReply = { ...data.reply, options: (data.reply?.options ?? []).slice(0, 3) };

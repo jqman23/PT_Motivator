@@ -5,7 +5,7 @@ import { Exercise } from '@/lib/exercises';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type HealthMap = Record<string, { sleep_hours?: number; sleep_quality?: number; energy?: number; mood?: number; pain?: number }>;
-type PTSession = { date: string; note?: string };
+type PTSession = { date: string; kind?: 'pt' | 'training'; note?: string };
 
 interface DaySummary {
   groups: Array<{ type: string; done: number; total: number; frac: number; color: string }>;
@@ -26,6 +26,10 @@ interface Props {
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function ymd(y: number, m: number, d: number) { return `${y}-${pad(m)}-${pad(d)}`; }
 const TYPE_COLORS = ['#7E9B86', '#C17B4F', '#5B9BD5', '#7C3AED', '#0D9488', '#E11D48', '#D97706', '#475569'];
+
+function sessionLabel(kind?: PTSession['kind']) {
+  return kind === 'training' ? 'Training session' : 'PT session';
+}
 
 export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions, exercises }: Props) {
   const [viewYear, setViewYear] = useState(() => parseInt(selectedDate.split('-')[0]));
@@ -137,7 +141,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
           <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#5B9BD5]"/><span className="text-[10px] text-stone-500 font-medium">Health log</span></div>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#D9A94B' }}/>
-            <span className="text-[10px] text-stone-500 font-medium">PT session</span>
+            <span className="text-[10px] text-stone-500 font-medium">PT / training session</span>
           </div>
         </div>
 
@@ -208,7 +212,9 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 </p>
                 {hoveredPTSession && (
                   <>
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>PT session</span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: hoveredPTSession.kind === 'training' ? '#eef2ff' : '#FBF5E8', color: hoveredPTSession.kind === 'training' ? '#4f46e5' : '#D9A94B' }}>
+                      {sessionLabel(hoveredPTSession.kind)}
+                    </span>
                     {hoveredPTSession.note?.trim() && (
                       <span className="text-[10px] text-stone-400 truncate">{hoveredPTSession.note}</span>
                     )}

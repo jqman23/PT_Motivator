@@ -34,6 +34,30 @@ export async function initDb() {
       UNIQUE(date, exercise_id)
     )
   `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS health_log (
+      id SERIAL PRIMARY KEY,
+      date DATE NOT NULL UNIQUE,
+      sleep_hours NUMERIC(4,1),
+      sleep_quality NUMERIC(4,1),
+      energy NUMERIC(4,1),
+      mood NUMERIC(4,1),
+      pain NUMERIC(4,1),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_quality_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS energy_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS mood_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS pain_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS treatment_notes TEXT`;
+  await sql`ALTER TABLE health_log ALTER COLUMN sleep_quality TYPE NUMERIC(4,1)`;
+  await sql`ALTER TABLE health_log ALTER COLUMN energy TYPE NUMERIC(4,1)`;
+  await sql`ALTER TABLE health_log ALTER COLUMN mood TYPE NUMERIC(4,1)`;
+  await sql`ALTER TABLE health_log ALTER COLUMN pain TYPE NUMERIC(4,1)`;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {
@@ -41,6 +65,14 @@ export async function getLogForRange(startDate: string, endDate: string) {
     SELECT date::text, exercise_id, completed
     FROM workout_log
     WHERE date >= ${startDate}::date AND date <= ${endDate}::date
+  `;
+}
+
+export async function getLogForDate(date: string) {
+  return sql`
+    SELECT date::text, exercise_id, completed
+    FROM workout_log
+    WHERE date = ${date}::date
   `;
 }
 
@@ -58,6 +90,27 @@ export async function getNotesForDate(date: string) {
     SELECT exercise_id, note
     FROM exercise_notes
     WHERE date = ${date}::date
+  `;
+}
+
+export async function getHealthForDate(date: string) {
+  await sql`
+    CREATE TABLE IF NOT EXISTS health_log (
+      id SERIAL PRIMARY KEY,
+      date DATE NOT NULL UNIQUE,
+      sleep_hours NUMERIC(4,1),
+      sleep_quality NUMERIC(4,1),
+      energy NUMERIC(4,1),
+      mood NUMERIC(4,1),
+      pain NUMERIC(4,1),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  return sql`
+    SELECT *
+    FROM health_log
+    WHERE date = ${date}::date
+    LIMIT 1
   `;
 }
 

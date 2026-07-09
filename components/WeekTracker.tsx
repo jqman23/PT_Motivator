@@ -6,12 +6,13 @@ import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type WeekMode = 'type' | 'category';
+type PTSession = { date: string; kind?: 'pt' | 'training'; note?: string };
 
 interface Props {
   log: LogMap;
   today: string;
   selectedDate: string;
-  ptSessions?: { date: string; note?: string }[];
+  ptSessions?: PTSession[];
   exercises: Exercise[];
   layout: CategoryConfig[];
   onSelectDate: (date: string) => void;
@@ -53,6 +54,10 @@ function displayDay(ds: string) {
 
 function normalizeType(value?: string) {
   return (value || 'untyped').trim() || 'untyped';
+}
+
+function sessionLabel(kind?: PTSession['kind']) {
+  return kind === 'training' ? 'Training session' : 'PT session';
 }
 
 type WeekPrefs = { mode: WeekMode; hidden: Record<WeekMode, string[]>; goals: Record<WeekMode, Record<string, number>> };
@@ -312,8 +317,8 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
               const hasAnyDayData = visibleGroups.some(item => groupFraction(ds, item) > 0);
               const isToday = ds === today;
               const isSelected = ds === selectedDate;
-              const hasPT = ptSessions?.some(s => s.date === ds);
-              const showPTCircle = visibleGroups[0]?.id === group.id && !!hasPT && !hasAnyDayData;
+              const ptSession = ptSessions?.find(s => s.date === ds);
+              const showPTCircle = visibleGroups[0]?.id === group.id && !!ptSession && !hasAnyDayData;
               const isHovered = hoveredDay === ds;
 
               return (
@@ -356,17 +361,17 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
       ))}
 
       <div className="border-t border-stone-100 mt-3 pt-3 min-h-[58px]">
-        {hoveredDay && hovered ? (
-          <>
-            <div className="flex items-center gap-2 mb-1.5 min-w-0">
-              <p className="text-xs font-bold text-stone-700 flex-shrink-0">{displayDay(hoveredDay)}</p>
-              {hovered.ptSession && (
-                <>
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>
-                    PT session
-                  </span>
-                  {hovered.ptSession.note?.trim() && <span className="text-[10px] text-stone-400 truncate">{hovered.ptSession.note}</span>}
-                </>
+          {hoveredDay && hovered ? (
+            <>
+              <div className="flex items-center gap-2 mb-1.5 min-w-0">
+                <p className="text-xs font-bold text-stone-700 flex-shrink-0">{displayDay(hoveredDay)}</p>
+                {hovered.ptSession && (
+                  <>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>
+                    {sessionLabel(hovered.ptSession.kind)}
+                    </span>
+                    {hovered.ptSession.note?.trim() && <span className="text-[10px] text-stone-400 truncate">{hovered.ptSession.note}</span>}
+                  </>
               )}
             </div>
 
@@ -395,7 +400,7 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
         {ptSessions && ptSessions.some(s => days.some(day => todayStr(day) === s.date)) && (
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 rounded-full border" style={{ background: '#FBF5E8', borderColor: '#D9A94B' }} />
-            <span className="text-[10px] text-stone-400">PT session</span>
+            <span className="text-[10px] text-stone-400">PT / training session</span>
           </div>
         )}
       </div>

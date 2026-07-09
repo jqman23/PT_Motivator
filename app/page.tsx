@@ -24,7 +24,8 @@ import { ExerciseTypeMeta, normalizeExerciseType } from '@/lib/exerciseTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
-type PTSession = { date: string; note?: string };
+type PTSessionKind = 'pt' | 'training';
+type PTSession = { date: string; kind?: PTSessionKind; note?: string };
 type UndoSnapshot = {
   label: string;
   selectedDate: string;
@@ -293,7 +294,17 @@ export default function Home() {
       .catch(() => setExerciseLibrary(seedExerciseLibrary()));
 
     fetch('/api/config?key=appTitle').then(r => r.json()).then(data => { if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value); }).catch(console.error);
-    fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => { if (Array.isArray(data.value)) setPtSessions(data.value.map((item: string | PTSession) => typeof item === 'string' ? { date: item, note: '' } : item)); }).catch(console.error);
+    fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => {
+      if (!Array.isArray(data.value)) return;
+      setPtSessions(data.value.map((item: string | PTSession) => {
+        if (typeof item === 'string') return { date: item, kind: 'pt', note: '' };
+        return {
+          date: item.date,
+          kind: item.kind === 'training' ? 'training' : 'pt',
+          note: item.note ?? '',
+        };
+      }));
+    }).catch(console.error);
     fetch('/api/config?key=widgetPrefs').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...data.value }); }).catch(console.error);
     fetch('/api/config?key=exerciseTypeMeta').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setTypeMeta(data.value as ExerciseTypeMeta); }).catch(console.error);
 
@@ -726,7 +737,7 @@ export default function Home() {
         {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onOpenTypes={() => { setShowTypeSettings(true); }} onClose={() => setShowWidgetSettings(false)} />}
         {showTypeSettings && <TypeSettingsModal types={typeOptions} meta={typeMeta} onChange={updateTypeMeta} onClose={() => setShowTypeSettings(false)} />}
         {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
-        {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} onClose={() => setShowAiCoach(false)} />}
+        {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} selectedDate={selectedDate} today={today} onClose={() => setShowAiCoach(false)} />}
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onImportExercises={importExercises} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
