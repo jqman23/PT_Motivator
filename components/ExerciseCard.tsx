@@ -311,60 +311,57 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
             )}
           </div>
 
-          <div className="flex flex-1 min-w-0 items-start gap-1.5">
-            <div className="min-w-0 flex-1">
-              <div className={`min-w-0 truncate text-sm font-semibold leading-none ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
-                <span className="whitespace-nowrap">
-                  {exercise.name}
-                  {exercise.optional && <span className="ml-1 text-xs text-stone-400">(optional)</span>}
-                </span>
-              </div>
-              <p className="mt-0 text-xs leading-[1.08] text-stone-400 sm:leading-snug">{exercise.cue}</p>
-              {note && (
-                <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
-              )}
-              {showMoveControls && (
-                <div className="sm:hidden mt-2 flex items-center gap-1.5">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); void moveWithinSection(-1); }}
-                    disabled={!!moveBusy}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
-                    style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
-                  >
-                    {moveBusy === 'up' ? 'Saving…' : '↑ Up'}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); void moveWithinSection(1); }}
-                    disabled={!!moveBusy}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
-                    style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
-                  >
-                    {moveBusy === 'down' ? 'Saving…' : '↓ Down'}
-                  </button>
-                  {moveFeedback && <span className="text-[11px] font-semibold text-stone-400">{moveFeedback}</span>}
-                </div>
-              )}
+          <div className="flex-1 min-w-0">
+            <div className={`min-w-0 truncate text-sm font-semibold leading-none ${done ? 'text-stone-400 line-through' : 'text-stone-800'}`}>
+              <span className="whitespace-nowrap">
+                {exercise.name}
+                {exercise.optional && <span className="ml-1 text-xs text-stone-400">(optional)</span>}
+              </span>
             </div>
-            <div className="flex-shrink-0 pt-0.5">
-              {!hideTypeBadge && (
+            <p className="mt-0.5 text-xs leading-[1.08] text-stone-400 sm:leading-snug">{exercise.cue}</p>
+            {note && (
+              <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
+            )}
+            {showMoveControls && (
+              <div className="sm:hidden mt-2 flex items-center gap-1.5">
                 <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setShowTypePicker(true); }}
-                  className="inline-flex flex-shrink-0 items-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
-                  style={{
-                    color: typeTheme.accent,
-                    touchAction: 'manipulation',
-                  }}
-                  title="Change or add type"
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(-1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
+                  style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
                 >
-                  <span className="inline-flex items-center gap-0.5">
-                    {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
-                    <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
-                  </span>
+                  {moveBusy === 'up' ? 'Saving…' : '↑ Up'}
                 </button>
-              )}
-            </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); void moveWithinSection(1); }}
+                  disabled={!!moveBusy}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold disabled:opacity-50"
+                  style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}
+                >
+                  {moveBusy === 'down' ? 'Saving…' : '↓ Down'}
+                </button>
+                {moveFeedback && <span className="text-[11px] font-semibold text-stone-400">{moveFeedback}</span>}
+              </div>
+            )}
           </div>
+
+          {!hideTypeBadge && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowTypePicker(true); }}
+              className="inline-flex flex-shrink-0 items-center self-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
+              style={{
+                color: typeTheme.accent,
+                touchAction: 'manipulation',
+              }}
+              title="Change or add type"
+            >
+              <span className="inline-flex items-center gap-0.5">
+                {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
+              </span>
+            </button>
+          )}
 
           <div
             className="relative flex gap-1.5 flex-shrink-0"
