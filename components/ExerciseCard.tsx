@@ -337,7 +337,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
                 </button>
               )}
             </div>
-            <p className="mt-0 text-xs leading-[1.15] text-stone-400 sm:mt-0 sm:leading-snug">{exercise.cue}</p>
+            <p className="mt-[-1px] text-xs leading-[1.08] text-stone-400 sm:mt-0 sm:leading-snug">{exercise.cue}</p>
             {note && (
               <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
             )}
