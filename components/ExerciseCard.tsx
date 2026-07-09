@@ -348,6 +348,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
           {!hideTypeBadge && (
             <button
               type="button"
+              data-mobile-primary-type="true"
               onClick={(e) => { e.stopPropagation(); setShowTypePicker(true); }}
               className="inline-flex flex-shrink-0 items-center self-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors"
               style={{
@@ -428,6 +429,25 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
                   className="h-14 w-full object-cover bg-stone-100"
                 />
               </div>
+            )}
+            {!hideTypeBadge && (
+              <button
+                type="button"
+                data-mobile-expanded-type="true"
+                onClick={(e) => { e.stopPropagation(); setShowTypePicker(true); }}
+                className="hidden flex-shrink-0 items-center justify-end self-center rounded px-0.5 text-[10px] font-black uppercase tracking-[0.12em] leading-none transition-colors sm:hidden"
+                style={{
+                  color: typeTheme.accent,
+                  touchAction: 'manipulation',
+                  display: 'none',
+                }}
+                title="Change or add type"
+              >
+                <span className="inline-flex items-center gap-0.5">
+                  {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
+                  <span>{typeDisplay.letters || getExerciseTypeMark(exercise.cat)}</span>
+                </span>
+              </button>
             )}
           </div>
         </div>
