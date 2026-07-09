@@ -27,6 +27,7 @@ type ApiNinjasResult = {
 };
 
 type ExternalExerciseResult = ExerciseDbResult | ApiNinjasResult;
+type JsonExerciseInput = Record<string, unknown>;
 
 interface Props {
   builtIns: Exercise[];
@@ -48,6 +49,103 @@ const ORIGIN_OPTIONS: { value: NonNullable<Exercise['origin']>; label: string }[
 ];
 
 const toTitleCase = (value: string) => value.replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+const isObject = (value: unknown): value is JsonExerciseInput => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const asString = (value: unknown) => typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
+const asStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map(asString).filter(Boolean);
+  const text = asString(value);
+  return text ? text.split('\n').map(item => item.trim()).filter(Boolean) : [];
+};
+const cleanJsonInput = (input: string) => input.trim().replace(/^```(?:json|JSON)?\s*/, '').replace(/\s*```$/, '').trim();
+const looksLikeJson = (input: string) => {
+  const clean = cleanJsonInput(input);
+  return clean.startsWith('{') || clean.startsWith('[') || clean.includes('```json') || clean.includes('```JSON');
+};
+
+function splitTopLevelObjects(input: string): string[] {
+  const objects: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        objects.push(input.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return objects;
+}
+
+function parseExerciseJsonInput(input: string): { exercises: Exercise[]; error?: string } | null {
+  const clean = cleanJsonInput(input);
+  if (!looksLikeJson(clean)) return null;
+
+  let rawItems: unknown[] = [];
+  try {
+    const parsed = JSON.parse(clean);
+    rawItems = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    const objectChunks = splitTopLevelObjects(clean);
+    if (objectChunks.length === 0) return { exercises: [], error: 'Invalid JSON. Paste one exercise object, an array, or multiple objects.' };
+    try {
+      rawItems = objectChunks.map(chunk => JSON.parse(chunk));
+    } catch {
+      return { exercises: [], error: 'Invalid JSON. One of the pasted exercise objects could not be parsed.' };
+    }
+  }
+
+  const exercises: Exercise[] = [];
+  for (let index = 0; index < rawItems.length; index += 1) {
+    const item = rawItems[index];
+    if (!isObject(item)) return { exercises: [], error: `Exercise ${index + 1} must be a JSON object.` };
+
+    const name = asString(item.name ?? item.title ?? item.exerciseName);
+    if (!name) return { exercises: [], error: `Exercise ${index + 1} is missing a name.` };
+
+    const cue = asString(item.cue ?? item.shortCue ?? item.description ?? item.note);
+    const explicitSets = asString(item.sets ?? item.setRepScheme ?? item.dosage);
+    const reps = asString(item.reps ?? item.repCount);
+    const sets = explicitSets || (reps ? reps : undefined);
+    const catText = asString(item.cat ?? item.category ?? item.type).toLowerCase();
+    const cat: Exercise['cat'] = catText.includes('strength') ? 'strength' : 'mobility';
+    const originText = asString(item.origin ?? item.source).toLowerCase();
+    const origin = ORIGIN_OPTIONS.some(opt => opt.value === originText) ? originText as NonNullable<Exercise['origin']> : 'patient_added';
+    const tips = asStringArray(item.tips ?? item.helpfulTips ?? item.instructions ?? item.cues);
+
+    exercises.push(makeCustomExercise({
+      name,
+      cue,
+      sets,
+      cat,
+      imageSearch: asString(item.imageSearch ?? item.mediaSearch ?? item.searchTerms) || name,
+      tips,
+      origin,
+      sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
+      gifUrl: asString(item.gifUrl) || undefined,
+    }));
+  }
+
+  return { exercises };
+}
 
 export default function LibraryModal({
   builtIns,
@@ -80,6 +178,7 @@ export default function LibraryModal({
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceImporting, setSourceImporting] = useState<string | null>(null);
   const [sourceMessage, setSourceMessage] = useState('');
+  const [bulkMessage, setBulkMessage] = useState('');
   const [importedMeta, setImportedMeta] = useState<{ source?: 'exercisedb' | 'api_ninjas'; sourceId?: string; gifUrl?: string } | null>(null);
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
@@ -100,6 +199,7 @@ export default function LibraryModal({
   const filtered = q ? all.filter(e => e.name.toLowerCase().includes(q) || e.cue.toLowerCase().includes(q)) : all;
   const createLabel = importedMeta ? (addToCatId ? 'Create imported & add' : 'Create imported') : (addToCatId ? 'Create manual & add' : 'Create manually');
   const sourceMessageIsError = /failed|could not|unavailable|missing key/i.test(sourceMessage);
+  const bulkMessageIsError = /invalid|missing|must be/i.test(bulkMessage);
 
   const originLabel = (e: Exercise & { isCustom?: boolean }) => {
     if (e.sourceId === 'ai-added' || e.sourceId === 'ai_added') return { text: 'AI Added', color: '#D9A94B', bg: '#FBF5E8' };
@@ -136,10 +236,29 @@ export default function LibraryModal({
     setEditing(null);
   };
 
+  const importJsonExercises = (input: string) => {
+    const parsed = parseExerciseJsonInput(input);
+    if (!parsed) return false;
+    if (parsed.error) {
+      setBulkMessage(parsed.error);
+      return true;
+    }
+    parsed.exercises.forEach(ex => {
+      onCreateCustom(ex);
+      if (addToCatId) onPick(ex.id, addToCatId);
+    });
+    setQuery('');
+    setBulkMessage(`Added ${parsed.exercises.length} exercise${parsed.exercises.length === 1 ? '' : 's'} from JSON.`);
+    resetForm();
+    setCreating(false);
+    return true;
+  };
+
   const beginCreate = () => {
+    const seed = query.trim();
+    if (seed && importJsonExercises(seed)) return;
     resetForm();
     setCreating(true);
-    const seed = query.trim();
     if (seed.length > 1) {
       setName(seed);
       setImageSearch(seed);
@@ -351,7 +470,7 @@ export default function LibraryModal({
       <div className="bg-[#F6F1E7] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()} style={{ maxHeight: '92dvh' }}>
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0"><div className="min-w-0"><h2 className="font-serif text-lg font-semibold text-stone-800 truncate">{targetCat ? `Add to ${targetCat.name}` : 'Exercise library'}</h2><p className="text-[11px] text-stone-400">{targetCat ? 'Tap an exercise to add or remove it' : 'Your editable exercise library'}</p></div><button onClick={() => { resetForm(); onClose(); }} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl flex-shrink-0">×</button></div>
 
-        {!creating && !editing && <div className="px-3 pt-3 flex-shrink-0"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search exercises…" className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300" style={{ fontSize: 16, colorScheme: 'light' }} /></div>}
+        {!creating && !editing && <div className="px-3 pt-3 flex-shrink-0"><input value={query} onChange={e => { setQuery(e.target.value); setBulkMessage(''); }} onKeyDown={e => { if (e.key === 'Enter' && importJsonExercises(query)) e.preventDefault(); }} placeholder="Search exercises or paste JSON…" className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-stone-300" style={{ fontSize: 16, colorScheme: 'light' }} />{bulkMessage && <p className="text-[11px] mt-1.5 px-1" style={{ color: bulkMessageIsError ? '#ef4444' : '#7E9B86' }}>{bulkMessage}</p>}</div>}
 
         {!creating && !editing && (
           <div className="overflow-y-auto px-3 py-3 flex-1"><div className="space-y-1.5">
