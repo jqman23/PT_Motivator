@@ -163,3 +163,35 @@ export async function upsertNote(date: string, exerciseId: string, note: string)
     DO UPDATE SET note = ${note}, updated_at = NOW()
   `;
 }
+
+export async function renameExerciseId(oldId: string, newId: string) {
+  if (!oldId || !newId || oldId === newId) return;
+
+  await sql`
+    INSERT INTO workout_log (date, exercise_id, completed, updated_at)
+    SELECT date, ${newId}, completed, NOW()
+    FROM workout_log
+    WHERE exercise_id = ${oldId}
+    ON CONFLICT (date, exercise_id)
+    DO UPDATE SET completed = workout_log.completed OR EXCLUDED.completed, updated_at = NOW()
+  `;
+
+  await sql`
+    INSERT INTO exercise_notes (date, exercise_id, note, updated_at)
+    SELECT date, ${newId}, note, NOW()
+    FROM exercise_notes
+    WHERE exercise_id = ${oldId}
+    ON CONFLICT (date, exercise_id)
+    DO UPDATE SET
+      note = CASE
+        WHEN exercise_notes.note = '' THEN EXCLUDED.note
+        WHEN EXCLUDED.note = '' THEN exercise_notes.note
+        WHEN POSITION(EXCLUDED.note IN exercise_notes.note) > 0 THEN exercise_notes.note
+        ELSE exercise_notes.note || E'\n' || EXCLUDED.note
+      END,
+      updated_at = NOW()
+  `;
+
+  await sql`DELETE FROM workout_log WHERE exercise_id = ${oldId}`;
+  await sql`DELETE FROM exercise_notes WHERE exercise_id = ${oldId}`;
+}
