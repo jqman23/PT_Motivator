@@ -130,7 +130,7 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > inpu
 
 @media (max-width: 639px) {
   main {
-    padding-top: 5.05rem !important;
+    padding-top: 4.05rem !important;
     padding-bottom: calc(env(safe-area-inset-bottom) + 5.25rem) !important;
   }
 
