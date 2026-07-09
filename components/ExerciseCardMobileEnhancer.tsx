@@ -27,16 +27,9 @@ function setPreview(actionBox: HTMLElement, expanded: boolean) {
   preview.style.display = expanded ? '' : 'none';
 }
 
-function setTypeBadge(card: HTMLElement, actionBox: HTMLElement, expanded: boolean, isMobile: boolean) {
+function setTypeBadge(card: HTMLElement, expanded: boolean, isMobile: boolean) {
   const primaryType = card.querySelector<HTMLElement>('[data-mobile-primary-type="true"]');
-  const expandedType = actionBox.querySelector<HTMLElement>('[data-mobile-expanded-type="true"]');
   if (primaryType) primaryType.style.display = isMobile && expanded ? 'none' : '';
-  if (expandedType) {
-    expandedType.style.display = isMobile && expanded ? 'inline-flex' : 'none';
-    expandedType.style.flexBasis = '100%';
-    expandedType.style.justifyContent = 'flex-end';
-    expandedType.style.order = '99';
-  }
 }
 
 function enhanceCard(card: HTMLElement) {
@@ -58,11 +51,10 @@ function enhanceCard(card: HTMLElement) {
 
   const isMobile = window.matchMedia('(max-width: 639px)').matches;
   if (!isMobile) {
-    actionBox.style.flexWrap = 'nowrap';
     menu.style.display = 'none';
     setButtons(actionButtons, true);
     setPreview(actionBox, false);
-    setTypeBadge(card, actionBox, false, false);
+    setTypeBadge(card, false, false);
     actionBox.dataset.actionsExpanded = 'false';
     return;
   }
@@ -71,10 +63,9 @@ function enhanceCard(card: HTMLElement) {
   actionBox.style.justifyContent = 'flex-end';
   menu.style.display = '';
   const expanded = actionBox.dataset.actionsExpanded === 'true';
-  actionBox.style.flexWrap = expanded ? 'wrap' : 'nowrap';
   setButtons(actionButtons, expanded);
   setPreview(actionBox, expanded);
-  setTypeBadge(card, actionBox, expanded, true);
+  setTypeBadge(card, expanded, true);
   menu.style.background = expanded ? '#E4ECE6' : '';
   menu.style.color = expanded ? '#7E9B86' : '';
 
@@ -85,10 +76,9 @@ function enhanceCard(card: HTMLElement) {
     event.stopPropagation();
     const nextExpanded = actionBox.dataset.actionsExpanded !== 'true';
     actionBox.dataset.actionsExpanded = String(nextExpanded);
-    actionBox.style.flexWrap = nextExpanded ? 'wrap' : 'nowrap';
     setButtons(actionButtons, nextExpanded);
     setPreview(actionBox, nextExpanded);
-    setTypeBadge(card, actionBox, nextExpanded, true);
+    setTypeBadge(card, nextExpanded, true);
     menu!.style.background = nextExpanded ? '#E4ECE6' : '';
     menu!.style.color = nextExpanded ? '#7E9B86' : '';
   });
