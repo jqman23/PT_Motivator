@@ -615,7 +615,17 @@ export default function Home() {
   const DayControls = ({ bottom = false }: { bottom?: boolean }) => (
     <div className={`flex items-center gap-3 ${bottom ? 'mt-2' : 'mt-3'}`}>
       <button onClick={() => handleDateChange(-1)} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 text-lg" style={{ touchAction: 'manipulation' }}>‹</button>
-      <div className="flex-1 text-center"><span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>{!isToday && <span className="text-xs text-stone-400 ml-2">{selectedDate}</span>}</div>
+      <div className="flex-1 text-center">
+        <span className="inline-flex min-w-0 items-baseline justify-center gap-2">
+          <span className="text-sm font-semibold text-stone-700">{displayForDate(selectedDate)}</span>
+          {!isToday && <span className="text-xs text-stone-400">{selectedDate}</span>}
+          {!bottom && (
+            <span className={`min-w-[3.5rem] text-left text-xs transition-opacity ${saving ? 'animate-pulse opacity-100' : 'opacity-0'}`} style={{ color: '#7E9B86' }}>
+              Saving...
+            </span>
+          )}
+        </span>
+      </div>
       <button onClick={() => handleDateChange(1)} disabled={isToday} className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-stone-500 hover:bg-stone-50 disabled:opacity-30 text-lg" style={{ touchAction: 'manipulation' }}>›</button>
     </div>
   );
@@ -653,7 +663,6 @@ export default function Home() {
             </div>
           )}
           <DayControls />
-          {saving && <p className="text-xs mt-1 text-center animate-pulse" style={{ color: '#7E9B86' }}>Saving…</p>}
           <div className="mt-2 flex items-center justify-center gap-2">
             {!isToday && <button onClick={() => changeDate(today)} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>↩ Today</button>}
             <button onClick={handleSaveAll} disabled={savingAll} className="text-xs font-semibold px-3 py-1 rounded-full transition-colors" style={{ color: saveAllDone ? '#fff' : '#5B9BD5', background: saveAllDone ? '#5B9BD5' : '#dbeafe', touchAction: 'manipulation' }}>{savingAll ? 'Saving…' : saveAllDone ? '✓ Saved' : '↑ Save day'}</button>
