@@ -30,11 +30,14 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { date, exerciseId, note } = await req.json();
+    const payload = await req.json();
+    const { date, exerciseId, note } = payload;
     if (!date || !exerciseId || note === undefined) {
       return NextResponse.json({ error: 'date, exerciseId, note required' }, { status: 400 });
     }
-    await upsertNote(date, exerciseId, note);
+
+    const hasPhotoAttachments = Object.prototype.hasOwnProperty.call(payload, 'photoAttachments');
+    await upsertNote(date, exerciseId, note, hasPhotoAttachments ? payload.photoAttachments : undefined);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);
