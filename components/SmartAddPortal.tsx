@@ -167,6 +167,8 @@ export default function SmartAddPortal() {
           origin: item.origin ?? 'patient_added',
           sourceId: item.sourceId ?? (item.origin === 'patient_added' ? undefined : 'ai-added'),
           gifUrl: item.gifUrl,
+          mainImageUrl: item.mainImageUrl,
+          mainVideoUrl: item.mainVideoUrl,
         };
       });
       const nextLibrary = [...library, ...additions];

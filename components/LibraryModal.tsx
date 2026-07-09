@@ -159,6 +159,8 @@ function parseExerciseJsonInput(input: string, layout: CategoryConfig[]): { item
         origin,
         sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
         gifUrl: asString(item.gifUrl) || undefined,
+        mainImageUrl: asString(item.mainImageUrl ?? item.imageUrl ?? item.photoUrl) || undefined,
+        mainVideoUrl: asString(item.mainVideoUrl ?? item.videoUrl ?? item.youtubeUrl) || undefined,
       }),
       categoryName,
     });
@@ -193,6 +195,8 @@ export default function LibraryModal({
   const [imageSearch, setImageSearch] = useState('');
   const [sourceId, setSourceId] = useState<string | undefined>();
   const [gifUrl, setGifUrl] = useState<string | undefined>();
+  const [mainImageUrl, setMainImageUrl] = useState('');
+  const [mainVideoUrl, setMainVideoUrl] = useState('');
 
   const [sourceQuery, setSourceQuery] = useState('');
   const [sourceResults, setSourceResults] = useState<ExternalExerciseResult[]>([]);
@@ -250,6 +254,8 @@ export default function LibraryModal({
     setImageSearch('');
     setSourceId(undefined);
     setGifUrl(undefined);
+    setMainImageUrl('');
+    setMainVideoUrl('');
     setSourceQuery('');
     setSourceResults([]);
     setSourceMessage('');
@@ -314,6 +320,8 @@ export default function LibraryModal({
     setImageSearch(ex.imageSearch ?? ex.name);
     setSourceId(ex.sourceId);
     setGifUrl(ex.gifUrl);
+    setMainImageUrl(ex.mainImageUrl ?? '');
+    setMainVideoUrl(ex.mainVideoUrl ?? '');
     clearSourceResults();
   };
 
@@ -437,6 +445,8 @@ export default function LibraryModal({
         origin: importedMeta?.source ?? origin,
         sourceId: importedMeta?.sourceId ?? sourceId,
         gifUrl: importedMeta?.gifUrl ?? gifUrl,
+        mainImageUrl: mainImageUrl.trim() || undefined,
+        mainVideoUrl: mainVideoUrl.trim() || undefined,
       }),
     };
     onCreateCustom(ex);
@@ -447,7 +457,7 @@ export default function LibraryModal({
 
   const submitEdit = () => {
     if (!editing || !name.trim()) return;
-    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, gifUrl });
+    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, gifUrl, mainImageUrl: mainImageUrl.trim() || undefined, mainVideoUrl: mainVideoUrl.trim() || undefined });
     resetForm();
   };
 
@@ -463,6 +473,8 @@ export default function LibraryModal({
       <input value={cue} onChange={e => setCue(e.target.value)} placeholder="Short cue" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input value={sets} onChange={e => setSets(e.target.value)} placeholder="Sets / reps (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input value={imageSearch} onChange={e => setImageSearch(e.target.value)} placeholder="Media search terms" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      <input value={mainImageUrl} onChange={e => setMainImageUrl(e.target.value)} placeholder="Main image URL (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      <input value={mainVideoUrl} onChange={e => setMainVideoUrl(e.target.value)} placeholder="Main video URL (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       {sourceSelect}
       <textarea value={tipsText} onChange={e => setTipsText(e.target.value)} placeholder="Instructions / tips — one per line" rows={4} className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none resize-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input

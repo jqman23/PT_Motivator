@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
 
 export default function MasterDatabaseModal({ exercises, layout, onLibraryChange, onLayoutChange, onClose }: {
   exercises: Exercise[];
@@ -23,6 +23,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const [saved, setSaved] = useState(false);
   const [gifLoading, setGifLoading] = useState(false);
   const [gifStatus, setGifStatus] = useState('');
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const filtered = useMemo(
     () => draft.filter(e => !q || JSON.stringify(e).toLowerCase().includes(q.toLowerCase())),
@@ -74,6 +75,48 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     setDraft(prev => prev.filter(e => !target.includes(e.id)));
     onLayoutChange(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => !target.includes(id)) })));
     setSelected({});
+  };
+
+  const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read image'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not load image'));
+      img.onload = () => {
+        const maxSide = 1400;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Could not prepare image'));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = String(reader.result ?? '');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const uploadImage = async (id: string, file?: File | null) => {
+    if (!file) return;
+    setUploadingId(id);
+    try {
+      const dataUrl = await fileToImageDataUrl(file);
+      const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl, name: file.name }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
+      patch(id, { mainImageUrl: data.url });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploadingId(null);
+    }
   };
 
   const save = () => {
@@ -190,7 +233,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
-                {['name','cue','sets','imageSearch','gifUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
+                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainVideoUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className="w-full rounded-xl py-2 text-sm font-semibold text-white bg-[#7E9B86]">Apply bulk value</button>
@@ -220,7 +263,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             <table className="w-full min-w-[1050px] border-separate border-spacing-y-2 text-xs">
               <thead>
                 <tr className="text-left text-stone-400 uppercase tracking-widest">
-                  <th>✓</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Image</th><th>GIF</th><th>Videos</th><th>Tips</th>
+                  <th>✓</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Main media</th><th>Search/GIF</th><th>Videos</th><th>Tips</th>
                 </tr>
               </thead>
               <tbody>{filtered.map(e => (
@@ -239,8 +282,21 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   </td>
                   <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
-                  <td className="p-2"><textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
-                  <td className="p-2"><textarea value={e.gifUrl ?? ''} onChange={x=>patch(e.id,{gifUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="gifUrl" /></td>
+                  <td className="p-2">
+                    <div className="space-y-1">
+                      {e.mainImageUrl && <img src={e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
+                      <textarea value={e.mainImageUrl ?? ''} onChange={x=>patch(e.id,{mainImageUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="main image URL" />
+                      <label className="block w-52 rounded-lg bg-stone-100 py-1.5 text-center text-[11px] font-semibold text-stone-600 cursor-pointer">
+                        {uploadingId === e.id ? 'Uploading...' : 'Upload image'}
+                        <input type="file" accept="image/*" className="hidden" disabled={uploadingId === e.id} onChange={x => { void uploadImage(e.id, x.target.files?.[0]); x.currentTarget.value = ''; }} />
+                      </label>
+                      <textarea value={e.mainVideoUrl ?? ''} onChange={x=>patch(e.id,{mainVideoUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="main YouTube/video URL" />
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="imageSearch" />
+                    <textarea value={e.gifUrl ?? ''} onChange={x=>patch(e.id,{gifUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none mt-1" placeholder="gifUrl" />
+                  </td>
                   <td className="p-2"><textarea value={list(e.videoIds)} onChange={x=>patch(e.id,{videoIds:split(x.target.value)})} rows={3} className="w-32 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2 rounded-r-xl"><textarea value={list(e.tips)} onChange={x=>patch(e.id,{tips:x.target.value.split('\n').filter(Boolean)})} rows={3} className="w-60 border rounded-lg p-1 resize-none" /></td>
                 </tr>

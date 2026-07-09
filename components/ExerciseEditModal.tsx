@@ -36,6 +36,8 @@ function fieldLabel(key: string) {
     origin: 'Origin',
     sourceId: 'Source ID',
     gifUrl: 'GIF URL',
+    mainImageUrl: 'Main image',
+    mainVideoUrl: 'Main video',
     imageSearch: 'Media search terms',
     videoIds: 'Video IDs',
     videoTitles: 'Video titles',
@@ -63,6 +65,8 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
   const [sourceId, setSourceId] = useState(exercise.sourceId ?? '');
   const [gifUrl, setGifUrl] = useState(exercise.gifUrl ?? '');
+  const [mainImageUrl, setMainImageUrl] = useState(exercise.mainImageUrl ?? '');
+  const [mainVideoUrl, setMainVideoUrl] = useState(exercise.mainVideoUrl ?? '');
   const [imageSearch, setImageSearch] = useState(exercise.imageSearch ?? '');
   const [videoIds, setVideoIds] = useState((exercise.videoIds ?? []).join('\n'));
   const [videoTitles, setVideoTitles] = useState((exercise.videoTitles ?? []).join('\n'));
@@ -93,11 +97,13 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     origin,
     sourceId: sourceId.trim() || undefined,
     gifUrl: gifUrl.trim() || undefined,
+    mainImageUrl: mainImageUrl.trim() || undefined,
+    mainVideoUrl: mainVideoUrl.trim() || undefined,
     imageSearch: imageSearch.trim() || name.trim(),
     videoIds: linesToList(videoIds),
     videoTitles: linesToList(videoTitles),
     tips: linesToList(tipsText),
-  }), [exercise, name, cue, sets, cat, optional, origin, sourceId, gifUrl, imageSearch, videoIds, videoTitles, tipsText]);
+  }), [exercise, name, cue, sets, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
 
   const proposalRows = useMemo(() => {
     if (!proposal) return [];
@@ -144,6 +150,8 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     if (proposal.origin !== undefined) setOrigin(proposal.origin);
     if (proposal.sourceId !== undefined) setSourceId(proposal.sourceId ?? '');
     if (proposal.gifUrl !== undefined) setGifUrl(proposal.gifUrl ?? '');
+    if (proposal.mainImageUrl !== undefined) setMainImageUrl(proposal.mainImageUrl ?? '');
+    if (proposal.mainVideoUrl !== undefined) setMainVideoUrl(proposal.mainVideoUrl ?? '');
     if (proposal.imageSearch !== undefined) setImageSearch(proposal.imageSearch ?? '');
     if (proposal.videoIds !== undefined) setVideoIds(listToLines(proposal.videoIds));
     if (proposal.videoTitles !== undefined) setVideoTitles(listToLines(proposal.videoTitles));
@@ -183,6 +191,8 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
         origin,
         sourceId: sourceId.trim() || undefined,
         gifUrl: gifUrl.trim() || undefined,
+        mainImageUrl: mainImageUrl.trim() || undefined,
+        mainVideoUrl: mainVideoUrl.trim() || undefined,
         imageSearch: imageSearch.trim() || cleanName,
         videoIds: linesToList(videoIds),
         videoTitles: linesToList(videoTitles),
@@ -340,6 +350,13 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">GIF URL</label>
             <input value={gifUrl} onChange={e => setGifUrl(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+
+            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Main image URL</label>
+            {mainImageUrl && <img src={mainImageUrl} alt="" className="w-full aspect-video rounded-xl object-cover bg-stone-100 border border-stone-100" />}
+            <input value={mainImageUrl} onChange={e => setMainImageUrl(e.target.value)} placeholder="https://... or uploaded /api/media?id=..." className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+
+            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Main video URL</label>
+            <input value={mainVideoUrl} onChange={e => setMainVideoUrl(e.target.value)} placeholder="YouTube URL or video URL" className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Media search terms</label>
             <input value={imageSearch} onChange={e => setImageSearch(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />

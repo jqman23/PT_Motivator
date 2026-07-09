@@ -27,6 +27,8 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
   const gifUrl = cleanText(raw.gifUrl, 400);
+  const mainImageUrl = cleanText(raw.mainImageUrl, 600);
+  const mainVideoUrl = cleanText(raw.mainVideoUrl, 600);
   const cat = cleanText(raw.type ?? raw.cat, 40).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
   const origin = cleanText(raw.origin, 40);
 
@@ -38,6 +40,8 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   if (imageSearch) patch.imageSearch = imageSearch;
   if (sourceId) patch.sourceId = sourceId;
   if (gifUrl) patch.gifUrl = gifUrl;
+  if (mainImageUrl) patch.mainImageUrl = mainImageUrl;
+  if (mainVideoUrl) patch.mainVideoUrl = mainVideoUrl;
   if (['hep', 'patient_added', 'exercisedb', 'api_ninjas'].includes(origin)) patch.origin = origin as NonNullable<Exercise['origin']>;
 
   const videoIds = cleanList(raw.videoIds, 8, 80);
@@ -76,6 +80,8 @@ export async function POST(req: NextRequest) {
       origin: cleanText(exercise?.origin, 40),
       sourceId: cleanText(exercise?.sourceId, 90),
       gifUrl: cleanText(exercise?.gifUrl, 300),
+      mainImageUrl: cleanText(exercise?.mainImageUrl, 500),
+      mainVideoUrl: cleanText(exercise?.mainVideoUrl, 500),
       imageSearch: cleanText(exercise?.imageSearch, 220),
       videoIds: cleanList(exercise?.videoIds, 8, 80),
       videoTitles: cleanList(exercise?.videoTitles, 8, 160),
@@ -95,7 +101,7 @@ export async function POST(req: NextRequest) {
       'Tips should be short, useful bullets with one idea per item.',
       'Do not add unsupported benefits, claims, mechanics, or random tips.',
       'If confidence is low for a field, leave that field blank.',
-      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
+      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","mainImageUrl":"","mainVideoUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance

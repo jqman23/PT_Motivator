@@ -34,6 +34,8 @@ export function makeCustomExercise(opts: {
   imageSearch?: string;
   tips?: string[];
   gifUrl?: string;
+  mainImageUrl?: string;
+  mainVideoUrl?: string;
 }): Exercise {
   const name = opts.name.trim();
   return {
@@ -49,5 +51,7 @@ export function makeCustomExercise(opts: {
     origin: opts.origin ?? 'patient_added',
     sourceId: opts.sourceId,
     gifUrl: opts.gifUrl,
+    mainImageUrl: opts.mainImageUrl,
+    mainVideoUrl: opts.mainVideoUrl,
   };
 }

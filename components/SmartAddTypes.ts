@@ -31,6 +31,8 @@ export type SmartNewExercise = {
   origin?: 'patient_added' | 'exercisedb' | 'api_ninjas';
   sourceId?: string;
   gifUrl?: string;
+  mainImageUrl?: string;
+  mainVideoUrl?: string;
   tips?: string[];
   dbMatches?: SmartDbMatch[];
 };

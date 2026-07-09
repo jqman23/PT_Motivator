@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { VideoResult } from '@/app/api/yt-search/route';
+import { youtubeIdFromUrl, youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
   exercise: Exercise;
@@ -14,6 +15,14 @@ export default function VideoModal({ exercise, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const mainVideoId = youtubeIdFromUrl(exercise.mainVideoUrl);
+  const mainVideo: VideoResult | null = mainVideoId ? {
+    id: mainVideoId,
+    title: `${exercise.name} main video`,
+    channel: 'Selected in Master Database',
+    thumbnail: youtubeThumbnailUrl(exercise.mainVideoUrl),
+  } : null;
+  const allVideos = mainVideo ? [mainVideo, ...videos.filter(video => video.id !== mainVideo.id)] : videos;
 
   const query = `${exercise.imageSearch} how to exercise physical therapy`;
 
@@ -71,12 +80,12 @@ export default function VideoModal({ exercise, onClose }: Props) {
             </p>
             <p className="text-sm font-semibold text-stone-800 leading-tight truncate">
               {playingId
-                ? (videos.find(v => v.id === playingId)?.title ?? exercise.name)
+                ? (allVideos.find(v => v.id === playingId)?.title ?? exercise.name)
                 : exercise.name}
             </p>
             {playingId && (
               <p className="text-[11px] text-stone-400 truncate">
-                {videos.find(v => v.id === playingId)?.channel}
+                {allVideos.find(v => v.id === playingId)?.channel}
               </p>
             )}
           </div>
@@ -100,7 +109,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
             <div className="relative" style={{ paddingBottom: '56.25%' }}>
               <iframe
                 src={`https://www.youtube.com/embed/${playingId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
-                title={videos.find(v => v.id === playingId)?.title ?? exercise.name}
+                title={allVideos.find(v => v.id === playingId)?.title ?? exercise.name}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
                 style={{
@@ -124,7 +133,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
           )}
 
           {/* No API key */}
-          {!loading && error === 'noKey' && (
+          {!loading && error === 'noKey' && allVideos.length === 0 && (
             <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
               <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" className="w-6 h-6">
@@ -139,24 +148,24 @@ export default function VideoModal({ exercise, onClose }: Props) {
           )}
 
           {/* Other error */}
-          {!loading && error && error !== 'noKey' && (
+          {!loading && error && error !== 'noKey' && allVideos.length === 0 && (
             <div className="px-6 py-10 text-center">
               <p className="text-sm text-stone-400">Couldn't load videos. Try again later.</p>
             </div>
           )}
 
           {/* Empty results */}
-          {!loading && !error && videos.length === 0 && (
+          {!loading && !error && allVideos.length === 0 && (
             <div className="px-6 py-10 text-center">
               <p className="text-sm text-stone-400">No videos found for this exercise.</p>
             </div>
           )}
 
           {/* Video list */}
-          {!loading && !error && videos.length > 0 && (
+          {!loading && allVideos.length > 0 && (
             <div className="divide-y divide-stone-50">
               {/* If playing, show remaining videos below the player */}
-              {(playingId ? videos.filter(v => v.id !== playingId) : videos).map(video => (
+              {(playingId ? allVideos.filter(v => v.id !== playingId) : allVideos).map(video => (
                 <button
                   key={video.id}
                   onPointerDown={() => setPlayingId(video.id)}
@@ -190,7 +199,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-stone-700 leading-snug line-clamp-2">{video.title}</p>
-                    <p className="text-[11px] text-stone-400 mt-0.5 truncate">{video.channel}</p>
+                    <p className="text-[11px] text-stone-400 mt-0.5 truncate">{video.channel}{mainVideo?.id === video.id ? ' · Featured' : ''}</p>
                   </div>
                 </button>
               ))}

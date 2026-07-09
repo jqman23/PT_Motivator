@@ -294,6 +294,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         origin: item.origin,
         sourceId: item.sourceId,
         gifUrl: item.gifUrl,
+        mainImageUrl: item.mainImageUrl,
+        mainVideoUrl: item.mainVideoUrl,
         dbMatches: Array.isArray(item.dbMatches) ? item.dbMatches.slice(0, 3) : [],
       }))
       .filter((item: SmartNewExercise) => item.name);
@@ -346,6 +348,8 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
           completed: typeof ex.completed === 'boolean' ? ex.completed : null,
           reason: String(ex.reason ?? 'Imported from JSON').trim(),
           origin: 'patient_added' as const,
+          mainImageUrl: String(ex.mainImageUrl ?? ex.imageUrl ?? ex.photoUrl ?? '').trim() || undefined,
+          mainVideoUrl: String(ex.mainVideoUrl ?? ex.videoUrl ?? ex.youtubeUrl ?? '').trim() || undefined,
         };
       }).filter(item => item.name),
       healthChanges: parsed.healthChanges && typeof parsed.healthChanges === 'object' ? parsed.healthChanges as SmartHealthChanges : {},

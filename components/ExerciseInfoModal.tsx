@@ -2,6 +2,7 @@
 
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
+import { youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
   layout: CategoryConfig[];
@@ -60,9 +61,9 @@ export default function ExerciseInfoModal({ layout, exerciseMap, onClose }: Prop
                   {exercises.map(ex => (
                     <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
                       <div className="flex items-start gap-3">
-                        {ex.gifUrl ? (
+                        {(ex.mainImageUrl || ex.gifUrl || ex.mainVideoUrl) ? (
                           <img
-                            src={ex.gifUrl}
+                            src={ex.mainImageUrl || ex.gifUrl || youtubeThumbnailUrl(ex.mainVideoUrl)}
                             alt={`${ex.name} demo`}
                             className="w-16 h-16 rounded-xl object-cover bg-stone-50 flex-shrink-0"
                             loading="lazy"
