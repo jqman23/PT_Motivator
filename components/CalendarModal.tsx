@@ -27,8 +27,26 @@ function pad(n: number) { return String(n).padStart(2, '0'); }
 function ymd(y: number, m: number, d: number) { return `${y}-${pad(m)}-${pad(d)}`; }
 const TYPE_COLORS = ['#7E9B86', '#C17B4F', '#5B9BD5', '#7C3AED', '#0D9488', '#E11D48', '#D97706', '#475569'];
 
+function normalizeKind(kind?: PTSession['kind']) {
+  return kind === 'training' ? 'training' : 'pt';
+}
+
 function sessionLabel(kind?: PTSession['kind']) {
-  return kind === 'training' ? 'Training session' : 'PT session';
+  return normalizeKind(kind) === 'training' ? 'Training session' : 'PT session';
+}
+
+function sessionSummaryLabel(sessions: PTSession[]) {
+  const kinds = new Set(sessions.map(s => normalizeKind(s.kind)));
+  if (kinds.has('pt') && kinds.has('training')) return 'PT + Training sessions';
+  if (kinds.has('training')) return 'Training session';
+  return 'PT session';
+}
+
+function sessionSummaryNote(sessions: PTSession[]) {
+  return sessions
+    .map(session => session.note?.trim() ? `${sessionLabel(session.kind)}: ${session.note.trim()}` : '')
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export default function CalendarModal({ onSelectDate, onClose, today, selectedDate, ptSessions, exercises }: Props) {
@@ -111,7 +129,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
   while (cells.length % 7 !== 0) cells.push(null);
 
   const hovered = hoveredDay ? getDaySummary(hoveredDay) : null;
-  const hoveredPTSession = hoveredDay ? ptSessions?.find(s => s.date === hoveredDay) : undefined;
+  const hoveredPTSessions = hoveredDay ? ptSessions?.filter(s => s.date === hoveredDay) ?? [] : [];
 
   return (
     <div
@@ -161,8 +179,8 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
             const summary = getDaySummary(ds);
             const activeGroups = summary.groups.filter(group => group.frac > 0);
             const hasAnyData = activeGroups.length > 0 || summary.hasHealth;
-            const ptSession = ptSessions?.find(s => s.date === ds);
-            const isPTSession = !!ptSession;
+            const daySessions = ptSessions?.filter(s => s.date === ds) ?? [];
+            const isPTSession = daySessions.length > 0;
             const showPTDot = isPTSession && !hasAnyData;
 
             return (
@@ -210,13 +228,13 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                 <p className="text-xs font-bold text-stone-700 flex-shrink-0">
                   {new Date(hoveredDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
                 </p>
-                {hoveredPTSession && (
+                {hoveredPTSessions.length > 0 && (
                   <>
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: hoveredPTSession.kind === 'training' ? '#eef2ff' : '#FBF5E8', color: hoveredPTSession.kind === 'training' ? '#4f46e5' : '#D9A94B' }}>
-                      {sessionLabel(hoveredPTSession.kind)}
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>
+                      {sessionSummaryLabel(hoveredPTSessions)}
                     </span>
-                    {hoveredPTSession.note?.trim() && (
-                      <span className="text-[10px] text-stone-400 truncate">{hoveredPTSession.note}</span>
+                    {sessionSummaryNote(hoveredPTSessions) && (
+                      <span className="text-[10px] text-stone-400 truncate">{sessionSummaryNote(hoveredPTSessions)}</span>
                     )}
                   </>
                 )}
@@ -233,7 +251,7 @@ export default function CalendarModal({ onSelectDate, onClose, today, selectedDa
                   {hovered.health.mood != null && <span className="text-xs text-stone-500">Mood: <span className="font-semibold">{hovered.health.mood}/10</span></span>}
                   {hovered.health.sleep_hours != null && <span className="text-xs text-stone-500">Sleep: <span className="font-semibold">{hovered.health.sleep_hours}h</span></span>}
                 </>}
-                {!hoveredPTSession && !hovered.hasHealth && hovered.groups.every(group => group.done === 0) && (
+                {hoveredPTSessions.length === 0 && !hovered.hasHealth && hovered.groups.every(group => group.done === 0) && (
                   <span className="text-xs text-stone-400 italic">No activity logged</span>
                 )}
               </div>
