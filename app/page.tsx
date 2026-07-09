@@ -193,6 +193,7 @@ export default function Home() {
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
   const [typeMeta, setTypeMeta] = useState<ExerciseTypeMeta>({});
   const [undoMessage, setUndoMessage] = useState('');
+  const [canUndo, setCanUndo] = useState(false);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -360,17 +361,14 @@ export default function Home() {
       widgetPrefs,
       typeMeta,
     };
-    setUndoMessage(`Undo: ${label}`);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    undoTimerRef.current = setTimeout(() => {
-      setUndoMessage('');
-    }, 2000);
+    setCanUndo(true);
   }, [appTitle, exerciseLibrary, hiddenDoneByDate, layout, log, notes, ptSessions, selectedDate, typeMeta, widgetPrefs]);
 
   const undoLastAction = useCallback(async () => {
     const snapshot = undoSnapshotRef.current;
     if (!snapshot) return;
     undoSnapshotRef.current = null;
+    setCanUndo(false);
     suppressUndoRef.current = true;
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
@@ -639,7 +637,7 @@ export default function Home() {
               {widgetPrefs.ptSessions && <IconButton title="PT sessions" label="PT" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="3.5" r="2"/><path d="M10 5.5v5"/><path d="M10 8L6.5 5.5"/><path d="M10 8L13.5 5.5"/><path d="M10 10.5L7.5 15"/><path d="M10 10.5L12.5 15"/></svg></IconButton>}
               {widgetPrefs.reporting && <IconButton title="Progress report" label="stats" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
               {widgetPrefs.ptReport && <IconButton title="PT PDF report" label="PDF" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
-              <IconButton title="Undo last change" label="undo" onClick={() => { void undoLastAction(); }} disabled={!undoSnapshotRef.current}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 7H3v4"/><path d="M3 11c1.5-3.5 4.2-5.5 8-5.5 3.9 0 6.8 2.6 6.8 6.1S14.8 18 11 18c-2.3 0-4.4-.8-5.7-2.2"/></svg></IconButton>
+              <IconButton title="Undo last change" label="undo" onClick={() => { void undoLastAction(); }} disabled={!canUndo}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 7H3v4"/><path d="M3 11c1.5-3.5 4.2-5.5 8-5.5 3.9 0 6.8 2.6 6.8 6.1S14.8 18 11 18c-2.3 0-4.4-.8-5.7-2.2"/></svg></IconButton>
               {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" label="DB" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
               <IconButton title="Widget settings" label="settings" accent onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
             </div>
