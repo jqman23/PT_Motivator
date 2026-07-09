@@ -87,7 +87,7 @@ export default function ExerciseInfoModal({ layout, exerciseMap, typeMeta, onClo
                             <div className="min-w-0 flex-1">
                               <div className="flex items-baseline gap-2 min-w-0">
                                 <h4 className="min-w-0 truncate text-sm font-bold text-stone-800 leading-snug">{ex.name}</h4>
-                                <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent }}>
+                                <span className="flex-shrink-0 text-[10px] font-black uppercase tracking-[0.12em] leading-none" style={{ color: typeTheme.accent, transform: 'translateY(-1px)' }}>
                                   <span className="inline-flex items-center gap-0.5">
                                     {typeDisplay.emoji && <span className="text-[10px] leading-none">{typeDisplay.emoji}</span>}
                                     <span>{typeDisplay.letters}</span>
