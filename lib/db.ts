@@ -94,6 +94,7 @@ export async function initDb() {
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS pain_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS treatment_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_note_photos JSONB NOT NULL DEFAULT '[]'::jsonb`;
   await sql`ALTER TABLE health_log ALTER COLUMN sleep_quality TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN energy TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN mood TYPE NUMERIC(4,1)`;
