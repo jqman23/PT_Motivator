@@ -1,24 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
-import { getConfig, getHealthForDate, getLogForDate, getNotesForDate } from '@/lib/db';
+import { neon } from '@neondatabase/serverless';
+import { callGroqChat, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqTask } from '@/lib/groq';
+import { getConfig } from '@/lib/db';
 
+const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
+const MAX_HISTORY_DAYS = Math.max(90, Math.min(730, Number(process.env.AI_HISTORY_DAYS_PTMOTIVATOR || 365)));
+
+const STOP_WORDS = new Set([
+  'a', 'about', 'after', 'again', 'all', 'also', 'am', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'before',
+  'but', 'by', 'can', 'could', 'day', 'did', 'do', 'does', 'for', 'from', 'get', 'had', 'has', 'have', 'help',
+  'how', 'i', 'if', 'in', 'is', 'it', 'just', 'me', 'my', 'of', 'on', 'or', 'remember', 'some', 'that', 'the',
+  'then', 'there', 'this', 'to', 'trying', 'was', 'what', 'when', 'where', 'which', 'with', 'would', 'you',
+]);
+
+type ExerciseContext = {
+  id: string;
+  name: string;
+  cat?: string;
+  cue?: string;
+  sets?: string;
+  tips?: string[];
+};
+
+type HistoryMessage = { role: 'user' | 'assistant'; content: string };
+type DayRecord = {
+  date: string;
+  completed: string[];
+  exerciseNotes: Array<{ exerciseId: string; exercise: string; note: string }>;
+  health: Record<string, unknown> | null;
+  session: { kind: string; note: string } | null;
+  searchText: string;
+  score?: number;
+};
+
+type DateLink = { date: string; label: string; reason: string };
 
 function cleanText(value: unknown, limit = 1200) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
+function cleanMultiline(value: unknown, limit = 1600) {
+  return String(value ?? '').replace(/\r\n/g, '\n').trim().slice(0, limit);
+}
+
 function jsonFromText(text: string) {
-  try { return JSON.parse(text); } catch {}
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON object returned');
-  return JSON.parse(match[0]);
+  const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  try { return JSON.parse(clean); } catch {}
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+  }
+  return { answer: clean };
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function toDateStr(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function validDate(value?: string) {
-  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+
+function validDate(value?: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? value : null;
 }
 
 function shiftDate(base: string, days: number) {
@@ -35,65 +78,329 @@ function resolveWeekday(name: string, anchor: string, preferPast = true) {
   const target = weekdayIndex(name);
   if (target < 0) return null;
   const anchorDate = new Date(anchor + 'T12:00:00');
-  const current = anchorDate.getDay();
-  let diff = target - current;
+  let diff = target - anchorDate.getDay();
   if (preferPast && diff > 0) diff -= 7;
   if (!preferPast && diff < 0) diff += 7;
   anchorDate.setDate(anchorDate.getDate() + diff);
   return toDateStr(anchorDate);
 }
 
+function monthIndex(name: string) {
+  return ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(name.slice(0, 3).toLowerCase());
+}
+
 function extractDates(text: string, today: string, selectedDate?: string | null) {
-  const out = new Set<string>();
-  const add = (value?: string | null) => { const d = validDate(value ?? undefined); if (d) out.add(d); };
+  const out: string[] = [];
+  const add = (value?: string | null) => {
+    const date = validDate(value);
+    if (date && !out.includes(date)) out.push(date);
+  };
+
   for (const match of text.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)) add(match[1]);
   for (const match of text.matchAll(/\b(0?\d{1,2})[/-](0?\d{1,2})(?:[/-](\d{2,4}))?\b/g)) {
-    const m = Number(match[1]);
-    const d = Number(match[2]);
-    const yRaw = match[3];
-    const y = yRaw ? Number(yRaw.length === 2 ? `20${yRaw}` : yRaw) : Number(today.slice(0, 4));
-    const parsed = `${y}-${pad(m)}-${pad(d)}`;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(parsed)) out.add(parsed);
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const rawYear = match[3];
+    const year = rawYear ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear) : Number(today.slice(0, 4));
+    add(`${year}-${pad(month)}-${pad(day)}`);
+  }
+  for (const match of text.matchAll(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s+(\d{4}))?\b/gi)) {
+    const month = monthIndex(match[1]) + 1;
+    const day = Number(match[2]);
+    const year = Number(match[3] || today.slice(0, 4));
+    add(`${year}-${pad(month)}-${pad(day)}`);
   }
 
   const lower = text.toLowerCase();
-  if (/\btoday\b/.test(lower)) out.add(today);
-  if (/\bday before yesterday\b/.test(lower)) out.add(shiftDate(today, -2));
-  if (!/\bday before yesterday\b/.test(lower) && /\byesterday\b/.test(lower)) out.add(shiftDate(today, -1));
-  if (/\btwo days ago\b/.test(lower)) out.add(shiftDate(today, -2));
-  if (/\blast week\b/.test(lower)) out.add(shiftDate(today, -7));
+  if (/\btoday\b/.test(lower)) add(today);
+  if (/\bday before yesterday\b|\btwo days ago\b/.test(lower)) add(shiftDate(today, -2));
+  else if (/\byesterday\b/.test(lower)) add(shiftDate(today, -1));
+  if (/\blast week\b/.test(lower)) add(shiftDate(today, -7));
+
   for (const day of ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']) {
-    if (lower.includes(day)) {
-      const resolved = resolveWeekday(day, today, !/\bnext\s+/.test(lower));
-      if (resolved) out.add(resolved);
+    const expression = new RegExp(`\\b(?:last\\s+|next\\s+)?${day}\\b`, 'i');
+    if (expression.test(lower)) {
+      const resolved = resolveWeekday(day, today, !new RegExp(`\\bnext\\s+${day}\\b`, 'i').test(lower));
+      if (resolved) add(resolved);
     }
   }
 
-  if (!out.size && selectedDate && /that day|that session|what did i do|how was my day|did i do|on that day/i.test(text)) {
-    add(selectedDate);
-  }
+  const latestReferenced = out[out.length - 1];
+  if (/\bnext day\b|\bday after\b|\bfollowing day\b/.test(lower) && latestReferenced) add(shiftDate(latestReferenced, 1));
+  if (/\bprevious day\b|\bday before\b/.test(lower) && latestReferenced) add(shiftDate(latestReferenced, -1));
 
-  return Array.from(out).slice(0, 4);
+  if (!out.length && selectedDate && /that day|selected day|this day|that session|what did i do|how was my day|did i do|open the day/i.test(text)) add(selectedDate);
+  return out.slice(-6);
 }
 
-async function loadDayContext(date: string) {
-  const [logRows, noteRows, healthRows, ptSessions] = await Promise.all([
-    getLogForDate(date),
-    getNotesForDate(date),
-    getHealthForDate(date),
-    getConfig('ptSessions'),
+function compactHistory(value: unknown): HistoryMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map(item => ({
+      role: item.role === 'assistant' ? 'assistant' as const : 'user' as const,
+      content: cleanText(item.content, 750),
+    }))
+    .filter(item => item.content)
+    .slice(-10);
+}
+
+function tokenize(value: string) {
+  return Array.from(new Set(value.toLowerCase().match(/[a-z0-9]+/g) ?? []))
+    .filter(token => token.length > 2 && !STOP_WORDS.has(token))
+    .slice(0, 32);
+}
+
+function isHistoryQuestion(value: string) {
+  return /which day|what day|when did|when was|find (?:the )?day|remember which|previous day|past day|last time|look back|history|what did i do|did i do|how was i|after my pt|before my pt|day after|day before|compare|pattern|trend|over time/i.test(value);
+}
+
+function isPatternQuestion(value: string) {
+  return /compare|average|pattern|trend|usually|after (?:my )?pt|before (?:my )?pt|better|worse|over time/i.test(value);
+}
+
+function isPersonalQuestion(value: string) {
+  return /\b(i|i'm|ive|i've|me|my|mine)\b|pain|symptom|injury|doctor|physical therap|\bpt\b|burning|tingling|stinging|numb|swelling|medication|treatment|health|sleep|mood|energy/i.test(value);
+}
+
+function exerciseQuestion(value: string) {
+  return /exercise|movement|stretch|drill|band|raise|curl|squat|lunge|bridge|balance|mobility|strength|reps|sets|form|construct|build|add a|identify/i.test(value);
+}
+
+function normalizeExercises(value: unknown): ExerciseContext[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map(item => ({
+      id: cleanText(item.id, 100),
+      name: cleanText(item.name, 150),
+      cat: cleanText(item.cat, 80),
+      cue: cleanText(item.cue, 260),
+      sets: cleanText(item.sets, 120),
+      tips: Array.isArray(item.tips) ? item.tips.map(tip => cleanText(tip, 160)).filter(Boolean).slice(0, 4) : [],
+    }))
+    .filter(item => item.id && item.name)
+    .slice(0, 250);
+}
+
+function rankExercises(question: string, exercises: ExerciseContext[]) {
+  const tokens = tokenize(question);
+  return exercises
+    .map(exercise => {
+      const haystack = `${exercise.name} ${exercise.cat ?? ''} ${exercise.cue ?? ''} ${(exercise.tips ?? []).join(' ')}`.toLowerCase();
+      const score = tokens.reduce((sum, token) => sum + (haystack.includes(token) ? (exercise.name.toLowerCase().includes(token) ? 5 : 2) : 0), 0);
+      return { ...exercise, score };
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, tokens.length ? 24 : 16)
+    .map(({ score: _score, ...exercise }) => exercise);
+}
+
+function numeric(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function compactHealth(row: Record<string, unknown> | undefined) {
+  if (!row) return null;
+  return {
+    pain: numeric(row.pain),
+    energy: numeric(row.energy),
+    mood: numeric(row.mood),
+    sleepHours: numeric(row.sleep_hours),
+    sleepQuality: numeric(row.sleep_quality),
+    painNote: cleanText(row.pain_notes, 320),
+    generalNote: cleanText(row.general_notes, 480),
+    treatmentNote: cleanText(row.treatment_notes, 320),
+    sleepNote: cleanText(row.sleep_notes, 240),
+    energyNote: cleanText(row.energy_notes, 240),
+    moodNote: cleanText(row.mood_notes, 240),
+  };
+}
+
+async function loadDayRecords(startDate: string, endDate: string, exerciseMap: Map<string, ExerciseContext>, ptSessions: unknown) {
+  const results = await Promise.allSettled([
+    sql`SELECT date::text, exercise_id FROM workout_log WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND completed = true ORDER BY date`,
+    sql`SELECT date::text, exercise_id, note FROM exercise_notes WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND note != '' ORDER BY date`,
+    sql`SELECT date::text, pain, energy, mood, sleep_hours, sleep_quality, pain_notes, general_notes, treatment_notes, sleep_notes, energy_notes, mood_notes FROM health_log WHERE date >= ${startDate}::date AND date <= ${endDate}::date ORDER BY date`,
   ]);
 
-  const ptSession = Array.isArray(ptSessions)
-    ? (ptSessions as Array<{ date: string; kind?: string; note?: string }>).find(s => s.date === date)
-    : null;
+  const logRows = results[0].status === 'fulfilled' ? results[0].value as Array<Record<string, unknown>> : [];
+  const noteRows = results[1].status === 'fulfilled' ? results[1].value as Array<Record<string, unknown>> : [];
+  const healthRows = results[2].status === 'fulfilled' ? results[2].value as Array<Record<string, unknown>> : [];
+  const sessions = Array.isArray(ptSessions) ? ptSessions as Array<{ date?: string; kind?: string; note?: string }> : [];
+  const records = new Map<string, DayRecord>();
 
+  const getDay = (date: string) => {
+    const existing = records.get(date);
+    if (existing) return existing;
+    const next: DayRecord = { date, completed: [], exerciseNotes: [], health: null, session: null, searchText: '' };
+    records.set(date, next);
+    return next;
+  };
+
+  for (const row of logRows) {
+    const date = validDate(row.date);
+    const id = cleanText(row.exercise_id, 100);
+    if (!date || !id) continue;
+    getDay(date).completed.push(exerciseMap.get(id)?.name ?? id);
+  }
+
+  for (const row of noteRows) {
+    const date = validDate(row.date);
+    const id = cleanText(row.exercise_id, 100);
+    const note = cleanText(row.note, 700);
+    if (!date || !id || !note) continue;
+    getDay(date).exerciseNotes.push({ exerciseId: id, exercise: exerciseMap.get(id)?.name ?? id, note });
+  }
+
+  for (const row of healthRows) {
+    const date = validDate(row.date);
+    if (!date) continue;
+    getDay(date).health = compactHealth(row);
+  }
+
+  for (const session of sessions) {
+    const date = validDate(session.date);
+    if (!date || date < startDate || date > endDate) continue;
+    getDay(date).session = {
+      kind: session.kind === 'training' ? 'training' : 'pt',
+      note: cleanText(session.note, 500),
+    };
+  }
+
+  for (const record of records.values()) {
+    const weekday = new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    const healthText = record.health ? Object.values(record.health).filter(value => value !== null && value !== '').join(' ') : '';
+    record.searchText = [
+      record.date,
+      weekday,
+      record.completed.join(' '),
+      record.exerciseNotes.map(note => `${note.exercise} ${note.note}`).join(' '),
+      record.session ? `${record.session.kind} physical therapy ${record.session.note}` : '',
+      healthText,
+    ].join(' ').toLowerCase();
+  }
+
+  return Array.from(records.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function scoreDay(record: DayRecord, question: string, tokens: string[], today: string) {
+  const lower = question.toLowerCase();
+  let score = 0;
+  for (const token of tokens) {
+    if (!record.searchText.includes(token)) continue;
+    const noteMatch = record.exerciseNotes.some(note => `${note.exercise} ${note.note}`.toLowerCase().includes(token));
+    const sessionMatch = record.session && `${record.session.kind} ${record.session.note}`.toLowerCase().includes(token);
+    score += noteMatch ? 7 : sessionMatch ? 6 : 3;
+  }
+  if (/\bpt\b|physical therap/.test(lower) && record.session?.kind === 'pt') score += 8;
+  if (/training/.test(lower) && record.session?.kind === 'training') score += 8;
+  if (/pain|burning|tingling|stinging|sore|ache/.test(lower) && record.health && (record.health.pain !== null || record.health.painNote || record.health.generalNote)) score += 3;
+  if (/treatment|med|meloxicam|advil|ice|compression/.test(lower) && record.health?.treatmentNote) score += 5;
+  if (/exercise|workout|did i do/.test(lower) && record.completed.length) score += 2;
+  const ageDays = Math.max(0, Math.round((new Date(today + 'T12:00:00').getTime() - new Date(record.date + 'T12:00:00').getTime()) / 86400000));
+  if (score > 0) score += Math.max(0, 2 - ageDays / 180);
+  return score;
+}
+
+function reasonForDay(record: DayRecord, question: string) {
+  const tokens = tokenize(question);
+  const matchingNote = record.exerciseNotes.find(note => tokens.some(token => `${note.exercise} ${note.note}`.toLowerCase().includes(token)));
+  if (matchingNote) return `${matchingNote.exercise}: ${cleanText(matchingNote.note, 150)}`;
+  if (record.session) return `${record.session.kind === 'training' ? 'Training' : 'PT'} session${record.session.note ? `: ${cleanText(record.session.note, 130)}` : ''}`;
+  const health = record.health;
+  if (health?.generalNote) return cleanText(health.generalNote, 150);
+  if (health?.painNote) return `Pain note: ${cleanText(health.painNote, 130)}`;
+  if (health?.pain !== null && health?.pain !== undefined) return `Pain ${health.pain}/10${record.completed.length ? ` · ${record.completed.length} exercises completed` : ''}`;
+  if (record.completed.length) return `${record.completed.slice(0, 3).join(', ')}${record.completed.length > 3 ? ` +${record.completed.length - 3} more` : ''}`;
+  return 'Related saved activity';
+}
+
+function rankDays(records: DayRecord[], question: string, explicitDates: string[], selectedDate: string | null, today: string) {
+  const tokens = tokenize(question);
+  return records
+    .map(record => {
+      let score = scoreDay(record, question, tokens, today);
+      if (explicitDates.includes(record.date)) score += 1000;
+      if (selectedDate === record.date && /selected day|this day|that day/.test(question.toLowerCase())) score += 900;
+      return { ...record, score };
+    })
+    .filter(record => (record.score ?? 0) > 0)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.date.localeCompare(a.date))
+    .slice(0, 8);
+}
+
+function dayForPrompt(record: DayRecord) {
   return {
-    date,
-    exercises: (logRows as Array<{ exercise_id: string; completed: boolean }>).filter(r => r.completed).map(r => r.exercise_id).slice(0, 20),
-    notes: (noteRows as Array<{ exercise_id: string; note: string }>).filter(r => r.note.trim()).slice(0, 12),
-    health: (healthRows as Array<Record<string, unknown>>)[0] ?? null,
-    session: ptSession ? { kind: ptSession.kind === 'training' ? 'training' : 'pt', note: ptSession.note ?? '' } : null,
+    date: record.date,
+    weekday: new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
+    completedExercises: record.completed.slice(0, 18),
+    exerciseNotes: record.exerciseNotes.slice(0, 10),
+    health: record.health,
+    session: record.session,
+  };
+}
+
+function average(values: Array<number | null>) {
+  const valid = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return valid.length ? Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(1)) : null;
+}
+
+function buildAnalytics(records: DayRecord[]) {
+  const byDate = new Map(records.map(record => [record.date, record]));
+  const ptDates = records.filter(record => record.session?.kind === 'pt').map(record => record.date);
+  const trainingDates = records.filter(record => record.session?.kind === 'training').map(record => record.date);
+  const nextDayPain = ptDates.map(date => numeric(byDate.get(shiftDate(date, 1))?.health?.pain));
+  const ptDayPain = ptDates.map(date => numeric(byDate.get(date)?.health?.pain));
+  const nonPtPain = records.filter(record => !record.session).map(record => numeric(record.health?.pain));
+  return {
+    dateRange: records.length ? { start: records[0].date, end: records[records.length - 1].date } : null,
+    activeDays: records.filter(record => record.completed.length).length,
+    loggedHealthDays: records.filter(record => record.health).length,
+    ptSessions: ptDates.length,
+    trainingSessions: trainingDates.length,
+    averagePainOnPtDays: average(ptDayPain),
+    averagePainNextDayAfterPt: average(nextDayPain),
+    averagePainOnNonSessionDays: average(nonPtPain),
+  };
+}
+
+function cleanDateLinks(raw: unknown, allowedDates: Set<string>, today: string): DateLink[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const links: DateLink[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const date = validDate(row.date);
+    if (!date || date > today || !allowedDates.has(date) || seen.has(date)) continue;
+    seen.add(date);
+    links.push({
+      date,
+      label: cleanText(row.label, 100) || new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+      reason: cleanText(row.reason, 220),
+    });
+    if (links.length >= 5) break;
+  }
+  return links;
+}
+
+function cleanExerciseDraft(raw: unknown) {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const item = raw as Record<string, unknown>;
+  const name = cleanText(item.name, 140);
+  if (!name) return undefined;
+  return {
+    name,
+    cue: cleanText(item.cue, 520),
+    sets: cleanText(item.sets, 180),
+    cat: cleanText(item.cat ?? item.type, 80).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim() || 'mobility',
+    imageSearch: cleanText(item.imageSearch, 200),
+    confidence: cleanText(item.confidence, 80),
+    nextStep: cleanText(item.nextStep, 240),
+    tips: Array.isArray(item.tips) ? item.tips.map(tip => cleanText(tip, 180)).filter(Boolean).slice(0, 6) : [],
   };
 }
 
@@ -102,53 +409,132 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
 
-    const { question, history, exercises, clarificationCount, sourceMatches, selectedDate, today: clientToday } = await req.json();
-    const cleanQuestion = cleanText(question, 1200);
+    const requestBody = await req.json() as Record<string, unknown>;
+    const cleanQuestion = cleanMultiline(requestBody.question, 1400);
     if (!cleanQuestion) return NextResponse.json({ error: 'Question required' }, { status: 400 });
-    const appToday = validDate(clientToday) ?? toDateStr(new Date());
-    const requestedDates = extractDates(`${cleanQuestion} ${(Array.isArray(history) ? JSON.stringify(history) : '')}`, appToday, validDate(selectedDate));
-    const dayContext = await Promise.all(requestedDates.map(date => loadDayContext(date)));
+
+    const history = compactHistory(requestBody.history);
+    const exercises = normalizeExercises(requestBody.exercises);
+    const exerciseMap = new Map(exercises.map(exercise => [exercise.id, exercise]));
+    const appToday = validDate(requestBody.today) ?? toDateStr(new Date());
+    const selectedDate = validDate(requestBody.selectedDate);
+    const conversationText = `${history.map(message => message.content).join(' ')} ${cleanQuestion}`;
+    const explicitDates = extractDates(conversationText, appToday, selectedDate);
+    const historyIntent = isHistoryQuestion(cleanQuestion) || explicitDates.length > 0;
+    const patternIntent = isPatternQuestion(cleanQuestion);
+    const shouldLoadHistory = historyIntent || patternIntent;
+
+    let dayRecords: DayRecord[] = [];
+    let rankedDays: DayRecord[] = [];
+    let analytics: ReturnType<typeof buildAnalytics> | null = null;
+
+    if (shouldLoadHistory) {
+      const defaultStart = shiftDate(appToday, -(MAX_HISTORY_DAYS - 1));
+      const oldestExplicit = explicitDates.length ? [...explicitDates].sort()[0] : null;
+      const startDate = oldestExplicit && oldestExplicit < defaultStart ? oldestExplicit : defaultStart;
+      const ptSessions = await getConfig('ptSessions');
+      dayRecords = await loadDayRecords(startDate, appToday, exerciseMap, ptSessions);
+      rankedDays = rankDays(dayRecords, conversationText, explicitDates, selectedDate, appToday);
+      analytics = patternIntent ? buildAnalytics(dayRecords) : null;
+    }
+
+    const matchedExerciseContext = rankExercises(cleanQuestion, exercises);
+    const allowedDates = new Set([
+      ...rankedDays.map(day => day.date),
+      ...explicitDates,
+    ].filter(date => date <= appToday));
+
+    const sourceMatches = Array.isArray(requestBody.sourceMatches) ? requestBody.sourceMatches.slice(0, 8) : [];
+    const personal = shouldLoadHistory || isPersonalQuestion(conversationText);
+    const groqTask: GroqTask = personal ? 'ask' : 'publicAsk';
 
     const system = [
-      'Help the user identify a remembered movement and turn it into an editable app draft.',
-      'Use the app list and database matches as context, not as strict limits.',
-      'Respect the user-described setup and movement details. Do not overwrite them with generic form advice.',
-      'When unclear, ask one short clarifying question and return 2-3 short option labels.',
-      'If day context is provided, use it to answer questions about specific days, sessions, patterns, or what happened on a named date.',
-      'Keep answers sharp and specific. Do not be bland. Mention the useful detail that actually changes the read, not generic praise.',
-      'Return compact JSON only: {"answer":"","options":[],"confirmedExercise":{"name":"","cue":"","sets":"","type":"mobility","imageSearch":"","confidence":"","nextStep":"","tips":[]}}. Omit confirmedExercise if not confident.'
+      'You are the intelligent assistant inside PT Motivator. You are not limited to identifying exercises.',
+      'You can answer normal follow-up questions, explain or construct exercises, reason over the supplied app history, compare logged patterns, and help the user find a remembered date.',
+      'The supplied day records are authoritative. Never invent a completed exercise, symptom, metric, appointment, or date. If the records do not support the memory, say that clearly.',
+      'When answering which-day or when questions, cite the best supported date in the answer and include it in dateLinks so the user can tap it.',
+      'When several days are plausible, explain the distinction briefly and return up to five dateLinks.',
+      'For exercise construction, preserve the user-described setup and motion. Produce confirmedExercise only when enough detail exists; otherwise ask one useful clarifying question.',
+      'confirmedExercise must be app-ready with name, short cue, sets, cat, imageSearch, confidence, nextStep, and practical tips.',
+      'For health questions, be useful and specific but do not diagnose or pretend a pattern proves causation. Mention urgent evaluation only when the described facts actually warrant it.',
+      'Keep the response conversational and direct. Follow the thread instead of restarting the interview on every turn.',
+      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]}}.',
+      'Omit confirmedExercise when it is not relevant. options should contain zero to four genuinely useful follow-up prompts, not generic filler.',
     ].join(' ');
 
-    const { data, model, attemptedModels } = await callGroqChat(apiKey, 'ask', {
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify({ question: cleanQuestion, history, exercises, clarificationCount, sourceMatches, selectedDate: validDate(selectedDate), today: appToday, dayContext }) },
-      ],
-      temperature: 0.26,
-      max_completion_tokens: 820,
-      response_format: { type: 'json_object' },
-    });
+    const promptContext = {
+      question: cleanQuestion,
+      conversation: history,
+      today: appToday,
+      currentlySelectedDate: selectedDate,
+      candidateDays: rankedDays.map(dayForPrompt),
+      historyAnalytics: analytics,
+      relevantExercisesInApp: matchedExerciseContext,
+      externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
+      availableExerciseCategories: Array.from(new Set(exercises.map(exercise => exercise.cat).filter(Boolean))).slice(0, 30),
+      instructions: rankedDays.length
+        ? 'Use candidateDays to answer memory questions. Only return dateLinks from those dates or an explicitly requested date.'
+        : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
+    };
 
-    const raw = jsonFromText(data?.choices?.[0]?.message?.content ?? '{}');
-    const confirmed = raw.confirmedExercise && typeof raw.confirmedExercise === 'object' ? raw.confirmedExercise : undefined;
+    let result: Awaited<ReturnType<typeof callGroqChat>>;
+    try {
+      result = await callGroqChat(apiKey, groqTask, {
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: JSON.stringify(promptContext) },
+        ],
+        temperature: 0.22,
+        max_completion_tokens: 950,
+        response_format: { type: 'json_object' },
+      });
+    } catch (error) {
+      const fallbackLinks = rankedDays.slice(0, 4).map(day => ({
+        date: day.date,
+        label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        reason: reasonForDay(day, cleanQuestion),
+      }));
+      if (fallbackLinks.length && error instanceof GroqRouteError) {
+        return NextResponse.json({
+          reply: {
+            answer: 'The AI response failed, but I still found the closest matching days in your saved history. Tap one to open it.',
+            options: [],
+            dateLinks: fallbackLinks,
+          },
+          degraded: true,
+          model: '',
+          attemptedModels: error.attempts.map(attempt => attempt.model),
+        });
+      }
+      throw error;
+    }
+
+    const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
+    const raw = jsonFromText(rawContent);
+    let dateLinks = cleanDateLinks(raw.dateLinks, allowedDates, appToday);
+    if (!dateLinks.length && historyIntent && rankedDays.length) {
+      dateLinks = rankedDays.slice(0, 3).map(day => ({
+        date: day.date,
+        label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        reason: reasonForDay(day, cleanQuestion),
+      }));
+    }
+
+    const answer = cleanMultiline(raw.answer, 1500) || (rankedDays.length
+      ? 'These are the closest matching days I found in your saved history.'
+      : 'I need one more detail to answer that accurately.');
 
     return NextResponse.json({
       reply: {
-        answer: cleanText(raw.answer, 520) || 'I can help narrow it down. Which version sounds closest?',
-        options: Array.isArray(raw.options) ? raw.options.map((option: unknown) => cleanText(option, 110)).filter(Boolean).slice(0, 3) : [],
-        confirmedExercise: confirmed ? {
-          name: cleanText(confirmed.name, 120),
-          cue: cleanText(confirmed.cue, 520),
-          sets: cleanText(confirmed.sets, 180),
-          cat: cleanText(confirmed.type ?? confirmed.cat, 40).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim() || 'mobility',
-          imageSearch: cleanText(confirmed.imageSearch, 180),
-          confidence: cleanText(confirmed.confidence, 80),
-          nextStep: cleanText(confirmed.nextStep, 220),
-          tips: Array.isArray(confirmed.tips) ? confirmed.tips.map((tip: unknown) => cleanText(tip, 140)).filter(Boolean).slice(0, 3) : [],
-        } : undefined,
+        answer,
+        options: Array.isArray(raw.options) ? raw.options.map((option: unknown) => cleanText(option, 170)).filter(Boolean).slice(0, 4) : [],
+        dateLinks,
+        confirmedExercise: cleanExerciseDraft(raw.confirmedExercise),
       },
-      model,
-      attemptedModels,
+      model: result.model,
+      attemptedModels: result.attemptedModels,
+      usedPersonalHistory: shouldLoadHistory,
+      searchedDays: shouldLoadHistory ? dayRecords.length : 0,
     });
   } catch (err) {
     console.error('[ai-exercise-question]', err);
