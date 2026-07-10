@@ -1,12 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
+import DoctorNotesWidget from '@/components/DoctorNotesWidget';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type WeekMode = 'type' | 'category';
 type PTSession = { date: string; kind?: 'pt' | 'training'; note?: string };
+type ToolbarPrefs = {
+  library?: boolean;
+  aiCoach?: boolean;
+  manage?: boolean;
+  doctorNotes?: boolean;
+  dailySummary?: boolean;
+};
 
 interface Props {
   log: LogMap;
@@ -94,6 +103,8 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
   const [goals, setGoals] = useState<Record<WeekMode, Record<string, number>>>({ type: {}, category: {} });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [toolbarPrefs, setToolbarPrefs] = useState<ToolbarPrefs>({});
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +163,51 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
       body: JSON.stringify({ key: PREF_KEY, value }),
     });
   }, [mode, hidden, goals, prefsLoaded]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/config?key=widgetPrefs', { cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => {
+        if (!cancelled && data?.value && typeof data.value === 'object') setToolbarPrefs(data.value as ToolbarPrefs);
+      })
+      .catch(() => {});
+
+    const onPrefsChange = (event: Event) => {
+      const detail = (event as CustomEvent<ToolbarPrefs>).detail;
+      if (detail && typeof detail === 'object') setToolbarPrefs(detail);
+    };
+    window.addEventListener('pt-widget-prefs-change', onPrefsChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pt-widget-prefs-change', onPrefsChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncToolbar = () => {
+      const settingsButton = document.querySelector<HTMLButtonElement>('button[title="Widget settings"]');
+      const nextTarget = settingsButton?.parentElement ?? null;
+      if (nextTarget && nextTarget !== toolbarTarget) setToolbarTarget(nextTarget);
+
+      const visibility: Array<[string, boolean]> = [
+        ['Exercise library', toolbarPrefs.library !== false],
+        ['Ask AI about exercise', toolbarPrefs.aiCoach !== false],
+        ['Reorder & edit', toolbarPrefs.manage !== false],
+        ['Show daily summary', toolbarPrefs.dailySummary !== false],
+      ];
+
+      visibility.forEach(([title, visible]) => {
+        const button = document.querySelector<HTMLElement>(`button[title="${title}"]`);
+        if (button) button.style.display = visible ? '' : 'none';
+      });
+    };
+
+    syncToolbar();
+    const observer = new MutationObserver(syncToolbar);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [toolbarPrefs, toolbarTarget]);
 
   const groups = useMemo<WeekGroup[]>(() => {
     if (mode === 'category') {
@@ -240,127 +296,133 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
   });
 
   return (
-    <div className="bg-white border border-stone-100 rounded-2xl p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-serif text-base font-semibold text-stone-800">This week</h2>
-          <p className="text-[10px] text-stone-400 mt-0.5">
-            {new Date(days[0].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            {' - '}
-            {new Date(days[days.length - 1].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-          </p>
-        </div>
-        <button onClick={() => setSettingsOpen(prev => !prev)} className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-[10px] font-bold text-stone-500">
-          Set goal
-        </button>
-      </div>
-
-      {settingsOpen && (
-        <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2">
-          <div className="grid grid-cols-2 gap-1.5 mb-2">
-            {(['type', 'category'] as const).map(value => (
-              <button
-                key={value}
-                onClick={() => setMode(value)}
-                className="rounded-lg px-2 py-1.5 text-[11px] font-bold capitalize"
-                style={{ background: mode === value ? '#7E9B86' : '#fff', color: mode === value ? '#fff' : '#78716c' }}
-              >
-                {value}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {groups.map(group => (
-              <button
-                key={group.id}
-                onClick={() => toggleGroup(group.id)}
-                className="rounded-full border px-2 py-1 text-[10px] font-semibold"
-                style={{
-                  borderColor: hidden[mode].includes(group.id) ? '#e7e5e4' : group.color,
-                  color: hidden[mode].includes(group.id) ? '#a8a29e' : group.color,
-                  background: hidden[mode].includes(group.id) ? '#fff' : `${group.color}14`,
-                }}
-              >
-                {hidden[mode].includes(group.id) ? 'Show ' : 'Hide '}{group.name}
-              </button>
-            ))}
-          </div>
-          <div className="mt-2 space-y-1.5">
-            {visibleGroups.map(group => (
-              <div key={group.id} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold capitalize text-stone-600">{group.name}</span>
-                <span className="text-[10px] text-stone-400">daily goal</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={groupGoal(group)}
-                  onChange={e => setGroupGoal(group.id, e.target.value)}
-                  className="w-14 rounded-lg border border-stone-200 px-2 py-1 text-center text-xs font-bold text-stone-700"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+    <>
+      {toolbarTarget && toolbarPrefs.doctorNotes !== false && createPortal(
+        <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={onSelectDate} />,
+        toolbarTarget
       )}
 
-      {visibleGroups.map((group) => (
-        <div key={group.id} className="flex items-center gap-3 mb-3 last:mb-0">
-          <div className="w-24 flex-shrink-0 min-w-0">
-            <p className="text-xs font-semibold text-stone-700 truncate capitalize">{group.name}</p>
-            <p className="text-[10px] text-stone-400">goal: {groupGoal(group)}/day</p>
+      <div className="bg-white border border-stone-100 rounded-2xl p-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-base font-semibold text-stone-800">This week</h2>
+            <p className="text-[10px] text-stone-400 mt-0.5">
+              {new Date(days[0].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              {' - '}
+              {new Date(days[days.length - 1].getTime()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
           </div>
-          <div className="flex justify-between flex-1 gap-1">
-            {days.map((d) => {
-              const ds = todayStr(d);
-              const frac = groupFraction(ds, group);
-              const hasAnyDayData = visibleGroups.some(item => groupFraction(ds, item) > 0);
-              const isToday = ds === today;
-              const isSelected = ds === selectedDate;
-              const ptSession = ptSessions?.find(s => s.date === ds);
-              const showPTCircle = visibleGroups[0]?.id === group.id && !!ptSession && !hasAnyDayData;
-              const isHovered = hoveredDay === ds;
-
-              return (
-                <button
-                  key={ds}
-                  type="button"
-                  onClick={() => handleDayClick(ds)}
-                  onMouseEnter={() => setHoveredDay(ds)}
-                  onMouseLeave={() => setHoveredDay(null)}
-                  onFocus={() => setHoveredDay(ds)}
-                  onBlur={() => setHoveredDay(null)}
-                  className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 transition-colors outline-none ${
-                    isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
-                  }`}
-                  title={`Show ${displayDay(ds)} summary`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border-2 relative overflow-hidden transition-transform ${
-                      showPTCircle
-                        ? 'border-[#E7D4A3] bg-[#FCF8EE]'
-                        : isSelected
-                        ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
-                        : isToday
-                        ? 'border-[#D9A94B]'
-                        : 'border-stone-200'
-                    } ${isHovered ? 'scale-110' : 'scale-100'}`}
-                  >
-                    {frac > 0 && (
-                      <div className="absolute bottom-0 left-0 right-0" style={{ height: `${frac * 100}%`, background: group.color }} />
-                    )}
-                  </div>
-                  <span className={`text-[9px] font-medium ${isHovered ? 'text-stone-600' : 'text-stone-400'}`}>
-                    {DAY_LABELS[d.getDay()]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <button onClick={() => setSettingsOpen(prev => !prev)} className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-[10px] font-bold text-stone-500">
+            Set goal
+          </button>
         </div>
-      ))}
 
-      <div className="border-t border-stone-100 mt-3 pt-3 min-h-[58px]">
+        {settingsOpen && (
+          <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2">
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
+              {(['type', 'category'] as const).map(value => (
+                <button
+                  key={value}
+                  onClick={() => setMode(value)}
+                  className="rounded-lg px-2 py-1.5 text-[11px] font-bold capitalize"
+                  style={{ background: mode === value ? '#7E9B86' : '#fff', color: mode === value ? '#fff' : '#78716c' }}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {groups.map(group => (
+                <button
+                  key={group.id}
+                  onClick={() => toggleGroup(group.id)}
+                  className="rounded-full border px-2 py-1 text-[10px] font-semibold"
+                  style={{
+                    borderColor: hidden[mode].includes(group.id) ? '#e7e5e4' : group.color,
+                    color: hidden[mode].includes(group.id) ? '#a8a29e' : group.color,
+                    background: hidden[mode].includes(group.id) ? '#fff' : `${group.color}14`,
+                  }}
+                >
+                  {hidden[mode].includes(group.id) ? 'Show ' : 'Hide '}{group.name}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {visibleGroups.map(group => (
+                <div key={group.id} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold capitalize text-stone-600">{group.name}</span>
+                  <span className="text-[10px] text-stone-400">daily goal</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={groupGoal(group)}
+                    onChange={e => setGroupGoal(group.id, e.target.value)}
+                    className="w-14 rounded-lg border border-stone-200 px-2 py-1 text-center text-xs font-bold text-stone-700"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visibleGroups.map((group) => (
+          <div key={group.id} className="flex items-center gap-3 mb-3 last:mb-0">
+            <div className="w-24 flex-shrink-0 min-w-0">
+              <p className="text-xs font-semibold text-stone-700 truncate capitalize">{group.name}</p>
+              <p className="text-[10px] text-stone-400">goal: {groupGoal(group)}/day</p>
+            </div>
+            <div className="flex justify-between flex-1 gap-1">
+              {days.map((d) => {
+                const ds = todayStr(d);
+                const frac = groupFraction(ds, group);
+                const hasAnyDayData = visibleGroups.some(item => groupFraction(ds, item) > 0);
+                const isToday = ds === today;
+                const isSelected = ds === selectedDate;
+                const ptSession = ptSessions?.find(s => s.date === ds);
+                const showPTCircle = visibleGroups[0]?.id === group.id && !!ptSession && !hasAnyDayData;
+                const isHovered = hoveredDay === ds;
+
+                return (
+                  <button
+                    key={ds}
+                    type="button"
+                    onClick={() => handleDayClick(ds)}
+                    onMouseEnter={() => setHoveredDay(ds)}
+                    onMouseLeave={() => setHoveredDay(null)}
+                    onFocus={() => setHoveredDay(ds)}
+                    onBlur={() => setHoveredDay(null)}
+                    className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 transition-colors outline-none ${
+                      isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
+                    }`}
+                    title={`Show ${displayDay(ds)} summary`}
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 relative overflow-hidden transition-transform ${
+                        showPTCircle
+                          ? 'border-[#E7D4A3] bg-[#FCF8EE]'
+                          : isSelected
+                          ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
+                          : isToday
+                          ? 'border-[#D9A94B]'
+                          : 'border-stone-200'
+                      } ${isHovered ? 'scale-110' : 'scale-100'}`}
+                    >
+                      {frac > 0 && (
+                        <div className="absolute bottom-0 left-0 right-0" style={{ height: `${frac * 100}%`, background: group.color }} />
+                      )}
+                    </div>
+                    <span className={`text-[9px] font-medium ${isHovered ? 'text-stone-600' : 'text-stone-400'}`}>
+                      {DAY_LABELS[d.getDay()]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div className="border-t border-stone-100 mt-3 pt-3 min-h-[58px]">
           {hoveredDay && hovered ? (
             <>
               <div className="flex items-center gap-2 mb-1.5 min-w-0">
@@ -368,42 +430,43 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
                 {hovered.ptSession && (
                   <>
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#FBF5E8', color: '#D9A94B' }}>
-                    {sessionLabel(hovered.ptSession.kind)}
+                      {sessionLabel(hovered.ptSession.kind)}
                     </span>
                     {hovered.ptSession.note?.trim() && <span className="text-[10px] text-stone-400 truncate">{hovered.ptSession.note}</span>}
                   </>
-              )}
-            </div>
+                )}
+              </div>
 
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {hovered.groups.map(({ group, done, total }) => (
-                <span key={group.id} className="text-xs text-stone-500">
-                  <span className="font-semibold" style={{ color: group.color }}>{done}/{total}</span> {group.name}
-                </span>
-              ))}
-              {!hovered.ptSession && hovered.groups.every(item => item.done === 0) && (
-                <span className="text-xs text-stone-400 italic">No activity logged</span>
-              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {hovered.groups.map(({ group, done, total }) => (
+                  <span key={group.id} className="text-xs text-stone-500">
+                    <span className="font-semibold" style={{ color: group.color }}>{done}/{total}</span> {group.name}
+                  </span>
+                ))}
+                {!hovered.ptSession && hovered.groups.every(item => item.done === 0) && (
+                  <span className="text-xs text-stone-400 italic">No activity logged</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-[11px] text-stone-400 text-center">Tap or hover a day for a summary</p>
             </div>
-          </>
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-[11px] text-stone-400 text-center">Tap or hover a day for a summary</p>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      <div className="flex items-center justify-between mt-2 flex-wrap gap-y-1">
-        <p className="text-[10px] text-stone-400 truncate">
-          {completions.length ? completions.join(' · ') : 'No groups selected'}
-        </p>
-        {ptSessions && ptSessions.some(s => days.some(day => todayStr(day) === s.date)) && (
-          <div className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full border" style={{ background: '#FBF5E8', borderColor: '#D9A94B' }} />
-            <span className="text-[10px] text-stone-400">PT / training session</span>
-          </div>
-        )}
+        <div className="flex items-center justify-between mt-2 flex-wrap gap-y-1">
+          <p className="text-[10px] text-stone-400 truncate">
+            {completions.length ? completions.join(' · ') : 'No groups selected'}
+          </p>
+          {ptSessions && ptSessions.some(s => days.some(day => todayStr(day) === s.date)) && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full border" style={{ background: '#FBF5E8', borderColor: '#D9A94B' }} />
+              <span className="text-[10px] text-stone-400">PT / training session</span>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
