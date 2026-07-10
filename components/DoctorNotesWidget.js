@@ -871,7 +871,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcript'}</p>
                     {responseListening && <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />}
                   </div>
-                  <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{[savedTranscript, liveTranscript].filter(Boolean).join('\n') || 'Listening...'}</p>
+                  <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{savedTranscript || liveTranscript || 'Listening...'}</p>
                 </div>
               )}
               <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={2} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
