@@ -729,6 +729,14 @@ export default function Home() {
                 </>
               )}
             </div>
+            {widgetPrefs.doctorNotes !== false && (
+              <button onClick={() => setShowDoctorNotes(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#E4ECE6', border: '1px solid #CAD9CF', color: '#476653', touchAction: 'manipulation' }} title="Doctor notes" aria-label="Doctor notes">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="block h-4 w-4" aria-hidden="true">
+                  <path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/>
+                  <path d="M12 2.5V6h3M7 10h6M7 13h4"/>
+                </svg>
+              </button>
+            )}
             <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none disabled:opacity-50" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'flex' }} title="Show daily summary" aria-label="Show daily summary">
               {summaryLoading ? <span className="block text-sm leading-none">…</span> : (
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="block h-4 w-4" style={{ color: '#D9A94B' }} aria-hidden="true">
