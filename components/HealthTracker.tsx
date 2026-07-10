@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+
+type GeneralNotePhoto = {
+  id: string;
+  name: string;
+  type: string;
+  dataUrl: string;
+  createdAt: string;
+};
 
 interface HealthData {
   sleep_hours: number | null;
@@ -15,11 +23,16 @@ interface HealthData {
   pain_notes: string;
   general_notes: string;
   treatment_notes: string;
+  general_note_photos: GeneralNotePhoto[];
 }
 
 type MetricKey = 'sleep_hours' | 'sleep_quality' | 'energy' | 'mood' | 'pain';
 type TrendRangeKey = '3wk' | '6wk';
 type TrendRow = Partial<Record<MetricKey, number | string | null>> & { date: string };
+
+const MAX_GENERAL_NOTE_PHOTOS = 5;
+const MAX_PHOTO_DIMENSION = 1100;
+const PHOTO_QUALITY = 0.76;
 
 const EMPTY: HealthData = {
   sleep_hours: null,
@@ -34,6 +47,7 @@ const EMPTY: HealthData = {
   pain_notes: '',
   general_notes: '',
   treatment_notes: '',
+  general_note_photos: [],
 };
 
 const TREND_RANGES: Record<TrendRangeKey, { label: string; days: number }> = {
@@ -56,6 +70,70 @@ const METRICS: Record<MetricKey, { label: string; max: number; suffix: string; c
   mood: { label: 'Mood', max: 10, suffix: '/10', color: 'sage' },
   pain: { label: 'Pain level', max: 10, suffix: '/10', color: 'rose' },
 };
+
+function cleanGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Partial<GeneralNotePhoto> => Boolean(item) && typeof item === 'object')
+    .map((item, index) => ({
+      id: typeof item.id === 'string' && item.id ? item.id : `photo-${Date.now()}-${index}`,
+      name: typeof item.name === 'string' && item.name ? item.name : 'Daily note photo',
+      type: typeof item.type === 'string' && item.type ? item.type : 'image/jpeg',
+      dataUrl: typeof item.dataUrl === 'string' ? item.dataUrl : '',
+      createdAt: typeof item.createdAt === 'string' && item.createdAt ? item.createdAt : new Date().toISOString(),
+    }))
+    .filter(photo => photo.dataUrl.startsWith('data:image/'))
+    .slice(0, MAX_GENERAL_NOTE_PHOTOS);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load image.'));
+    img.src = dataUrl;
+  });
+}
+
+async function fileToGeneralNotePhoto(file: File): Promise<GeneralNotePhoto> {
+  const originalDataUrl = await readFileAsDataUrl(file);
+  try {
+    const img = await loadImage(originalDataUrl);
+    const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(img.width, img.height));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable.');
+    ctx.drawImage(img, 0, 0, width, height);
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name: file.name || 'Daily note photo',
+      type: 'image/jpeg',
+      dataUrl: canvas.toDataURL('image/jpeg', PHOTO_QUALITY),
+      createdAt: new Date().toISOString(),
+    };
+  } catch {
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name: file.name || 'Daily note photo',
+      type: file.type || 'image/jpeg',
+      dataUrl: originalDataUrl,
+      createdAt: new Date().toISOString(),
+    };
+  }
+}
 
 function dateStr(d: Date) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -315,18 +393,27 @@ export default function HealthTracker({ today }: Props) {
   const [trendRows, setTrendRows] = useState<TrendRow[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState('');
+  const [photoError, setPhotoError] = useState('');
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<GeneralNotePhoto | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dataRef = useRef<HealthData>(EMPTY);
 
   useEffect(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setLoading(true);
     setSaved(false);
+    setPhotoError('');
+    setPreparingPhotos(false);
+    setSelectedPhoto(null);
+    dataRef.current = EMPTY;
     setData(EMPTY);
     fetch(`/api/health?date=${today}`)
       .then((r) => r.json())
       .then(({ row }) => {
         if (row) {
-          setData({
+          const next: HealthData = {
             sleep_hours: row.sleep_hours !== null ? Number(row.sleep_hours) : null,
             sleep_quality: row.sleep_quality !== null ? Number(row.sleep_quality) : null,
             energy: row.energy !== null ? Number(row.energy) : null,
@@ -339,7 +426,10 @@ export default function HealthTracker({ today }: Props) {
             pain_notes: row.pain_notes ?? '',
             general_notes: row.general_notes ?? '',
             treatment_notes: row.treatment_notes ?? '',
-          });
+            general_note_photos: cleanGeneralNotePhotos(row.general_note_photos),
+          };
+          dataRef.current = next;
+          setData(next);
         }
       })
       .catch(console.error)
@@ -366,36 +456,81 @@ export default function HealthTracker({ today }: Props) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
-        await fetch('/api/health', {
+        const res = await fetch('/api/health', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ date: today, ...next }),
         });
+        if (!res.ok) throw new Error('Could not save health data.');
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } catch (err) {
         console.error(err);
+        setPhotoError(err instanceof Error ? err.message : 'Could not save daily notes.');
       }
     }, 600);
   };
 
-  const updateNum = (field: keyof HealthData, value: number) => {
-    const next = { ...data, [field]: value };
+  const commitData = (next: HealthData) => {
+    dataRef.current = next;
     setData(next);
     scheduleSave(next);
   };
 
+  const updateNum = (field: keyof HealthData, value: number) => {
+    commitData({ ...dataRef.current, [field]: value });
+  };
+
   const updateNote = (field: keyof HealthData, value: string) => {
-    const next = { ...data, [field]: value };
-    setData(next);
-    scheduleSave(next);
+    commitData({ ...dataRef.current, [field]: value });
+  };
+
+  const handlePhotoPick = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter(file => file.type.startsWith('image/'));
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const remaining = MAX_GENERAL_NOTE_PHOTOS - dataRef.current.general_note_photos.length;
+    if (remaining <= 0) {
+      setPhotoError(`Maximum ${MAX_GENERAL_NOTE_PHOTOS} photos per day.`);
+      return;
+    }
+
+    setPhotoError('');
+    setPreparingPhotos(true);
+    try {
+      const converted = await Promise.all(files.slice(0, remaining).map(fileToGeneralNotePhoto));
+      const next = {
+        ...dataRef.current,
+        general_note_photos: [...dataRef.current.general_note_photos, ...converted].slice(0, MAX_GENERAL_NOTE_PHOTOS),
+      };
+      commitData(next);
+      if (files.length > remaining) setPhotoError(`Added ${remaining}. Maximum ${MAX_GENERAL_NOTE_PHOTOS} photos per day.`);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'Could not attach photo.');
+    } finally {
+      setPreparingPhotos(false);
+    }
+  };
+
+  const removePhoto = (id: string) => {
+    const next = {
+      ...dataRef.current,
+      general_note_photos: dataRef.current.general_note_photos.filter(photo => photo.id !== id),
+    };
+    if (selectedPhoto?.id === id) setSelectedPhoto(null);
+    setPhotoError('');
+    commitData(next);
   };
 
   const handleReset = async () => {
     if (!confirmReset) { setConfirmReset(true); return; }
     setConfirmReset(false);
+    dataRef.current = EMPTY;
     setData(EMPTY);
     setSaved(false);
+    setPhotoError('');
+    setSelectedPhoto(null);
     try {
       await fetch(`/api/health?date=${today}`, { method: 'DELETE' });
     } catch (err) {
@@ -425,6 +560,15 @@ export default function HealthTracker({ today }: Props) {
           cursor: pointer;
         }
       `}</style>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handlePhotoPick}
+      />
 
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -491,9 +635,20 @@ export default function HealthTracker({ today }: Props) {
       </div>
 
       <div className="mt-5 pt-4" style={{ borderTop: '1px solid #e7e5e4' }}>
-        <label className="block text-sm font-semibold mb-1" style={{ color: '#1c1917' }}>
-          General notes
-        </label>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <label className="block text-sm font-semibold" style={{ color: '#1c1917' }}>
+            General notes
+          </label>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={preparingPhotos || data.general_note_photos.length >= MAX_GENERAL_NOTE_PHOTOS}
+            className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold disabled:opacity-40"
+            style={{ color: '#476653', background: '#E4ECE6', touchAction: 'manipulation' }}
+          >
+            {preparingPhotos ? 'Preparing…' : '📷 Add photo'}
+          </button>
+        </div>
         <p className="text-xs mb-2" style={{ color: '#78716c' }}>
           How was your day overall? Any observations, questions for your PT, or things to remember?
         </p>
@@ -511,9 +666,64 @@ export default function HealthTracker({ today }: Props) {
             fontFamily: 'inherit',
           }}
         />
+
+        {data.general_note_photos.length > 0 && (
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {data.general_note_photos.map(photo => (
+              <div key={photo.id} className="relative overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPhoto(photo)}
+                  className="block w-full"
+                  style={{ touchAction: 'manipulation' }}
+                  title="View photo"
+                >
+                  <img src={photo.dataUrl} alt={photo.name || 'Daily note photo'} className="h-24 w-full object-cover" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removePhoto(photo.id)}
+                  className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-sm leading-none text-white"
+                  style={{ touchAction: 'manipulation' }}
+                  title="Remove photo"
+                  aria-label="Remove photo"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <p className="text-[10px] leading-snug text-stone-400">
+            Photos are saved with this specific date. Up to {MAX_GENERAL_NOTE_PHOTOS}.
+          </p>
+          {data.general_note_photos.length > 0 && (
+            <span className="text-[10px] font-semibold text-stone-400">{data.general_note_photos.length}/{MAX_GENERAL_NOTE_PHOTOS}</span>
+          )}
+        </div>
+        {photoError && <p className="mt-1 text-[11px] leading-snug text-rose-600">{photoError}</p>}
       </div>
 
       {trendMetric && <TrendOverlay metric={trendMetric} rows={trendRows} range={trendRange} loading={trendLoading} error={trendError} onClose={() => setTrendMetric(null)} onRangeChange={setTrendRange} />}
+
+      {selectedPhoto && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4" onClick={() => setSelectedPhoto(null)}>
+          <div className="relative max-h-full max-w-3xl" onClick={e => e.stopPropagation()}>
+            <img src={selectedPhoto.dataUrl} alt={selectedPhoto.name || 'Daily note photo'} className="max-h-[88dvh] max-w-full rounded-2xl object-contain shadow-2xl" />
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-2xl leading-none text-white"
+              style={{ touchAction: 'manipulation' }}
+              aria-label="Close photo"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
