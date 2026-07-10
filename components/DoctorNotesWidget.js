@@ -200,8 +200,16 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [responseDraft, setResponseDraft] = useState(responseTemplate);
   const [autoNewFromShortcut, setAutoNewFromShortcut] = useState(false);
   const [swipedNoteId, setSwipedNoteId] = useState('');
+  const [cleanupNote, setCleanupNote] = useState(null);
+  const [cleanupDraft, setCleanupDraft] = useState(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupError, setCleanupError] = useState('');
+  const [responseListening, setResponseListening] = useState(false);
   const fileInputRef = useRef(null);
+  const conversationRef = useRef(null);
+  const recognitionRef = useRef(null);
   const noteTouchStart = useRef(null);
+  const lastTapRef = useRef({ id: '', time: 0 });
 
   useEffect(() => {
     setDateToAdd(selectedDate);
@@ -272,9 +280,22 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     onClose();
     setDraft(null);
     setRespondingTo(null);
+    setCleanupNote(null);
+    setCleanupDraft(null);
     setAutoNewFromShortcut(false);
     setConfirmDelete(false);
     setError('');
+  }
+
+  function closeHeader() {
+    if (autoNewFromShortcut && draft) {
+      setDraft(null);
+      setAutoNewFromShortcut(false);
+      setConfirmDelete(false);
+      setError('');
+      return;
+    }
+    closeWidget();
   }
 
   function startNew() {
@@ -294,21 +315,71 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setError('');
   }
 
-  function noteSwipeHandlers(noteId) {
+  async function startCleanup(note) {
+    setDraft(null);
+    setRespondingTo(null);
+    setCleanupNote(note);
+    setCleanupDraft({
+      improvedTitle: note.title || typeLabel(note.kind),
+      improvedBody: note.body || '',
+      highlights: [],
+      questions: [],
+    });
+    setCleanupLoading(true);
+    setCleanupError('');
+    setError('');
+    try {
+      const response = await fetch('/api/doctor-note-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: note.title,
+          doctor: note.provider,
+          kind: typeLabel(note.kind),
+          body: note.body,
+          relatedDates: note.linkedDates,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(text(data.detail) || text(data.error) || 'Could not clean up note.');
+      setCleanupDraft({
+        improvedTitle: text(data.improvedTitle) || note.title || typeLabel(note.kind),
+        improvedBody: text(data.improvedBody) || note.body || '',
+        highlights: Array.isArray(data.highlights) ? data.highlights.filter(item => typeof item === 'string') : [],
+        questions: Array.isArray(data.questions) ? data.questions.filter(item => typeof item === 'string') : [],
+      });
+    } catch (reason) {
+      setCleanupError(reason instanceof Error ? reason.message : 'Could not clean up note.');
+    } finally {
+      setCleanupLoading(false);
+    }
+  }
+
+  function noteSwipeHandlers(note) {
     return {
       onTouchStart(event) {
         const touch = event.touches[0];
-        noteTouchStart.current = touch ? { id: noteId, x: touch.clientX, y: touch.clientY } : null;
+        noteTouchStart.current = touch ? { id: note.id, x: touch.clientX, y: touch.clientY } : null;
       },
       onTouchEnd(event) {
         const start = noteTouchStart.current;
         noteTouchStart.current = null;
         const touch = event.changedTouches[0];
-        if (!start || !touch || start.id !== noteId) return;
+        if (!start || !touch || start.id !== note.id) return;
         const dx = touch.clientX - start.x;
         const dy = touch.clientY - start.y;
-        if (Math.abs(dy) > 45 || Math.abs(dx) < 45) return;
-        setSwipedNoteId(dx < 0 ? noteId : '');
+        if (Math.abs(dy) > 45) return;
+        if (Math.abs(dx) >= 45) {
+          setSwipedNoteId(dx < 0 ? note.id : '');
+          return;
+        }
+        const now = Date.now();
+        if (lastTapRef.current.id === note.id && now - lastTapRef.current.time < 340) {
+          lastTapRef.current = { id: '', time: 0 };
+          void startCleanup(note);
+          return;
+        }
+        lastTapRef.current = { id: note.id, time: now };
       },
     };
   }
@@ -420,6 +491,117 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     }
   }
 
+  async function cleanupResponse() {
+    if (!respondingTo) return;
+    const raw = [
+      responseDraft.answer.trim() ? `Answer: ${responseDraft.answer.trim()}` : '',
+      responseDraft.conversation.trim() ? `Conversation notes: ${responseDraft.conversation.trim()}` : '',
+      responseDraft.nextSteps.trim() ? `Next steps: ${responseDraft.nextSteps.trim()}` : '',
+    ].filter(Boolean).join('\n');
+    if (!raw) {
+      setError('Add an answer or note before cleanup.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/doctor-note-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Response to ${respondingTo.title || typeLabel(respondingTo.kind)}`,
+          doctor: respondingTo.provider,
+          kind: 'Doctor response',
+          body: raw,
+          relatedDates: respondingTo.linkedDates,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(text(data.detail) || text(data.error) || 'Could not clean up response.');
+      setResponseDraft({
+        answer: text(data.improvedBody) || raw,
+        conversation: '',
+        nextSteps: '',
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not clean up response.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleResponseRecording() {
+    if (responseListening) {
+      recognitionRef.current?.stop?.();
+      setResponseListening(false);
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      conversationRef.current?.focus();
+      setError('Use the iPhone keyboard microphone in Conversation notes.');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognitionRef.current = recognition;
+    let finalText = '';
+
+    recognition.onresult = event => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i]?.[0]?.transcript || '';
+        if (event.results[i]?.isFinal) finalText += `${transcript} `;
+        else interim += transcript;
+      }
+      const merged = [responseDraft.conversation, finalText, interim].filter(Boolean).join(' ').trim();
+      setResponseDraft(current => ({ ...current, conversation: merged }));
+    };
+    recognition.onerror = () => {
+      setResponseListening(false);
+      conversationRef.current?.focus();
+      setError('Recording stopped. You can use the iPhone keyboard microphone here.');
+    };
+    recognition.onend = () => setResponseListening(false);
+    setError('');
+    setResponseListening(true);
+    recognition.start();
+  }
+
+  async function incorporateCleanup() {
+    if (!cleanupNote || !cleanupDraft) return;
+    setSaving(true);
+    setCleanupError('');
+    try {
+      const updated = {
+        ...cleanupNote,
+        title: cleanupDraft.improvedTitle.trim(),
+        body: cleanupDraft.improvedBody.trim(),
+      };
+      const response = await fetch('/api/doctor-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(text(data.error) || 'Could not update note.');
+      const saved = parseNote(data.row || updated);
+      setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
+      setCleanupNote(null);
+      setCleanupDraft(null);
+    } catch (reason) {
+      setCleanupError(reason instanceof Error ? reason.message : 'Could not update note.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function addDoctor() {
     const name = window.prompt('Doctor name', draft?.provider || '');
     const clean = name?.trim();
@@ -493,7 +675,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
             <h2 className="truncate font-serif text-lg font-semibold text-stone-800">Doctor notes</h2>
             <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Quick notes, photos, and related days.</p>
           </div>
-          <button type="button" onClick={closeWidget} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-stone-200/70 text-2xl text-stone-500" aria-label="Close doctor notes">×</button>
+          <button type="button" onClick={closeHeader} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-stone-200/70 text-2xl text-stone-500" aria-label="Close doctor notes">×</button>
         </div>
 
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={attachPhotos} />
@@ -502,7 +684,52 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
           className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 sm:p-4"
           style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
         >
-          {respondingTo ? (
+          {cleanupNote && cleanupDraft ? (
+            <div className="min-w-0 space-y-3">
+              <div className="rounded-2xl border border-stone-200 bg-white p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Clean up note</p>
+                <h3 className="mt-1 text-sm font-bold text-stone-800">{cleanupNote.title || typeLabel(cleanupNote.kind)}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-stone-500">Review the clearer doctor-facing version, edit anything, then incorporate it into the original note.</p>
+              </div>
+
+              {cleanupLoading && (
+                <div className="flex min-h-24 items-center justify-center rounded-2xl bg-white">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7E9B86] border-t-transparent" />
+                </div>
+              )}
+
+              <input value={cleanupDraft.improvedTitle} onChange={event => setCleanupDraft({ ...cleanupDraft, improvedTitle: event.currentTarget.value })} placeholder="Title" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea value={cleanupDraft.improvedBody} onChange={event => setCleanupDraft({ ...cleanupDraft, improvedBody: event.currentTarget.value })} rows={10} placeholder="Improved note" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+
+              {(cleanupDraft.highlights.length > 0 || cleanupDraft.questions.length > 0) && (
+                <div className="rounded-2xl border border-stone-200 bg-white p-3">
+                  {cleanupDraft.highlights.length > 0 && (
+                    <>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Changed</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {cleanupDraft.highlights.map((item, index) => <span key={`${item}-${index}`} className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-semibold text-stone-600">{item}</span>)}
+                      </div>
+                    </>
+                  )}
+                  {cleanupDraft.questions.length > 0 && (
+                    <div className={cleanupDraft.highlights.length > 0 ? 'mt-3' : ''}>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Helpful missing details</p>
+                      <div className="mt-2 space-y-1.5">
+                        {cleanupDraft.questions.map((item, index) => <p key={`${item}-${index}`} className="rounded-xl bg-[#FDF8EE] px-3 py-2 text-xs leading-snug text-stone-600">{item}</p>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {cleanupError && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{cleanupError}</p>}
+
+              <div className="grid min-w-0 grid-cols-2 gap-2">
+                <button type="button" onClick={() => void incorporateCleanup()} disabled={saving || cleanupLoading} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Incorporate'}</button>
+                <button type="button" onClick={() => { setCleanupNote(null); setCleanupDraft(null); setCleanupError(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+              </div>
+            </div>
+          ) : respondingTo ? (
             <div className="min-w-0 space-y-3">
               <div className="rounded-2xl border border-stone-200 bg-white p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Responding to</p>
@@ -511,7 +738,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               </div>
 
               <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={3} placeholder="Answer" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-              <textarea value={responseDraft.conversation} onChange={event => setResponseDraft({ ...responseDraft, conversation: event.currentTarget.value })} rows={5} placeholder="Conversation notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea ref={conversationRef} value={responseDraft.conversation} onChange={event => setResponseDraft({ ...responseDraft, conversation: event.currentTarget.value })} rows={5} placeholder="Conversation notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
               <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={3} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
@@ -519,6 +746,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
                 <button type="button" onClick={() => { setRespondingTo(null); setResponseDraft(responseTemplate()); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
+                <button type="button" onClick={toggleResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responseListening ? '#FBEFF1' : '#FDF8EE', color: responseListening ? '#C96B7A' : '#A97920' }}>{responseListening ? 'Stop' : 'Record'}</button>
               </div>
             </div>
           ) : draft ? (
@@ -599,9 +828,11 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 <button type="button" onClick={() => void copyNote(draft)} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600">Copy</button>
                 <button type="button" onClick={() => { if (autoNewFromShortcut) closeWidget(); else setDraft(null); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
               </div>
-              <button type="button" onClick={() => void deleteDraft()} disabled={saving} className="min-h-11 w-full min-w-0 rounded-xl px-3 py-2 text-xs font-semibold" style={{ color: confirmDelete ? '#fff' : '#C96B7A', background: confirmDelete ? '#C96B7A' : '#FBEFF1' }}>
-                {confirmDelete ? 'Tap again to permanently delete' : notes.some(note => note.id === draft.id) ? 'Delete note' : 'Discard new note'}
-              </button>
+              {notes.some(note => note.id === draft.id) && (
+                <button type="button" onClick={() => void deleteDraft()} disabled={saving} className="min-h-11 w-full min-w-0 rounded-xl px-3 py-2 text-xs font-semibold" style={{ color: confirmDelete ? '#fff' : '#C96B7A', background: confirmDelete ? '#C96B7A' : '#FBEFF1' }}>
+                  {confirmDelete ? 'Tap again to permanently delete' : 'Delete note'}
+                </button>
+              )}
             </div>
           ) : (
             <div className="min-w-0">
@@ -635,7 +866,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                         }}
                         className="relative min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm transition-transform active:scale-[0.995]"
                         style={{ transform: swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)', touchAction: 'pan-y' }}
-                        {...noteSwipeHandlers(note.id)}
+                        {...noteSwipeHandlers(note)}
+                        onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); void startCleanup(note); }}
                       >
                         <div className="flex min-w-0 items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
