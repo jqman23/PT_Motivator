@@ -16,6 +16,22 @@ type GeneralNotePhoto = {
   createdAt: string;
 };
 
+const NUMERIC_FIELDS = ['sleep_hours', 'sleep_quality', 'energy', 'mood', 'pain'] as const;
+
+function serializeHealthRow(row: Record<string, unknown>) {
+  const next = { ...row };
+  for (const field of NUMERIC_FIELDS) {
+    const raw = row[field];
+    if (raw === null || raw === undefined || raw === '') {
+      next[field] = null;
+      continue;
+    }
+    const value = Number(raw);
+    next[field] = Number.isFinite(value) ? value : null;
+  }
+  return next;
+}
+
 function normalizeGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
   if (!Array.isArray(value)) return [];
 
@@ -78,11 +94,11 @@ export async function GET(req: NextRequest) {
     await ensureTable();
     if (start && end) {
       const rows = await sql`SELECT * FROM health_log WHERE date >= ${start}::date AND date <= ${end}::date ORDER BY date`;
-      return NextResponse.json({ rows });
+      return NextResponse.json({ rows: rows.map(row => serializeHealthRow(row as Record<string, unknown>)) });
     }
     if (!date) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
     const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
-    return NextResponse.json({ row: rows[0] ?? null });
+    return NextResponse.json({ row: rows[0] ? serializeHealthRow(rows[0] as Record<string, unknown>) : null });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });
