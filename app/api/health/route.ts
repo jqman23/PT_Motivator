@@ -5,6 +5,42 @@ const sql = neon(process.env.DATABASE_URL!);
 
 const hasOwn = (body: Record<string, unknown>, key: string) => Object.prototype.hasOwnProperty.call(body, key);
 
+const MAX_GENERAL_NOTE_PHOTOS = 5;
+const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
+
+type GeneralNotePhoto = {
+  id: string;
+  name: string;
+  type: string;
+  dataUrl: string;
+  createdAt: string;
+};
+
+function normalizeGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
+  if (!Array.isArray(value)) return [];
+
+  const photos: GeneralNotePhoto[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<GeneralNotePhoto>;
+    if (typeof raw.dataUrl !== 'string') continue;
+    if (!raw.dataUrl.startsWith('data:image/')) continue;
+    if (raw.dataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) continue;
+
+    photos.push({
+      id: typeof raw.id === 'string' && raw.id ? raw.id.slice(0, 80) : `photo-${Date.now()}-${photos.length}`,
+      name: typeof raw.name === 'string' && raw.name ? raw.name.slice(0, 160) : 'Daily note photo',
+      type: typeof raw.type === 'string' && raw.type ? raw.type.slice(0, 80) : 'image/jpeg',
+      dataUrl: raw.dataUrl,
+      createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
+    });
+
+    if (photos.length >= MAX_GENERAL_NOTE_PHOTOS) break;
+  }
+
+  return photos;
+}
+
 async function ensureTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS health_log (
@@ -25,6 +61,7 @@ async function ensureTable() {
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS pain_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_notes TEXT`;
   await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS treatment_notes TEXT`;
+  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_note_photos JSONB NOT NULL DEFAULT '[]'::jsonb`;
   await sql`ALTER TABLE health_log ALTER COLUMN sleep_quality TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN energy TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN mood TYPE NUMERIC(4,1)`;
@@ -58,6 +95,7 @@ export async function POST(req: NextRequest) {
     const {
       date, sleep_hours, sleep_quality, energy, mood, pain,
       sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
+      general_note_photos,
     } = body;
     if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
 
@@ -73,17 +111,20 @@ export async function POST(req: NextRequest) {
     const hasPainNotes = hasOwn(body, 'pain_notes');
     const hasGeneralNotes = hasOwn(body, 'general_notes');
     const hasTreatmentNotes = hasOwn(body, 'treatment_notes');
+    const hasGeneralNotePhotos = hasOwn(body, 'general_note_photos');
+    const cleanGeneralNotePhotos = hasGeneralNotePhotos ? normalizeGeneralNotePhotos(general_note_photos) : [];
 
     await ensureTable();
     await sql`
       INSERT INTO health_log (date, sleep_hours, sleep_quality, energy, mood, pain,
-        sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes, updated_at)
+        sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
+        general_note_photos, updated_at)
       VALUES (${date}::date, ${hasSleepHours ? sleep_hours : null}, ${hasSleepQuality ? sleep_quality : null},
         ${hasEnergy ? energy : null}, ${hasMood ? mood : null}, ${hasPain ? pain : null},
         ${hasSleepNotes ? sleep_notes ?? null : null}, ${hasSleepQualityNotes ? sleep_quality_notes ?? null : null},
         ${hasEnergyNotes ? energy_notes ?? null : null}, ${hasMoodNotes ? mood_notes ?? null : null},
         ${hasPainNotes ? pain_notes ?? null : null}, ${hasGeneralNotes ? general_notes ?? null : null},
-        ${hasTreatmentNotes ? treatment_notes ?? null : null}, NOW())
+        ${hasTreatmentNotes ? treatment_notes ?? null : null}, ${JSON.stringify(cleanGeneralNotePhotos)}::jsonb, NOW())
       ON CONFLICT (date) DO UPDATE SET
         sleep_hours = CASE WHEN ${hasSleepHours} THEN EXCLUDED.sleep_hours ELSE health_log.sleep_hours END,
         sleep_quality = CASE WHEN ${hasSleepQuality} THEN EXCLUDED.sleep_quality ELSE health_log.sleep_quality END,
@@ -97,6 +138,7 @@ export async function POST(req: NextRequest) {
         pain_notes = CASE WHEN ${hasPainNotes} THEN EXCLUDED.pain_notes ELSE health_log.pain_notes END,
         general_notes = CASE WHEN ${hasGeneralNotes} THEN EXCLUDED.general_notes ELSE health_log.general_notes END,
         treatment_notes = CASE WHEN ${hasTreatmentNotes} THEN EXCLUDED.treatment_notes ELSE health_log.treatment_notes END,
+        general_note_photos = CASE WHEN ${hasGeneralNotePhotos} THEN EXCLUDED.general_note_photos ELSE health_log.general_note_photos END,
         updated_at = NOW()
     `;
     return NextResponse.json({ ok: true });
