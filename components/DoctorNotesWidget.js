@@ -170,31 +170,61 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const [buttonPosition, setButtonPosition] = useState(null);
   const fileInputRef = useRef(null);
-  const toolbarAnchorRef = useRef(null);
 
   useEffect(() => {
     setDateToAdd(selectedDate);
   }, [selectedDate]);
 
-  // This widget is portaled into the main toolbar after Settings. Give that zero-width
-  // anchor room below the toolbar, then position Doc directly beneath Settings instead
-  // of adding another item off the right edge on phones.
+  // Anchor the Doc button to the Settings button's real screen coordinates. This avoids
+  // guessing from a zero-width flex item and keeps it exactly aligned during horizontal
+  // toolbar scrolling, page scrolling, orientation changes, and viewport resizing.
   useEffect(() => {
-    const parent = toolbarAnchorRef.current?.parentElement;
-    if (!parent) return undefined;
+    const settingsButton = document.querySelector('button[title="Widget settings"]');
+    const toolbar = settingsButton?.parentElement;
+    if (!settingsButton || !toolbar) return undefined;
+
     const previous = {
-      alignItems: parent.style.alignItems,
-      paddingBottom: parent.style.paddingBottom,
-      overflowY: parent.style.overflowY,
+      alignItems: toolbar.style.alignItems,
+      paddingBottom: toolbar.style.paddingBottom,
+      overflowY: toolbar.style.overflowY,
     };
-    parent.style.alignItems = 'flex-start';
-    parent.style.paddingBottom = '42px';
-    parent.style.overflowY = 'visible';
+
+    toolbar.style.alignItems = 'flex-start';
+    toolbar.style.paddingBottom = '42px';
+    toolbar.style.overflowY = 'visible';
+
+    let frame = 0;
+    const updatePosition = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const rect = settingsButton.getBoundingClientRect();
+        setButtonPosition({
+          left: Math.round(rect.left),
+          top: Math.round(rect.bottom + 6),
+        });
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('orientationchange', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePosition) : null;
+    observer?.observe(settingsButton);
+    observer?.observe(toolbar);
+
     return () => {
-      parent.style.alignItems = previous.alignItems;
-      parent.style.paddingBottom = previous.paddingBottom;
-      parent.style.overflowY = previous.overflowY;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('orientationchange', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+      toolbar.style.alignItems = previous.alignItems;
+      toolbar.style.paddingBottom = previous.paddingBottom;
+      toolbar.style.overflowY = previous.overflowY;
     };
   }, []);
 
@@ -506,25 +536,33 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
     </div>
   ) : null;
 
+  const launcher = buttonPosition ? (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="fixed z-40 h-9 w-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm transition-all hover:shadow-md active:scale-95"
+      style={{
+        left: `${buttonPosition.left}px`,
+        top: `${buttonPosition.top}px`,
+        touchAction: 'manipulation',
+        background: 'white',
+        borderColor: '#e7e5e4',
+        color: '#78716c',
+      }}
+      title="Doctor notes"
+      aria-label="Doctor notes"
+    >
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+        <path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" />
+        <path d="M12 2.5V6h3M7 10h6M7 13h4" />
+      </svg>
+      <span style={{ fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 }}>doc</span>
+    </button>
+  ) : null;
+
   return (
     <>
-      <span ref={toolbarAnchorRef} className="relative block h-9 w-0 flex-shrink-0 overflow-visible">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="absolute top-[42px] h-9 w-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm transition-all hover:shadow-md active:scale-95"
-          style={{ right: '6px', touchAction: 'manipulation', background: 'white', borderColor: '#e7e5e4', color: '#78716c' }}
-          title="Doctor notes"
-          aria-label="Doctor notes"
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" />
-            <path d="M12 2.5V6h3M7 10h6M7 13h4" />
-          </svg>
-          <span style={{ fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 }}>doc</span>
-        </button>
-      </span>
-
+      {typeof document !== 'undefined' && launcher ? createPortal(launcher, document.body) : null}
       {typeof document !== 'undefined' && modal ? createPortal(modal, document.body) : null}
       {typeof document !== 'undefined' && photoViewer ? createPortal(photoViewer, document.body) : null}
     </>
