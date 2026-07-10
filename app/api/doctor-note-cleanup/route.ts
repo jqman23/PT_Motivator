@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
     if (!apiKey) return NextResponse.json(localFallback({ title, body: noteBody }));
 
     const system = [
-      'You rewrite patient notes for a doctor visit. Return compact JSON only.',
-      'Make the note clearer, clinically useful, and easy for a doctor to scan.',
+      'You rewrite my notes for a doctor visit. Return compact JSON only.',
+      'Make the note clearer, clinically useful, and easy for me to read or reference while talking to my doctor.',
+      'Write in first person from my perspective. Use "I", "my", and "me" when needed.',
+      'Do not write about me as "the patient". Do not say "patient asks", "patient reports", or similar third-person clinical phrasing.',
       'Do not diagnose. Do not add medical facts. Do not invent symptoms, dates, tests, severity, medications, or advice.',
       'Preserve uncertainty using patient language like "seems", "maybe", or "not sure" when the original is uncertain.',
       'A strong doctor note includes the reason/question, timeline or onset, location/side, symptom quality, severity if provided, triggers, relievers, functional impact, treatments/tests already tried, and the decision or answer needed.',
