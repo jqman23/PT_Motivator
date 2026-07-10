@@ -144,6 +144,26 @@ function noteAsText(note) {
   ].filter(Boolean).join('\n');
 }
 
+function responseTemplate() {
+  return { answer: '', conversation: '', nextSteps: '' };
+}
+
+function responseSection(response) {
+  const timestamp = new Date().toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return [
+    `Response - ${timestamp}`,
+    response.answer.trim() ? `Answer: ${response.answer.trim()}` : '',
+    response.conversation.trim() ? `Conversation: ${response.conversation.trim()}` : '',
+    response.nextSteps.trim() ? `Next steps: ${response.nextSteps.trim()}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 function fallbackCopy(value) {
   const textarea = document.createElement('textarea');
   textarea.value = value;
@@ -176,7 +196,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [preparingPhotos, setPreparingPhotos] = useState(false);
   const [doctors, setDoctors] = useState([]);
+  const [respondingTo, setRespondingTo] = useState(null);
+  const [responseDraft, setResponseDraft] = useState(responseTemplate);
+  const [autoNewFromShortcut, setAutoNewFromShortcut] = useState(false);
+  const [swipedNoteId, setSwipedNoteId] = useState('');
   const fileInputRef = useRef(null);
+  const noteTouchStart = useRef(null);
 
   useEffect(() => {
     setDateToAdd(selectedDate);
@@ -199,6 +224,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     let cancelled = false;
     if (startInNew) {
       setDraft(blankNote(selectedDate));
+      setAutoNewFromShortcut(true);
       setDateToAdd(selectedDate);
       setConfirmDelete(false);
       setError('');
@@ -245,15 +271,46 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   function closeWidget() {
     onClose();
     setDraft(null);
+    setRespondingTo(null);
+    setAutoNewFromShortcut(false);
     setConfirmDelete(false);
     setError('');
   }
 
   function startNew() {
     setDraft(blankNote(selectedDate));
+    setRespondingTo(null);
+    setAutoNewFromShortcut(false);
     setDateToAdd(selectedDate);
     setConfirmDelete(false);
     setError('');
+  }
+
+  function startResponse(note) {
+    setDraft(null);
+    setRespondingTo({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] });
+    setResponseDraft(responseTemplate());
+    setConfirmDelete(false);
+    setError('');
+  }
+
+  function noteSwipeHandlers(noteId) {
+    return {
+      onTouchStart(event) {
+        const touch = event.touches[0];
+        noteTouchStart.current = touch ? { id: noteId, x: touch.clientX, y: touch.clientY } : null;
+      },
+      onTouchEnd(event) {
+        const start = noteTouchStart.current;
+        noteTouchStart.current = null;
+        const touch = event.changedTouches[0];
+        if (!start || !touch || start.id !== noteId) return;
+        const dx = touch.clientX - start.x;
+        const dy = touch.clientY - start.y;
+        if (Math.abs(dy) > 45 || Math.abs(dx) < 45) return;
+        setSwipedNoteId(dx < 0 ? noteId : '');
+      },
+    };
   }
 
   async function saveDraft() {
@@ -271,7 +328,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const saved = parseNote(data.row || draft);
       setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
-      setDraft(null);
+      if (autoNewFromShortcut) closeWidget();
+      else setDraft(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save doctor note.');
     } finally {
@@ -283,7 +341,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     if (!draft) return;
     const id = draft.id;
     if (!notes.some(note => note.id === id)) {
-      setDraft(null);
+      if (autoNewFromShortcut) closeWidget();
+      else setDraft(null);
       return;
     }
     if (!confirmDelete) {
@@ -309,6 +368,56 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   function addDate(value) {
     if (!draft || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     setDraft({ ...draft, linkedDates: Array.from(new Set([...draft.linkedDates, value])).sort() });
+  }
+
+  async function deleteNote(noteId) {
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/doctor-notes?id=${encodeURIComponent(noteId)}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(text(data.error) || 'Could not delete note.');
+      setNotes(previous => previous.filter(note => note.id !== noteId));
+      if (swipedNoteId === noteId) setSwipedNoteId('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not delete note.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveResponse() {
+    if (!respondingTo) return;
+    const section = responseSection(responseDraft);
+    if (!responseDraft.answer.trim() && !responseDraft.conversation.trim() && !responseDraft.nextSteps.trim()) {
+      setError('Add an answer or note before saving.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const updated = {
+        ...respondingTo,
+        body: [respondingTo.body?.trim(), section].filter(Boolean).join('\n\n'),
+      };
+      const response = await fetch('/api/doctor-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(text(data.error) || 'Could not save response.');
+      const saved = parseNote(data.row || updated);
+      setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
+      setRespondingTo(null);
+      setResponseDraft(responseTemplate());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save response.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function addDoctor() {
@@ -393,7 +502,26 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
           className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 sm:p-4"
           style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
         >
-          {draft ? (
+          {respondingTo ? (
+            <div className="min-w-0 space-y-3">
+              <div className="rounded-2xl border border-stone-200 bg-white p-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Responding to</p>
+                <h3 className="mt-1 text-sm font-bold text-stone-800">{respondingTo.title || typeLabel(respondingTo.kind)}</h3>
+                {respondingTo.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.body}</p>}
+              </div>
+
+              <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={3} placeholder="Answer" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea value={responseDraft.conversation} onChange={event => setResponseDraft({ ...responseDraft, conversation: event.currentTarget.value })} rows={5} placeholder="Conversation notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={3} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+
+              {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
+
+              <div className="grid min-w-0 grid-cols-2 gap-2">
+                <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
+                <button type="button" onClick={() => { setRespondingTo(null); setResponseDraft(responseTemplate()); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+              </div>
+            </div>
+          ) : draft ? (
             <div className="min-w-0 space-y-3">
               <div className="min-w-0">
                 <select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.currentTarget.value })} className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-stone-700" style={{ fontSize: 16 }}>
@@ -469,7 +597,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <button type="button" onClick={() => void saveDraft()} disabled={saving} className="col-span-2 min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50 sm:col-span-1" style={{ background: '#7E9B86' }}>{saving ? 'Saving…' : 'Save note'}</button>
                 <button type="button" onClick={() => void copyNote(draft)} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600">Copy</button>
-                <button type="button" onClick={() => setDraft(null)} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { if (autoNewFromShortcut) closeWidget(); else setDraft(null); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
               </div>
               <button type="button" onClick={() => void deleteDraft()} disabled={saving} className="min-h-11 w-full min-w-0 rounded-xl px-3 py-2 text-xs font-semibold" style={{ color: confirmDelete ? '#fff' : '#C96B7A', background: confirmDelete ? '#C96B7A' : '#FBEFF1' }}>
                 {confirmDelete ? 'Tap again to permanently delete' : notes.some(note => note.id === draft.id) ? 'Delete note' : 'Discard new note'}
@@ -492,24 +620,44 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               ) : (
                 <div className="min-w-0 space-y-2">
                   {filteredNotes.map(note => (
-                    <article key={note.id} onClick={() => { setDraft({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] }); setConfirmDelete(false); }} className="min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm active:scale-[0.995]">
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            {note.pinned && <span className="flex-shrink-0 text-sm text-[#D9A94B]">★</span>}
-                            <p className="min-w-0 truncate text-sm font-bold text-stone-800">{note.title || typeLabel(note.kind)}</p>
+                    <div key={note.id} className="relative min-w-0 overflow-hidden rounded-2xl">
+                      <button type="button" onClick={() => void deleteNote(note.id)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
+                        Delete
+                      </button>
+                      <article
+                        onClick={() => {
+                          if (swipedNoteId === note.id) {
+                            setSwipedNoteId('');
+                            return;
+                          }
+                          setDraft({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] });
+                          setConfirmDelete(false);
+                        }}
+                        className="relative min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm transition-transform active:scale-[0.995]"
+                        style={{ transform: swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)', touchAction: 'pan-y' }}
+                        {...noteSwipeHandlers(note.id)}
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {note.pinned && <span className="flex-shrink-0 text-sm text-[#D9A94B]">★</span>}
+                              <p className="min-w-0 truncate text-sm font-bold text-stone-800">{note.title || typeLabel(note.kind)}</p>
+                            </div>
+                            <p className="mt-0.5 min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-stone-400">{typeLabel(note.kind)}{note.provider ? ` · ${note.provider}` : ''}</p>
+                            {note.body && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{note.body}</p>}
                           </div>
-                          <p className="mt-0.5 min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-stone-400">{typeLabel(note.kind)}{note.provider ? ` · ${note.provider}` : ''}</p>
-                          {note.body && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{note.body}</p>}
+                          {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl object-cover" />}
                         </div>
-                        {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl object-cover" />}
-                      </div>
-                      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                        {note.linkedDates.slice(0, 2).map(date => <span key={date} className="max-w-full truncate rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">{formatDate(date)}</span>)}
-                        {note.linkedDates.length > 2 && <span className="text-[10px] text-stone-400">+{note.linkedDates.length - 2}</span>}
-                        <button type="button" onClick={event => { event.stopPropagation(); void copyNote(note); }} className="ml-auto min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-500">Copy</button>
-                      </div>
-                    </article>
+                        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                          {note.linkedDates.slice(0, 2).map(date => <span key={date} className="max-w-full truncate rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">{formatDate(date)}</span>)}
+                          {note.linkedDates.length > 2 && <span className="text-[10px] text-stone-400">+{note.linkedDates.length - 2}</span>}
+                          <div className="ml-auto flex shrink-0 gap-1.5">
+                            <button type="button" onClick={event => { event.stopPropagation(); startResponse(note); }} className="min-h-9 rounded-lg px-3 py-1 text-[10px] font-bold text-white" style={{ background: '#7E9B86' }}>Respond</button>
+                            <button type="button" onClick={event => { event.stopPropagation(); void copyNote(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-500">Copy</button>
+                          </div>
+                        </div>
+                      </article>
+                    </div>
                   ))}
                 </div>
               )}
