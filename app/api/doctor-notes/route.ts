@@ -1,0 +1,158 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL!);
+
+const MAX_PHOTOS = 5;
+const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+type DoctorNotePhoto = {
+  id: string;
+  name: string;
+  type: string;
+  dataUrl: string;
+  createdAt: string;
+};
+
+function cleanText(value: unknown, max: number) {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+function normalizeDates(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && DATE_PATTERN.test(item)))).slice(0, 20).sort();
+}
+
+function normalizePhotos(value: unknown): DoctorNotePhoto[] {
+  if (!Array.isArray(value)) return [];
+  const photos: DoctorNotePhoto[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<DoctorNotePhoto>;
+    if (typeof raw.dataUrl !== 'string' || !raw.dataUrl.startsWith('data:image/')) continue;
+    if (raw.dataUrl.length > MAX_PHOTO_DATA_URL_LENGTH) continue;
+
+    photos.push({
+      id: cleanText(raw.id, 80) || `photo-${Date.now()}-${photos.length}`,
+      name: cleanText(raw.name, 160) || 'Doctor note photo',
+      type: cleanText(raw.type, 80) || 'image/jpeg',
+      dataUrl: raw.dataUrl,
+      createdAt: cleanText(raw.createdAt, 60) || new Date().toISOString(),
+    });
+
+    if (photos.length >= MAX_PHOTOS) break;
+  }
+
+  return photos;
+}
+
+async function ensureTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS doctor_notes (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'question',
+      title TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      reference_text TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      linked_dates JSONB NOT NULL DEFAULT '[]'::jsonb,
+      photo_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      pinned BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+}
+
+export async function GET() {
+  try {
+    await ensureTable();
+    const rows = await sql`
+      SELECT id, kind, title, provider, reference_text, body,
+        COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
+        COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
+        pinned, created_at, updated_at
+      FROM doctor_notes
+      ORDER BY pinned DESC, updated_at DESC
+    `;
+    return NextResponse.json({ rows });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: 'Could not load doctor notes.' }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json() as Record<string, unknown>;
+    const id = cleanText(body.id, 100);
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    const kind = cleanText(body.kind, 40) || 'question';
+    const title = cleanText(body.title, 180);
+    const provider = cleanText(body.provider, 180);
+    const referenceText = cleanText(body.referenceText, 300);
+    const noteBody = typeof body.body === 'string' ? body.body.trim().slice(0, 12_000) : '';
+    const linkedDates = normalizeDates(body.linkedDates);
+    const photoAttachments = normalizePhotos(body.photoAttachments);
+    const pinned = body.pinned === true;
+
+    if (!title && !noteBody && photoAttachments.length === 0) {
+      return NextResponse.json({ error: 'Add a title, note, or photo before saving.' }, { status: 400 });
+    }
+
+    await ensureTable();
+    await sql`
+      INSERT INTO doctor_notes (
+        id, kind, title, provider, reference_text, body,
+        linked_dates, photo_attachments, pinned, created_at, updated_at
+      ) VALUES (
+        ${id}, ${kind}, ${title}, ${provider}, ${referenceText}, ${noteBody},
+        ${JSON.stringify(linkedDates)}::jsonb,
+        ${JSON.stringify(photoAttachments)}::jsonb,
+        ${pinned}, NOW(), NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        title = EXCLUDED.title,
+        provider = EXCLUDED.provider,
+        reference_text = EXCLUDED.reference_text,
+        body = EXCLUDED.body,
+        linked_dates = EXCLUDED.linked_dates,
+        photo_attachments = EXCLUDED.photo_attachments,
+        pinned = EXCLUDED.pinned,
+        updated_at = NOW()
+    `;
+
+    const rows = await sql`
+      SELECT id, kind, title, provider, reference_text, body,
+        COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
+        COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
+        pinned, created_at, updated_at
+      FROM doctor_notes
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+
+    return NextResponse.json({ row: rows[0] ?? null });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: 'Could not save doctor note.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const id = cleanText(new URL(req.url).searchParams.get('id'), 100);
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  try {
+    await ensureTable();
+    await sql`DELETE FROM doctor_notes WHERE id = ${id}`;
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: 'Could not delete doctor note.' }, { status: 500 });
+  }
+}
