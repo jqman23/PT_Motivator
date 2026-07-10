@@ -214,7 +214,6 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const fileInputRef = useRef(null);
   const conversationRef = useRef(null);
-  const transcriptRef = useRef(null);
   const recognitionRef = useRef(null);
   const recordingBaseRef = useRef('');
   const recordingFinalRef = useRef('');
@@ -619,16 +618,83 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     }
   }
 
-  function openSilentDictation() {
+  function startResponseRecording(resuming = false) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setTranscriptExpanded(true);
+      setError('Speech recording is not available in this browser.');
+      return;
+    }
+
+    recordingBaseRef.current = savedTranscript.trim();
+    recordingFinalRef.current = '';
+    recordingStopIntentRef.current = '';
+    if (!resuming) setLiveTranscript('');
+    setTranscriptExpanded(true);
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognitionRef.current = recognition;
+
+    recognition.onresult = event => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i]?.[0]?.transcript || '';
+        if (event.results[i]?.isFinal) recordingFinalRef.current = `${recordingFinalRef.current} ${transcript}`.trim();
+        else interim += transcript;
+      }
+      const live = [recordingFinalRef.current, interim].filter(Boolean).join(' ').trim();
+      const merged = [recordingBaseRef.current, live].filter(Boolean).join('\n').trim();
+      setLiveTranscript(live);
+      setSavedTranscript(merged);
+    };
+    recognition.onerror = event => {
+      const intentional = recordingStopIntentRef.current === 'stop' || recordingStopIntentRef.current === 'pause';
+      setResponseListening(false);
+      if (intentional || event?.error === 'no-speech' || event?.error === 'aborted') return;
+      setResponsePaused(false);
+      if (event?.error === 'not-allowed') setError('Microphone permission was blocked.');
+    };
+    recognition.onend = () => {
+      const intent = recordingStopIntentRef.current;
+      setResponseListening(false);
+      recognitionRef.current = null;
+      setResponsePaused(intent === 'pause');
+      if (intent === 'stop') setTranscriptExpanded(false);
+      recordingStopIntentRef.current = '';
+    };
+    setError('');
+    setResponseListening(true);
+    setResponsePaused(false);
+    try {
+      recognition.start();
+    } catch {
+      setResponseListening(false);
+      setResponsePaused(false);
+      setError('Recording could not start.');
+    }
+  }
+
+  function stopResponseRecording() {
+    recordingStopIntentRef.current = 'stop';
     recognitionRef.current?.stop?.();
     recognitionRef.current = null;
-    recordingStopIntentRef.current = 'stop';
     setResponseListening(false);
     setResponsePaused(false);
-    setLiveTranscript('');
-    setTranscriptExpanded(true);
+    setTranscriptExpanded(false);
     setError('');
-    window.setTimeout(() => transcriptRef.current?.focus?.(), 50);
+  }
+
+  function pauseResponseRecording() {
+    recordingStopIntentRef.current = 'pause';
+    recognitionRef.current?.stop?.();
+    recognitionRef.current = null;
+    setResponseListening(false);
+    setResponsePaused(true);
+    setTranscriptExpanded(false);
+    setError('');
   }
 
   async function incorporateCleanup() {
@@ -805,20 +871,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               {(transcriptExpanded || savedTranscript.trim()) && (
                 <button type="button" onClick={() => !responseListening && setTranscriptExpanded(prev => !prev)} className="w-full rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3 text-left" style={{ touchAction: 'manipulation' }}>
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">Transcript</p>
-                    <span className="text-[10px] font-bold text-[#A97920]">{transcriptExpanded ? 'Hide' : 'View'}</span>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcript'}</p>
+                    {responseListening && <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />}
+                    {!responseListening && <span className="text-[10px] font-bold text-[#A97920]">{transcriptExpanded ? 'Hide' : 'View'}</span>}
                   </div>
-                  {transcriptExpanded ? (
-                    <textarea
-                      ref={transcriptRef}
-                      value={savedTranscript}
-                      onClick={event => event.stopPropagation()}
-                      onChange={event => setSavedTranscript(event.currentTarget.value)}
-                      rows={4}
-                      placeholder="Use the iPhone keyboard microphone here..."
-                      className="w-full resize-none rounded-xl border border-[#E8D9B4] bg-white px-3 py-2 text-xs leading-relaxed text-stone-700 focus:outline-none"
-                      style={{ fontSize: 16 }}
-                    />
+                  {responseListening || transcriptExpanded ? (
+                    <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{responseListening ? (savedTranscript || liveTranscript || 'Listening...') : savedTranscript}</p>
                   ) : (
                     <p className="truncate text-xs font-semibold text-stone-600">{savedTranscript || 'Tap to view transcript'}</p>
                   )}
@@ -832,7 +890,14 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
                 <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setSavedTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
-                <button type="button" onClick={openSilentDictation} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Dictate</button>
+                {responseListening ? (
+                  <>
+                    <button type="button" onClick={pauseResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Pause</button>
+                    <button type="button" onClick={stopResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Stop</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => startResponseRecording(responsePaused)} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responsePaused ? '#E4ECE6' : '#FDF8EE', color: responsePaused ? '#476653' : '#A97920' }}>{responsePaused ? 'Resume' : 'Record voice'}</button>
+                )}
               </div>
             </div>
           ) : draft ? (
