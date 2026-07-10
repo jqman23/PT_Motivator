@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const MODEL = process.env.GROQ_MODEL_PTMOTIVATOR || 'llama-3.3-70b-versatile';
+const ALLOWED_GROQ_MODELS = new Set([
+  'canopylabs/orpheus-arabic-saudi',
+  'canopylabs/orpheus-v1-english',
+  'groq/compound',
+  'groq/compound-mini',
+  'llama-3.1-8b-instant',
+  'llama-3.3-70b-versatile',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+  'meta-llama/llama-prompt-guard-2-22m',
+  'meta-llama/llama-prompt-guard-2-86m',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'openai/gpt-oss-safeguard-20b',
+  'qwen/qwen3-32b',
+  'qwen/qwen3.6-27b',
+  'whisper-large-v3',
+  'whisper-large-v3-turbo',
+]);
+
+const MODEL = ALLOWED_GROQ_MODELS.has(process.env.GROQ_MODEL_PTMOTIVATOR ?? '')
+  ? process.env.GROQ_MODEL_PTMOTIVATOR!
+  : 'llama-3.3-70b-versatile';
 
 type StandardizedFields = {
   dose?: string;
