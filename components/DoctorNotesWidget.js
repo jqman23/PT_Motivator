@@ -158,8 +158,8 @@ function responseSection(response) {
   });
   return [
     `Response - ${timestamp}`,
-    response.answer.trim() ? `Answer: ${response.answer.trim()}` : '',
-    response.conversation.trim() ? `Conversation: ${response.conversation.trim()}` : '',
+    response.answer.trim() ? `Answer / notes: ${response.answer.trim()}` : '',
+    response.conversation.trim() ? `Transcript: ${response.conversation.trim()}` : '',
     response.nextSteps.trim() ? `Next steps: ${response.nextSteps.trim()}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -207,6 +207,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [responseListening, setResponseListening] = useState(false);
   const [responsePaused, setResponsePaused] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [savedTranscript, setSavedTranscript] = useState('');
   const [undoSnapshot, setUndoSnapshot] = useState(null);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
@@ -316,6 +317,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setResponseListening(false);
     setResponsePaused(false);
     setLiveTranscript('');
+    setSavedTranscript('');
     setError('');
   }
 
@@ -543,8 +545,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   async function saveResponse() {
     if (!respondingTo) return;
-    const section = responseSection(responseDraft);
-    if (!responseDraft.answer.trim() && !responseDraft.conversation.trim() && !responseDraft.nextSteps.trim()) {
+    const responseWithTranscript = { ...responseDraft, conversation: savedTranscript.trim() };
+    const section = responseSection(responseWithTranscript);
+    const answerNotes = [responseWithTranscript.answer.trim(), responseWithTranscript.conversation.trim()].filter(Boolean).join('\n').trim();
+    if (!answerNotes && !responseDraft.nextSteps.trim()) {
       setError('Add an answer or note before saving.');
       return;
     }
@@ -579,8 +583,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   async function cleanupResponse() {
     if (!respondingTo) return;
     const raw = [
-      responseDraft.answer.trim() ? `Answer: ${responseDraft.answer.trim()}` : '',
-      responseDraft.conversation.trim() ? `Conversation notes: ${responseDraft.conversation.trim()}` : '',
+      responseDraft.answer.trim() ? `Answer / notes: ${responseDraft.answer.trim()}` : '',
+      savedTranscript.trim() ? `Transcript: ${savedTranscript.trim()}` : '',
       responseDraft.nextSteps.trim() ? `Next steps: ${responseDraft.nextSteps.trim()}` : '',
     ].filter(Boolean).join('\n');
     if (!raw) {
@@ -604,11 +608,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       });
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.detail) || text(data.error) || 'Could not clean up response.');
-      setResponseDraft({
-        answer: text(data.improvedBody) || raw,
-        conversation: '',
-        nextSteps: '',
-      });
+      setResponseDraft({ answer: text(data.improvedBody) || raw, conversation: '', nextSteps: '' });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not clean up response.');
     } finally {
@@ -624,7 +624,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       return;
     }
 
-    recordingBaseRef.current = responseDraft.conversation.trim();
+    recordingBaseRef.current = savedTranscript.trim();
     recordingFinalRef.current = '';
     if (!resuming) setLiveTranscript('');
     recordingStopIntentRef.current = '';
@@ -645,7 +645,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const live = [recordingFinalRef.current, interim].filter(Boolean).join(' ').trim();
       const merged = [recordingBaseRef.current, live].filter(Boolean).join('\n').trim();
       setLiveTranscript(live);
-      setResponseDraft(current => ({ ...current, conversation: merged }));
+      setSavedTranscript(merged);
     };
     recognition.onerror = event => {
       setResponseListening(false);
@@ -864,24 +864,23 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 {respondingTo.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.body}</p>}
               </div>
 
-              <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={3} placeholder="Answer" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-              <textarea ref={conversationRef} value={responseDraft.conversation} onChange={event => setResponseDraft({ ...responseDraft, conversation: event.currentTarget.value })} rows={5} placeholder="Conversation notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-              {responseListening && (
+              <textarea ref={conversationRef} value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value, conversation: '' })} rows={6} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              {(responseListening || savedTranscript.trim()) && (
                 <div className="rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">Live transcript</p>
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcript'}</p>
+                    {responseListening && <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />}
                   </div>
-                  <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{liveTranscript || 'Listening...'}</p>
+                  <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{[savedTranscript, liveTranscript].filter(Boolean).join('\n') || 'Listening...'}</p>
                 </div>
               )}
-              <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={3} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={2} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setSavedTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
                 {responseListening ? (
                   <>
