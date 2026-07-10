@@ -729,9 +729,9 @@ export default function Home() {
                 </>
               )}
             </div>
-            <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="h-7 w-7 shrink-0 rounded-full disabled:opacity-50 items-center justify-center" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'inline-flex' }} title="Show daily summary" aria-label="Show daily summary">
-              {summaryLoading ? <span className="text-sm leading-none">…</span> : (
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" style={{ color: '#D9A94B' }} aria-hidden="true">
+            <button onClick={() => dailySummary ? setSummaryVisible(true) : requestDailySummary(true)} disabled={summaryLoading} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none disabled:opacity-50" style={{ background: '#FDF8EE', border: '1px solid #E8D9B4', touchAction: 'manipulation', display: dailySummary && summaryVisible ? 'none' : 'flex' }} title="Show daily summary" aria-label="Show daily summary">
+              {summaryLoading ? <span className="block text-sm leading-none">…</span> : (
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="block h-4 w-4" style={{ color: '#D9A94B' }} aria-hidden="true">
                   <circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none" />
                   <path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4" />
                 </svg>
