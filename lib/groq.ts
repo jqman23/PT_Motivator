@@ -1,4 +1,4 @@
-export type GroqTask = 'ask' | 'log' | 'edit' | 'enhance' | 'summary';
+export type GroqTask = 'ask' | 'publicAsk' | 'log' | 'edit' | 'enhance' | 'summary';
 
 type Attempt = {
   model: string;
@@ -37,21 +37,39 @@ export class GroqRouteError extends Error {
   }
 }
 
+const PERSONAL_ASSISTANT_CHAIN = [
+  'openai/gpt-oss-120b',
+  'llama-3.3-70b-versatile',
+  'qwen/qwen3-32b',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3.6-27b',
+  'llama-3.1-8b-instant',
+];
+
+const PUBLIC_ASSISTANT_CHAIN = [
+  'groq/compound-mini',
+  'groq/compound',
+  ...PERSONAL_ASSISTANT_CHAIN,
+];
+
 const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
-  // High-volume, conversational disambiguation: keep this cheap/fast first.
-  ask: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
+  // Personal history, symptoms, and day logs stay on standard hosted models. Compound can invoke
+  // external tools, so it is reserved for clearly non-personal public/general questions.
+  ask: PERSONAL_ASSISTANT_CHAIN,
+  publicAsk: PUBLIC_ASSISTANT_CHAIN,
 
   // Smart Add needs good JSON and decent reasoning, but it runs more often than Enhance.
-  log: ['openai/gpt-oss-20b', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
+  log: ['openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
 
   // Custom edit previews are small and structured.
-  edit: ['openai/gpt-oss-20b', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
+  edit: ['openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
 
-  // Enhance is lower volume and benefits from richer output, but still has fallbacks.
-  enhance: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
+  // Enhance is lower volume and benefits from richer output, but still has many fallbacks.
+  enhance: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
 
   // Tiny daily recap: keep it cheap and avoid competing with heavier routes.
-  summary: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
+  summary: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.3-70b-versatile'],
 };
 
 function cleanText(value: unknown, limit = 900) {
@@ -107,9 +125,21 @@ function groqDetailFromText(text: string) {
 }
 
 function shouldTryNext(status: number) {
-  // 429 is the big one. 400 is included because a model may reject response_format or a model id.
-  // Auth/billing errors should not be hidden by cycling models.
+  // 429 is the common quota case. 400/404 can be model-specific body or availability issues.
+  // Auth and account billing failures should not be hidden by cycling every model.
   return ![401, 402, 403].includes(status);
+}
+
+function requestBodyForModel(body: Record<string, unknown>, model: string) {
+  const next = { ...body, model };
+
+  // Compound is a system rather than a normal hosted model. It does not need structured-output
+  // enforcement; the route still validates and extracts the JSON response itself.
+  if (model.startsWith('groq/compound')) {
+    delete next.response_format;
+  }
+
+  return next;
 }
 
 export async function callGroqChat(apiKey: string, task: GroqTask, body: Record<string, unknown>) {
@@ -117,24 +147,36 @@ export async function callGroqChat(apiKey: string, task: GroqTask, body: Record<
   const attempts: Attempt[] = [];
 
   for (const model of models) {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ...body, model }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), model.startsWith('groq/compound') ? 45000 : 30000);
 
-    if (res.ok) {
-      const data = await res.json();
-      return { data, model, attemptedModels: attempts.map(item => item.model) };
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBodyForModel(body, model)),
+        signal: controller.signal,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return { data, model, attemptedModels: attempts.map(item => item.model) };
+      }
+
+      const detail = groqDetailFromText(await res.text());
+      attempts.push({ model, status: res.status, statusText: res.statusText, detail });
+      if (!shouldTryNext(res.status)) break;
+    } catch (error) {
+      const detail = error instanceof Error && error.name === 'AbortError'
+        ? 'Request timed out'
+        : error instanceof Error ? error.message : String(error ?? 'Network error');
+      attempts.push({ model, status: 0, statusText: 'FETCH_ERROR', detail });
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const detail = groqDetailFromText(await res.text());
-    attempts.push({ model, status: res.status, statusText: res.statusText, detail });
-
-    if (!shouldTryNext(res.status)) break;
   }
 
   throw new GroqRouteError('All Groq model attempts failed', attempts);
@@ -153,7 +195,8 @@ export function groqErrorPayload(error: unknown): GroqErrorPayload {
       hint: error.status === 401 ? 'Likely bad or missing Groq API key.'
         : error.status === 402 ? 'Groq account billing/quota issue.'
         : error.status === 429 ? 'Groq rate limit or quota issue. The app tried fallback models before failing.'
-        : error.status === 400 ? 'Groq rejected the request body, model, or response_format. The app tried fallback models before failing.'
+        : error.status === 400 ? 'Groq rejected the request body, model, or response format. The app tried fallback models before failing.'
+        : error.status === 0 ? 'Groq timed out or could not be reached. The app tried fallback models before failing.'
         : 'Groq returned a non-OK response. The app tried fallback models before failing.',
     };
   }
