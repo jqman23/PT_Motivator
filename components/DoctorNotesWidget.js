@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const MAX_PHOTOS = 5;
+const DOCTOR_LIST_CONFIG_KEY = 'doctorNoteDoctors';
 const NOTE_TYPES = [
   ['question', 'Question for doctor'],
   ['symptom', 'Symptom / pattern'],
@@ -49,6 +50,11 @@ function parsePhotos(value) {
     }))
     .filter(photo => photo.dataUrl.startsWith('data:image/'))
     .slice(0, MAX_PHOTOS);
+}
+
+function parseDoctorList(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
 function parseNote(row) {
@@ -158,7 +164,7 @@ async function copyValue(value) {
   else fallbackCopy(value);
 }
 
-export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, onClose }) {
+export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, onClose, startInNew = false }) {
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState(null);
   const [search, setSearch] = useState('');
@@ -169,6 +175,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const [doctors, setDoctors] = useState([]);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -190,13 +197,30 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   useEffect(() => {
     if (!open) return undefined;
     let cancelled = false;
+    if (startInNew) {
+      setDraft(blankNote(selectedDate));
+      setDateToAdd(selectedDate);
+      setConfirmDelete(false);
+      setError('');
+    }
     setLoading(true);
     setError('');
-    fetch('/api/doctor-notes', { cache: 'no-store' })
-      .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(text(data.error) || 'Could not load doctor notes.');
-        if (!cancelled) setNotes((Array.isArray(data.rows) ? data.rows : []).map(parseNote));
+    Promise.all([
+      fetch('/api/doctor-notes', { cache: 'no-store' })
+        .then(async response => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(text(data.error) || 'Could not load doctor notes.');
+          return (Array.isArray(data.rows) ? data.rows : []).map(parseNote);
+        }),
+      fetch(`/api/config?key=${encodeURIComponent(DOCTOR_LIST_CONFIG_KEY)}`, { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => parseDoctorList(data.value))
+        .catch(() => []),
+    ])
+      .then(([nextNotes, nextDoctors]) => {
+        if (cancelled) return;
+        setNotes(nextNotes);
+        setDoctors(nextDoctors);
       })
       .catch(reason => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor notes.');
@@ -207,7 +231,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, selectedDate, startInNew]);
 
   const filteredNotes = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -287,6 +311,24 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setDraft({ ...draft, linkedDates: Array.from(new Set([...draft.linkedDates, value])).sort() });
   }
 
+  async function addDoctor() {
+    const name = window.prompt('Doctor name', draft?.provider || '');
+    const clean = name?.trim();
+    if (!clean) return;
+    const nextDoctors = parseDoctorList([...doctors, clean]);
+    setDoctors(nextDoctors);
+    if (draft) setDraft({ ...draft, provider: clean });
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: DOCTOR_LIST_CONFIG_KEY, value: nextDoctors }),
+      });
+    } catch {
+      setError('Doctor saved on this screen, but could not sync the list.');
+    }
+  }
+
   async function attachPhotos(event) {
     if (!draft) return;
     const files = Array.from(event.currentTarget.files || []).filter(file => file.type.startsWith('image/'));
@@ -361,7 +403,17 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <input value={draft.title} onChange={event => setDraft({ ...draft, title: event.currentTarget.value })} placeholder="Title" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
-              <input value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.currentTarget.value })} placeholder="Doctor" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.75rem] gap-2">
+                {doctors.length > 0 ? (
+                  <select value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.currentTarget.value })} className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-stone-700" style={{ fontSize: 16 }}>
+                    <option value="">Doctor</option>
+                    {doctors.map(doctor => <option key={doctor} value={doctor}>{doctor}</option>)}
+                  </select>
+                ) : (
+                  <input value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.currentTarget.value })} placeholder="Doctor" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+                )}
+                <button type="button" onClick={() => void addDoctor()} className="flex min-h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white text-lg font-bold text-stone-500" aria-label="Add doctor" title="Add doctor">+</button>
+              </div>
 
               <textarea value={draft.body} onChange={event => setDraft({ ...draft, body: event.currentTarget.value })} rows={7} placeholder="Notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
