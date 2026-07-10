@@ -205,9 +205,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupError, setCleanupError] = useState('');
   const [responseListening, setResponseListening] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
   const fileInputRef = useRef(null);
   const conversationRef = useRef(null);
   const recognitionRef = useRef(null);
+  const recordingBaseRef = useRef('');
+  const recordingFinalRef = useRef('');
   const noteTouchStart = useRef(null);
   const lastTapRef = useRef({ id: '', time: 0 });
 
@@ -277,6 +280,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }, [notes, search]);
 
   function closeWidget() {
+    recognitionRef.current?.stop?.();
     onClose();
     setDraft(null);
     setRespondingTo(null);
@@ -284,6 +288,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setCleanupDraft(null);
     setAutoNewFromShortcut(false);
     setConfirmDelete(false);
+    setResponseListening(false);
+    setLiveTranscript('');
     setError('');
   }
 
@@ -545,32 +551,49 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       return;
     }
 
+    recordingBaseRef.current = responseDraft.conversation.trim();
+    recordingFinalRef.current = '';
+    setLiveTranscript('');
+
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
     recognition.continuous = true;
     recognitionRef.current = recognition;
-    let finalText = '';
 
     recognition.onresult = event => {
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const transcript = event.results[i]?.[0]?.transcript || '';
-        if (event.results[i]?.isFinal) finalText += `${transcript} `;
+        if (event.results[i]?.isFinal) recordingFinalRef.current = `${recordingFinalRef.current} ${transcript}`.trim();
         else interim += transcript;
       }
-      const merged = [responseDraft.conversation, finalText, interim].filter(Boolean).join(' ').trim();
+      const live = [recordingFinalRef.current, interim].filter(Boolean).join(' ').trim();
+      const merged = [recordingBaseRef.current, live].filter(Boolean).join('\n').trim();
+      setLiveTranscript(live);
       setResponseDraft(current => ({ ...current, conversation: merged }));
     };
-    recognition.onerror = () => {
+    recognition.onerror = event => {
       setResponseListening(false);
       conversationRef.current?.focus();
-      setError('Recording stopped. You can use the iPhone keyboard microphone here.');
+      const message = event?.error === 'not-allowed'
+        ? 'Microphone permission was blocked. You can use the iPhone keyboard microphone here.'
+        : 'Recording stopped. You can use the iPhone keyboard microphone here.';
+      setError(message);
     };
-    recognition.onend = () => setResponseListening(false);
+    recognition.onend = () => {
+      setResponseListening(false);
+      recognitionRef.current = null;
+    };
     setError('');
     setResponseListening(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      setResponseListening(false);
+      conversationRef.current?.focus();
+      setError('Recording could not start. Use the iPhone keyboard microphone in Conversation notes.');
+    }
   }
 
   async function incorporateCleanup() {
@@ -739,15 +762,24 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={3} placeholder="Answer" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
               <textarea ref={conversationRef} value={responseDraft.conversation} onChange={event => setResponseDraft({ ...responseDraft, conversation: event.currentTarget.value })} rows={5} placeholder="Conversation notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              {responseListening && (
+                <div className="rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">Live transcript</p>
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />
+                  </div>
+                  <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{liveTranscript || 'Listening...'}</p>
+                </div>
+              )}
               <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={3} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { setRespondingTo(null); setResponseDraft(responseTemplate()); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setLiveTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
-                <button type="button" onClick={toggleResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responseListening ? '#FBEFF1' : '#FDF8EE', color: responseListening ? '#C96B7A' : '#A97920' }}>{responseListening ? 'Stop' : 'Record'}</button>
+                <button type="button" onClick={toggleResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responseListening ? '#FBEFF1' : '#FDF8EE', color: responseListening ? '#C96B7A' : '#A97920' }}>{responseListening ? 'Stop' : 'Record voice'}</button>
               </div>
             </div>
           ) : draft ? (
@@ -882,7 +914,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
                           {note.linkedDates.slice(0, 2).map(date => <span key={date} className="max-w-full truncate rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">{formatDate(date)}</span>)}
                           {note.linkedDates.length > 2 && <span className="text-[10px] text-stone-400">+{note.linkedDates.length - 2}</span>}
-                          <div className="ml-auto flex shrink-0 gap-1.5">
+                          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1.5">
+                            <button type="button" onClick={event => { event.stopPropagation(); void startCleanup(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-600">Clean up</button>
                             <button type="button" onClick={event => { event.stopPropagation(); startResponse(note); }} className="min-h-9 rounded-lg px-3 py-1 text-[10px] font-bold text-white" style={{ background: '#7E9B86' }}>Respond</button>
                             <button type="button" onClick={event => { event.stopPropagation(); void copyNote(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-500">Copy</button>
                           </div>
