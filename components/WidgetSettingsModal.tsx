@@ -1,19 +1,26 @@
 'use client';
 
-type WidgetKey = 'timer' | 'info' | 'calendar' | 'treatments' | 'ptSessions' | 'reporting' | 'masterDatabase' | 'ptReport';
+type CoreWidgetKey = 'timer' | 'info' | 'calendar' | 'treatments' | 'ptSessions' | 'reporting' | 'masterDatabase' | 'ptReport';
+type ExtraWidgetKey = 'library' | 'aiCoach' | 'manage' | 'doctorNotes' | 'dailySummary';
+type WidgetKey = CoreWidgetKey | ExtraWidgetKey;
 
 const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'timer', label: 'Timer', description: 'Quick countdown timer.' },
+  { key: 'library', label: 'Exercise library', description: 'Browse, add, and import exercises.' },
+  { key: 'aiCoach', label: 'Ask AI', description: 'Ask questions about exercises and form.' },
   { key: 'info', label: 'Exercise guide', description: 'Consolidated exercise instructions.' },
+  { key: 'manage', label: 'Reorder & edit', description: 'Reorder categories and exercises.' },
   { key: 'calendar', label: 'Calendar', description: 'Date picker and calendar view.' },
+  { key: 'doctorNotes', label: 'Doctor notes', description: 'Save questions, symptom patterns, images, results, and related days.' },
   { key: 'treatments', label: 'Meds / treatments', description: 'Assign treatment notes to days.' },
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },
   { key: 'ptReport', label: 'PT PDF report', description: 'Generate a customizable PDF for your physical therapist.' },
+  { key: 'dailySummary', label: 'Daily summary', description: 'Show or hide the sun summary control.' },
   { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
 ];
 
-export type WidgetPrefs = Record<WidgetKey, boolean>;
+export type WidgetPrefs = Record<CoreWidgetKey, boolean> & Partial<Record<ExtraWidgetKey, boolean>>;
 
 interface Props {
   prefs: WidgetPrefs;
@@ -23,7 +30,12 @@ interface Props {
 }
 
 export default function WidgetSettingsModal({ prefs, onChange, onOpenTypes, onClose }: Props) {
-  const toggle = (key: WidgetKey) => onChange({ ...prefs, [key]: !prefs[key] });
+  const isOn = (key: WidgetKey) => prefs[key] !== false;
+  const toggle = (key: WidgetKey) => {
+    const next = { ...prefs, [key]: !isOn(key) } as WidgetPrefs;
+    onChange(next);
+    window.dispatchEvent(new CustomEvent('pt-widget-prefs-change', { detail: next }));
+  };
 
   return (
     <div
@@ -38,7 +50,7 @@ export default function WidgetSettingsModal({ prefs, onChange, onOpenTypes, onCl
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg font-semibold text-stone-800">Widget settings</h2>
-            <p className="text-[11px] text-stone-400">Choose which optional icons show up top.</p>
+            <p className="text-[11px] text-stone-400">Choose exactly which controls are visible.</p>
           </div>
           <button
             onClick={e => { e.preventDefault(); e.stopPropagation(); onClose(); }}
@@ -50,12 +62,13 @@ export default function WidgetSettingsModal({ prefs, onChange, onOpenTypes, onCl
 
         <div className="px-4 py-4 space-y-2 overflow-y-auto">
           <div className="bg-white rounded-xl border border-stone-100 px-3 py-3">
-            <p className="text-sm font-semibold text-stone-800">Always shown</p>
-            <p className="text-xs text-stone-400 mt-1">Exercise Library, Reorder & Edit, and Widget Settings stay visible.</p>
+            <p className="text-sm font-semibold text-stone-800">Settings stays visible</p>
+            <p className="text-xs text-stone-400 mt-1">The Settings button is the only control that cannot be hidden, so you can always turn widgets back on.</p>
           </div>
 
           {OPTIONS.map(opt => {
             const isMobileDisabled = opt.key === 'masterDatabase';
+            const enabled = isOn(opt.key);
 
             return (
               <button
@@ -80,11 +93,11 @@ export default function WidgetSettingsModal({ prefs, onChange, onOpenTypes, onCl
                 </div>
                 <span
                   className="w-11 h-6 rounded-full p-0.5 flex-shrink-0 transition-colors"
-                  style={{ background: prefs[opt.key] ? '#7E9B86' : '#e7e5e4' }}
+                  style={{ background: enabled ? '#7E9B86' : '#e7e5e4' }}
                 >
                   <span
                     className="block w-5 h-5 rounded-full bg-white shadow-sm transition-transform"
-                    style={{ transform: prefs[opt.key] ? 'translateX(20px)' : 'translateX(0)' }}
+                    style={{ transform: enabled ? 'translateX(20px)' : 'translateX(0)' }}
                   />
                 </span>
               </button>
