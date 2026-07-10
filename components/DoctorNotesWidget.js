@@ -353,23 +353,17 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         >
           {draft ? (
             <div className="min-w-0 space-y-3">
-              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="min-w-0">
                 <select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.currentTarget.value })} className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-stone-700" style={{ fontSize: 16 }}>
                   {NOTE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
-                <button type="button" onClick={() => setDraft({ ...draft, pinned: !draft.pinned })} className="min-h-11 w-full min-w-0 rounded-xl border px-3 py-2.5 text-sm font-semibold leading-snug" style={{ borderColor: draft.pinned ? '#D9A94B' : '#e7e5e4', background: draft.pinned ? '#FBF5E8' : '#fff', color: draft.pinned ? '#A97920' : '#78716c' }}>
-                  {draft.pinned ? '★ Bring up next visit' : '☆ Pin for next visit'}
-                </button>
               </div>
 
-              <input value={draft.title} onChange={event => setDraft({ ...draft, title: event.currentTarget.value })} placeholder="Short title — e.g. burning under left foot" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <input value={draft.title} onChange={event => setDraft({ ...draft, title: event.currentTarget.value })} placeholder="Title" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
-              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-                <input value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.currentTarget.value })} placeholder="Doctor / clinic" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-                <input value={draft.referenceText} onChange={event => setDraft({ ...draft, referenceText: event.currentTarget.value })} placeholder="Reference — MRI, portal message…" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-              </div>
+              <input value={draft.provider} onChange={event => setDraft({ ...draft, provider: event.currentTarget.value })} placeholder="Doctor" className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
-              <textarea value={draft.body} onChange={event => setDraft({ ...draft, body: event.currentTarget.value })} rows={7} placeholder="What happened, when it started, what makes it better or worse, and what you want the doctor to answer…" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <textarea value={draft.body} onChange={event => setDraft({ ...draft, body: event.currentTarget.value })} rows={7} placeholder="Notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-3">
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
