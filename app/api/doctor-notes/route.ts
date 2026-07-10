@@ -5,6 +5,8 @@ const sql = neon(process.env.DATABASE_URL!);
 
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
+const MAX_TRANSCRIPTS = 20;
+const MAX_TRANSCRIPT_TEXT_LENGTH = 8_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type DoctorNotePhoto = {
@@ -13,6 +15,13 @@ type DoctorNotePhoto = {
   type: string;
   dataUrl: string;
   createdAt: string;
+};
+
+type ResponseTranscript = {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function cleanText(value: unknown, max: number) {
@@ -48,6 +57,29 @@ function normalizePhotos(value: unknown): DoctorNotePhoto[] {
   return photos;
 }
 
+function normalizeTranscripts(value: unknown): ResponseTranscript[] {
+  if (!Array.isArray(value)) return [];
+  const transcripts: ResponseTranscript[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<ResponseTranscript>;
+    const text = cleanText(raw.text, MAX_TRANSCRIPT_TEXT_LENGTH);
+    if (!text) continue;
+
+    transcripts.push({
+      id: cleanText(raw.id, 80) || `transcript-${Date.now()}-${transcripts.length}`,
+      text,
+      createdAt: cleanText(raw.createdAt, 60) || new Date().toISOString(),
+      updatedAt: cleanText(raw.updatedAt, 60) || new Date().toISOString(),
+    });
+
+    if (transcripts.length >= MAX_TRANSCRIPTS) break;
+  }
+
+  return transcripts;
+}
+
 async function ensureTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS doctor_notes (
@@ -59,10 +91,15 @@ async function ensureTable() {
       body TEXT NOT NULL DEFAULT '',
       linked_dates JSONB NOT NULL DEFAULT '[]'::jsonb,
       photo_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      response_transcripts JSONB NOT NULL DEFAULT '[]'::jsonb,
       pinned BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `;
+  await sql`
+    ALTER TABLE doctor_notes
+    ADD COLUMN IF NOT EXISTS response_transcripts JSONB NOT NULL DEFAULT '[]'::jsonb
   `;
 }
 
@@ -73,6 +110,7 @@ export async function GET() {
       SELECT id, kind, title, provider, reference_text, body,
         COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
         COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
+        COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,
         pinned, created_at, updated_at
       FROM doctor_notes
       ORDER BY pinned DESC, updated_at DESC
@@ -97,6 +135,7 @@ export async function POST(req: NextRequest) {
     const noteBody = typeof body.body === 'string' ? body.body.trim().slice(0, 12_000) : '';
     const linkedDates = normalizeDates(body.linkedDates);
     const photoAttachments = normalizePhotos(body.photoAttachments);
+    const responseTranscripts = normalizeTranscripts(body.responseTranscripts);
     const pinned = body.pinned === true;
 
     if (!title && !noteBody && photoAttachments.length === 0) {
@@ -107,11 +146,12 @@ export async function POST(req: NextRequest) {
     await sql`
       INSERT INTO doctor_notes (
         id, kind, title, provider, reference_text, body,
-        linked_dates, photo_attachments, pinned, created_at, updated_at
+        linked_dates, photo_attachments, response_transcripts, pinned, created_at, updated_at
       ) VALUES (
         ${id}, ${kind}, ${title}, ${provider}, ${referenceText}, ${noteBody},
         ${JSON.stringify(linkedDates)}::jsonb,
         ${JSON.stringify(photoAttachments)}::jsonb,
+        ${JSON.stringify(responseTranscripts)}::jsonb,
         ${pinned}, NOW(), NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
@@ -122,6 +162,7 @@ export async function POST(req: NextRequest) {
         body = EXCLUDED.body,
         linked_dates = EXCLUDED.linked_dates,
         photo_attachments = EXCLUDED.photo_attachments,
+        response_transcripts = EXCLUDED.response_transcripts,
         pinned = EXCLUDED.pinned,
         updated_at = NOW()
     `;
@@ -130,6 +171,7 @@ export async function POST(req: NextRequest) {
       SELECT id, kind, title, provider, reference_text, body,
         COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
         COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
+        COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,
         pinned, created_at, updated_at
       FROM doctor_notes
       WHERE id = ${id}

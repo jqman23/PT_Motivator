@@ -52,6 +52,20 @@ function parsePhotos(value) {
     .slice(0, MAX_PHOTOS);
 }
 
+function parseTranscripts(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(item => item && typeof item === 'object')
+    .map((item, index) => ({
+      id: text(item.id) || `transcript-${Date.now()}-${index}`,
+      text: text(item.text).trim(),
+      createdAt: text(item.createdAt) || new Date().toISOString(),
+      updatedAt: text(item.updatedAt) || new Date().toISOString(),
+    }))
+    .filter(tile => tile.text)
+    .slice(0, 20);
+}
+
 function parseDoctorList(value) {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
@@ -67,6 +81,7 @@ function parseNote(row) {
     body: text(row?.body),
     linkedDates: parseDates(row?.linked_dates ?? row?.linkedDates),
     photoAttachments: parsePhotos(row?.photo_attachments ?? row?.photoAttachments),
+    responseTranscripts: parseTranscripts(row?.response_transcripts ?? row?.responseTranscripts),
     pinned: row?.pinned === true,
     createdAt: text(row?.created_at) || text(row?.createdAt) || new Date().toISOString(),
     updatedAt: text(row?.updated_at) || text(row?.updatedAt) || new Date().toISOString(),
@@ -145,10 +160,10 @@ function noteAsText(note) {
 }
 
 function responseTemplate() {
-  return { answer: '', conversation: '', nextSteps: '' };
+  return { answer: '', nextSteps: '' };
 }
 
-function responseSection(response) {
+function responseSection(response, transcriptCount = 0) {
   const timestamp = new Date().toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -159,9 +174,22 @@ function responseSection(response) {
   return [
     `Response - ${timestamp}`,
     response.answer.trim() ? `Answer / notes: ${response.answer.trim()}` : '',
-    response.conversation.trim() ? `Transcript: ${response.conversation.trim()}` : '',
+    transcriptCount > 0 ? `Transcript tiles: ${transcriptCount}` : '',
     response.nextSteps.trim() ? `Next steps: ${response.nextSteps.trim()}` : '',
   ].filter(Boolean).join('\n');
+}
+
+function parseLegacyResponseTranscripts(body) {
+  if (typeof body !== 'string' || !body.trim()) return [];
+  const transcriptMatches = Array.from(body.matchAll(/Transcript:\s*([\s\S]*?)(?:\n(?:Next steps:|Response - |Answer \/ notes:)|$)/g));
+  return transcriptMatches
+    .map((match, index) => ({
+      id: `legacy-transcript-${index}-${Date.now()}`,
+      text: (match[1] || '').trim(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }))
+    .filter(tile => tile.text);
 }
 
 function fallbackCopy(value) {
@@ -207,17 +235,18 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [responseListening, setResponseListening] = useState(false);
   const [responsePaused, setResponsePaused] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
-  const [savedTranscript, setSavedTranscript] = useState('');
-  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+  const [responseTranscriptTiles, setResponseTranscriptTiles] = useState([]);
+  const [editingTranscriptId, setEditingTranscriptId] = useState('');
+  const [editingTranscriptValue, setEditingTranscriptValue] = useState('');
   const [undoSnapshot, setUndoSnapshot] = useState(null);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const fileInputRef = useRef(null);
-  const conversationRef = useRef(null);
   const recognitionRef = useRef(null);
-  const recordingBaseRef = useRef('');
   const recordingFinalRef = useRef('');
+  const recordingLiveRef = useRef('');
   const recordingStopIntentRef = useRef('');
+  const recordingTranscriptIdRef = useRef('');
   const noteTouchStart = useRef(null);
   const lastTapRef = useRef({ id: '', time: 0 });
 
@@ -307,6 +336,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   function closeWidget() {
     recognitionRef.current?.stop?.();
+    recordingTranscriptIdRef.current = '';
     onClose();
     setDraft(null);
     setRespondingTo(null);
@@ -318,8 +348,11 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setResponseListening(false);
     setResponsePaused(false);
     setLiveTranscript('');
-    setSavedTranscript('');
-    setTranscriptExpanded(false);
+    setResponseTranscriptTiles([]);
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+    recordingFinalRef.current = '';
+    recordingLiveRef.current = '';
     setError('');
   }
 
@@ -339,6 +372,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   function backToNotesHome() {
+    recognitionRef.current?.stop?.();
+    recordingTranscriptIdRef.current = '';
     setDraft(null);
     setRespondingTo(null);
     setCleanupNote(null);
@@ -347,10 +382,26 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setConfirmDelete(false);
     setConfirmingDiscard(false);
     setError('');
+    setResponseListening(false);
+    setResponsePaused(false);
+    setLiveTranscript('');
+    setResponseTranscriptTiles([]);
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+    recordingFinalRef.current = '';
+    recordingLiveRef.current = '';
   }
 
   function rememberUndo(label) {
-    setUndoSnapshot({ label, notes: notes.map(note => ({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] })) });
+    setUndoSnapshot({
+      label,
+      notes: notes.map(note => ({
+        ...note,
+        linkedDates: [...note.linkedDates],
+        photoAttachments: [...note.photoAttachments],
+        responseTranscripts: [...(note.responseTranscripts || [])],
+      })),
+    });
   }
 
   async function undoLastChange() {
@@ -387,8 +438,19 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   function startResponse(note) {
     setDraft(null);
-    setRespondingTo({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] });
+    setRespondingTo({
+      ...note,
+      linkedDates: [...note.linkedDates],
+      photoAttachments: [...note.photoAttachments],
+      responseTranscripts: [...(note.responseTranscripts || [])],
+    });
     setResponseDraft(responseTemplate());
+    setResponseTranscriptTiles(note.responseTranscripts?.length > 0 ? note.responseTranscripts : parseLegacyResponseTranscripts(note.body));
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+    setLiveTranscript('');
+    recordingTranscriptIdRef.current = '';
+    recordingFinalRef.current = '';
     setConfirmDelete(false);
     setError('');
   }
@@ -547,11 +609,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   async function saveResponse() {
     if (!respondingTo) return;
-    const responseWithTranscript = { ...responseDraft, conversation: savedTranscript.trim() };
-    const section = responseSection(responseWithTranscript);
-    const answerNotes = [responseWithTranscript.answer.trim(), responseWithTranscript.conversation.trim()].filter(Boolean).join('\n').trim();
-    if (!answerNotes && !responseDraft.nextSteps.trim()) {
-      setError('Add an answer or note before saving.');
+    const section = responseSection(responseDraft, responseTranscriptTiles.length);
+    const answerNotes = responseDraft.answer.trim();
+    if (!answerNotes && !responseDraft.nextSteps.trim() && responseTranscriptTiles.length === 0) {
+      setError('Add an answer, transcript, or next step before saving.');
       return;
     }
 
@@ -561,6 +622,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const updated = {
         ...respondingTo,
         body: [respondingTo.body?.trim(), section].filter(Boolean).join('\n\n'),
+        responseTranscripts: responseTranscriptTiles.map(tile => ({
+          id: tile.id,
+          text: tile.text,
+          createdAt: tile.createdAt,
+          updatedAt: tile.updatedAt,
+        })),
       };
       const response = await fetch('/api/doctor-notes', {
         method: 'POST',
@@ -575,6 +642,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
       setRespondingTo(null);
       setResponseDraft(responseTemplate());
+      setResponseTranscriptTiles([]);
+      setEditingTranscriptId('');
+      setEditingTranscriptValue('');
+      recordingTranscriptIdRef.current = '';
+      recordingFinalRef.current = '';
+      recordingLiveRef.current = '';
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save response.');
     } finally {
@@ -586,7 +659,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     if (!respondingTo) return;
     const raw = [
       responseDraft.answer.trim() ? `Answer / notes: ${responseDraft.answer.trim()}` : '',
-      savedTranscript.trim() ? `Transcript: ${savedTranscript.trim()}` : '',
+      ...responseTranscriptTiles.map(tile => (tile.text.trim() ? `Transcript: ${tile.text.trim()}` : '')),
       responseDraft.nextSteps.trim() ? `Next steps: ${responseDraft.nextSteps.trim()}` : '',
     ].filter(Boolean).join('\n');
     if (!raw) {
@@ -621,22 +694,33 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   function startResponseRecording(resuming = false) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setTranscriptExpanded(true);
       setError('Speech recording is not available in this browser.');
       return;
     }
 
-    recordingBaseRef.current = savedTranscript.trim();
-    recordingFinalRef.current = '';
+    const now = new Date().toISOString();
+    const existingId = recordingTranscriptIdRef.current;
+    if (!resuming || !existingId) {
+      const nextId = makeId();
+      recordingTranscriptIdRef.current = nextId;
+      recordingFinalRef.current = '';
+      recordingLiveRef.current = '';
+      setEditingTranscriptId('');
+      setEditingTranscriptValue('');
+      setResponseTranscriptTiles(previous => [{ id: nextId, text: '', createdAt: now, updatedAt: now }, ...previous]);
+    } else {
+      setResponseTranscriptTiles(previous => previous.map(tile => (tile.id === existingId ? { ...tile, updatedAt: now } : tile)));
+    }
+
     recordingStopIntentRef.current = '';
-    if (!resuming) setLiveTranscript('');
-    setTranscriptExpanded(true);
+    setLiveTranscript(recordingLiveRef.current.trim());
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
     recognition.continuous = true;
     recognitionRef.current = recognition;
+    const activeTranscriptId = recordingTranscriptIdRef.current;
 
     recognition.onresult = event => {
       let interim = '';
@@ -646,9 +730,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         else interim += transcript;
       }
       const live = [recordingFinalRef.current, interim].filter(Boolean).join(' ').trim();
-      const merged = [recordingBaseRef.current, live].filter(Boolean).join('\n').trim();
+      recordingLiveRef.current = live;
+      const updatedAt = new Date().toISOString();
       setLiveTranscript(live);
-      setSavedTranscript(merged);
+      setResponseTranscriptTiles(previous => previous.map(tile => (
+        tile.id === activeTranscriptId ? { ...tile, text: live, updatedAt } : tile
+      )));
     };
     recognition.onerror = event => {
       const intentional = recordingStopIntentRef.current === 'stop' || recordingStopIntentRef.current === 'pause';
@@ -659,11 +746,31 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     };
     recognition.onend = () => {
       const intent = recordingStopIntentRef.current;
+      const currentText = recordingLiveRef.current.trim();
       setResponseListening(false);
       recognitionRef.current = null;
-      setResponsePaused(intent === 'pause');
-      if (intent === 'stop') setTranscriptExpanded(false);
+      if (!intent || intent === 'stop') {
+        if (!currentText) {
+          setResponseTranscriptTiles(previous => previous.filter(tile => tile.id !== activeTranscriptId));
+        } else {
+          setResponseTranscriptTiles(previous => previous.map(tile => (
+            tile.id === activeTranscriptId ? { ...tile, text: currentText, updatedAt: new Date().toISOString() } : tile
+          )));
+        }
+        recordingTranscriptIdRef.current = '';
+        recordingFinalRef.current = '';
+        recordingLiveRef.current = '';
+        setResponsePaused(false);
+      } else if (intent === 'pause') {
+        if (currentText) {
+          setResponseTranscriptTiles(previous => previous.map(tile => (
+            tile.id === activeTranscriptId ? { ...tile, text: currentText, updatedAt: new Date().toISOString() } : tile
+          )));
+        }
+        setResponsePaused(true);
+      }
       recordingStopIntentRef.current = '';
+      setLiveTranscript('');
     };
     setError('');
     setResponseListening(true);
@@ -683,7 +790,6 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     recognitionRef.current = null;
     setResponseListening(false);
     setResponsePaused(false);
-    setTranscriptExpanded(false);
     setError('');
   }
 
@@ -693,7 +799,43 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     recognitionRef.current = null;
     setResponseListening(false);
     setResponsePaused(true);
-    setTranscriptExpanded(false);
+    setError('');
+  }
+
+  function startEditingTranscript(tile) {
+    setEditingTranscriptId(tile.id);
+    setEditingTranscriptValue(tile.text);
+    setError('');
+  }
+
+  function saveTranscriptEdit(tileId) {
+    const nextText = editingTranscriptValue.trim();
+    if (!nextText) {
+      setError('Transcript cannot be empty.');
+      return;
+    }
+    const updatedAt = new Date().toISOString();
+    setResponseTranscriptTiles(previous => previous.map(tile => (
+      tile.id === tileId ? { ...tile, text: nextText, updatedAt } : tile
+    )));
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+    setError('');
+  }
+
+  function cancelTranscriptEdit() {
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+  }
+
+  function deleteTranscript(tileId) {
+    setResponseTranscriptTiles(previous => previous.filter(tile => tile.id !== tileId));
+    if (recordingTranscriptIdRef.current === tileId) {
+      recordingTranscriptIdRef.current = '';
+      recordingFinalRef.current = '';
+      recognitionRef.current?.stop?.();
+    }
+    if (editingTranscriptId === tileId) cancelTranscriptEdit();
     setError('');
   }
 
@@ -867,20 +1009,57 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 {respondingTo.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.body}</p>}
               </div>
 
-              <textarea ref={conversationRef} value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value, conversation: '' })} rows={6} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
-              {(transcriptExpanded || savedTranscript.trim()) && (
-                <button type="button" onClick={() => !responseListening && setTranscriptExpanded(prev => !prev)} className="w-full rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3 text-left" style={{ touchAction: 'manipulation' }}>
+              <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={5} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+
+              {(responseTranscriptTiles.length > 0 || responseListening) && (
+                <div className="rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcript'}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcripts'}</p>
                     {responseListening && <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />}
-                    {!responseListening && <span className="text-[10px] font-bold text-[#A97920]">{transcriptExpanded ? 'Hide' : 'View'}</span>}
                   </div>
-                  {responseListening || transcriptExpanded ? (
-                    <p className="min-h-10 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{responseListening ? (savedTranscript || liveTranscript || 'Listening...') : savedTranscript}</p>
-                  ) : (
-                    <p className="truncate text-xs font-semibold text-stone-600">{savedTranscript || 'Tap to view transcript'}</p>
-                  )}
-                </button>
+                  <div className="space-y-2">
+                    {responseTranscriptTiles.map(tile => {
+                      const liveTile = responseListening && recordingTranscriptIdRef.current === tile.id;
+                      const isEditing = editingTranscriptId === tile.id;
+                      return (
+                        <div key={tile.id} className="rounded-xl border border-[#E8D9B4] bg-white p-2.5 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">
+                              {liveTile ? 'Recording' : new Date(tile.updatedAt || tile.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </p>
+                            {!liveTile && !isEditing && (
+                              <div className="flex shrink-0 gap-1">
+                                <button type="button" onClick={() => startEditingTranscript(tile)} className="rounded-md bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-600">Edit</button>
+                                <button type="button" onClick={() => void deleteTranscript(tile.id)} className="rounded-md bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">Delete</button>
+                              </div>
+                            )}
+                            {liveTile && <span className="text-[10px] font-bold text-[#C96B7A]">Live</span>}
+                          </div>
+                          {isEditing ? (
+                            <div className="mt-2 space-y-2">
+                              <textarea
+                                value={editingTranscriptValue}
+                                onChange={event => setEditingTranscriptValue(event.currentTarget.value)}
+                                rows={4}
+                                className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs leading-relaxed"
+                                style={{ fontSize: 16 }}
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <button type="button" onClick={() => saveTranscriptEdit(tile.id)} className="min-h-10 rounded-lg bg-[#7E9B86] px-3 py-2 text-xs font-bold text-white">Save</button>
+                                <button type="button" onClick={cancelTranscriptEdit} className="min-h-10 rounded-lg bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600">Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{tile.text || (liveTile ? 'Listening...' : 'Transcript')}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {responseTranscriptTiles.length === 0 && responseListening && (
+                      <p className="rounded-xl bg-white px-3 py-2 text-xs leading-relaxed text-stone-600">Listening...</p>
+                    )}
+                  </div>
+                </div>
               )}
               <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={2} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
@@ -888,7 +1067,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setSavedTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setResponseTranscriptTiles([]); setEditingTranscriptId(''); setEditingTranscriptValue(''); recordingTranscriptIdRef.current = ''; recordingFinalRef.current = ''; recordingLiveRef.current = ''; }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
                 {responseListening ? (
                   <>
