@@ -205,6 +205,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupError, setCleanupError] = useState('');
   const [responseListening, setResponseListening] = useState(false);
+  const [responsePaused, setResponsePaused] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [undoSnapshot, setUndoSnapshot] = useState(null);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -214,6 +215,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const recognitionRef = useRef(null);
   const recordingBaseRef = useRef('');
   const recordingFinalRef = useRef('');
+  const recordingStopIntentRef = useRef('');
   const noteTouchStart = useRef(null);
   const lastTapRef = useRef({ id: '', time: 0 });
 
@@ -312,6 +314,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setConfirmDelete(false);
     setConfirmingDiscard(false);
     setResponseListening(false);
+    setResponsePaused(false);
     setLiveTranscript('');
     setError('');
   }
@@ -613,13 +616,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     }
   }
 
-  function toggleResponseRecording() {
-    if (responseListening) {
-      recognitionRef.current?.stop?.();
-      setResponseListening(false);
-      return;
-    }
-
+  function startResponseRecording(resuming = false) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       conversationRef.current?.focus();
@@ -629,7 +626,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
     recordingBaseRef.current = responseDraft.conversation.trim();
     recordingFinalRef.current = '';
-    setLiveTranscript('');
+    if (!resuming) setLiveTranscript('');
+    recordingStopIntentRef.current = '';
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
@@ -651,25 +649,49 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     };
     recognition.onerror = event => {
       setResponseListening(false);
+      setResponsePaused(false);
       conversationRef.current?.focus();
       const message = event?.error === 'not-allowed'
         ? 'Microphone permission was blocked. You can use the iPhone keyboard microphone here.'
-        : 'Recording stopped. You can use the iPhone keyboard microphone here.';
+        : 'Recording had an issue. You can use the iPhone keyboard microphone here.';
       setError(message);
     };
     recognition.onend = () => {
       setResponseListening(false);
       recognitionRef.current = null;
+      if (recordingStopIntentRef.current === 'pause') setResponsePaused(true);
+      else setResponsePaused(false);
+      recordingStopIntentRef.current = '';
     };
     setError('');
     setResponseListening(true);
+    setResponsePaused(false);
     try {
       recognition.start();
     } catch {
       setResponseListening(false);
+      setResponsePaused(false);
       conversationRef.current?.focus();
       setError('Recording could not start. Use the iPhone keyboard microphone in Conversation notes.');
     }
+  }
+
+  function stopResponseRecording() {
+    recordingStopIntentRef.current = 'stop';
+    recognitionRef.current?.stop?.();
+    recognitionRef.current = null;
+    setResponseListening(false);
+    setResponsePaused(false);
+    setError('');
+  }
+
+  function pauseResponseRecording() {
+    recordingStopIntentRef.current = 'pause';
+    recognitionRef.current?.stop?.();
+    recognitionRef.current = null;
+    setResponseListening(false);
+    setResponsePaused(true);
+    setError('');
   }
 
   async function incorporateCleanup() {
@@ -859,9 +881,16 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setLiveTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
-                <button type="button" onClick={toggleResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responseListening ? '#FBEFF1' : '#FDF8EE', color: responseListening ? '#C96B7A' : '#A97920' }}>{responseListening ? 'Stop' : 'Record voice'}</button>
+                {responseListening ? (
+                  <>
+                    <button type="button" onClick={pauseResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Pause</button>
+                    <button type="button" onClick={stopResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Stop</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => startResponseRecording(responsePaused)} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responsePaused ? '#E4ECE6' : '#FDF8EE', color: responsePaused ? '#476653' : '#A97920' }}>{responsePaused ? 'Resume' : 'Record voice'}</button>
+                )}
               </div>
             </div>
           ) : draft ? (
