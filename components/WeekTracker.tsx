@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE } from '@/lib/layout';
-import DoctorNotesWidget from '@/components/DoctorNotesWidget';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type WeekMode = 'type' | 'category';
@@ -104,7 +102,6 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [toolbarPrefs, setToolbarPrefs] = useState<ToolbarPrefs>({});
-  const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,10 +183,6 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
 
   useEffect(() => {
     const syncToolbar = () => {
-      const settingsButton = document.querySelector<HTMLButtonElement>('button[title="Widget settings"]');
-      const nextTarget = settingsButton?.parentElement ?? null;
-      if (nextTarget && nextTarget !== toolbarTarget) setToolbarTarget(nextTarget);
-
       const visibility: Array<[string, boolean]> = [
         ['Exercise library', toolbarPrefs.library !== false],
         ['Ask AI about exercise', toolbarPrefs.aiCoach !== false],
@@ -207,11 +200,11 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
     const observer = new MutationObserver(syncToolbar);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [toolbarPrefs, toolbarTarget]);
+  }, [toolbarPrefs]);
 
   const groups = useMemo<WeekGroup[]>(() => {
     if (mode === 'category') {
-      return layout.map((cat, index) => {
+      return layout.map((cat) => {
         const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
         return {
           id: cat.id,
@@ -297,11 +290,6 @@ export default function WeekTracker({ log, today, selectedDate, ptSessions, exer
 
   return (
     <>
-      {toolbarTarget && toolbarPrefs.doctorNotes !== false && createPortal(
-        <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={onSelectDate} />,
-        toolbarTarget
-      )}
-
       <div className="bg-white border border-stone-100 rounded-2xl p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>

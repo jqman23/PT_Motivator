@@ -11,7 +11,7 @@ const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'info', label: 'Exercise guide', description: 'Consolidated exercise instructions.' },
   { key: 'manage', label: 'Reorder & edit', description: 'Reorder categories and exercises.' },
   { key: 'calendar', label: 'Calendar', description: 'Date picker and calendar view.' },
-  { key: 'doctorNotes', label: 'Doctor notes', description: 'Save questions, symptom patterns, images, results, and related days.' },
+  { key: 'doctorNotes', label: 'Doctor notes', description: 'Simple notes, photos, and related days.' },
   { key: 'treatments', label: 'Meds / treatments', description: 'Assign treatment notes to days.' },
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },

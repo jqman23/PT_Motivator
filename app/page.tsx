@@ -20,6 +20,7 @@ import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsMod
 import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
 import TypeSettingsModal from '@/components/TypeSettingsModal';
+import DoctorNotesWidget from '@/components/DoctorNotesWidget';
 import { ExerciseTypeMeta, normalizeExerciseType } from '@/lib/exerciseTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
@@ -81,6 +82,7 @@ const DEFAULT_WIDGET_PREFS: WidgetPrefs = {
   reporting: true,
   masterDatabase: true,
   ptReport: true,
+  doctorNotes: true,
 };
 
 function getDailyQuote() {
@@ -185,6 +187,7 @@ export default function Home() {
   const [showMasterDatabase, setShowMasterDatabase] = useState(false);
   const [showPTReport, setShowPTReport] = useState(false);
   const [showAiCoach, setShowAiCoach] = useState(false);
+  const [showDoctorNotes, setShowDoctorNotes] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
@@ -627,6 +630,7 @@ export default function Home() {
               {widgetPrefs.calendar && <IconButton title="Calendar" label="cal" onClick={() => setShowCalendar(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></IconButton>}
               {widgetPrefs.treatments && <IconButton title="Meds / treatments" label="meds" onClick={() => setShowTreatments(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 3h6v4H7z"/><path d="M6 7h8l1 10H5z"/><path d="M8 12h4M10 10v4"/></svg></IconButton>}
               {widgetPrefs.ptSessions && <IconButton title="PT sessions" label="PT" onClick={() => setShowPTSessions(true)} active={ptSessions.some(s => s.date === today)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="3.5" r="2"/><path d="M10 5.5v5"/><path d="M10 8L6.5 5.5"/><path d="M10 8L13.5 5.5"/><path d="M10 10.5L7.5 15"/><path d="M10 10.5L12.5 15"/></svg></IconButton>}
+              {widgetPrefs.doctorNotes !== false && <IconButton title="Doctor notes" label="doc" onClick={() => setShowDoctorNotes(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3M7 10h6M7 13h4"/></svg></IconButton>}
               {widgetPrefs.reporting && <IconButton title="Progress report" label="stats" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
               {widgetPrefs.ptReport && <IconButton title="PT PDF report" label="PDF" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
               {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" label="DB" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
@@ -745,6 +749,7 @@ export default function Home() {
         {showTypeSettings && <TypeSettingsModal types={typeOptions} meta={typeMeta} onChange={updateTypeMeta} onClose={() => setShowTypeSettings(false)} />}
         {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
         {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} selectedDate={selectedDate} today={today} onClose={() => setShowAiCoach(false)} />}
+        <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={changeDate} open={showDoctorNotes} onClose={() => setShowDoctorNotes(false)} />
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onImportExercises={importExercises} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}

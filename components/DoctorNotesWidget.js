@@ -158,8 +158,7 @@ async function copyValue(value) {
   else fallbackCopy(value);
 }
 
-export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
-  const [open, setOpen] = useState(false);
+export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, onClose }) {
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState(null);
   const [search, setSearch] = useState('');
@@ -170,63 +169,11 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [preparingPhotos, setPreparingPhotos] = useState(false);
-  const [buttonPosition, setButtonPosition] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     setDateToAdd(selectedDate);
   }, [selectedDate]);
-
-  // Anchor the Doc button to the Settings button's real screen coordinates. This avoids
-  // guessing from a zero-width flex item and keeps it exactly aligned during horizontal
-  // toolbar scrolling, page scrolling, orientation changes, and viewport resizing.
-  useEffect(() => {
-    const settingsButton = document.querySelector('button[title="Widget settings"]');
-    const toolbar = settingsButton?.parentElement;
-    if (!settingsButton || !toolbar) return undefined;
-
-    const previous = {
-      alignItems: toolbar.style.alignItems,
-      paddingBottom: toolbar.style.paddingBottom,
-      overflowY: toolbar.style.overflowY,
-    };
-
-    toolbar.style.alignItems = 'flex-start';
-    toolbar.style.paddingBottom = '42px';
-    toolbar.style.overflowY = 'visible';
-
-    let frame = 0;
-    const updatePosition = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const rect = settingsButton.getBoundingClientRect();
-        setButtonPosition({
-          left: Math.round(rect.left),
-          top: Math.round(rect.bottom + 6),
-        });
-      });
-    };
-
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('orientationchange', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePosition) : null;
-    observer?.observe(settingsButton);
-    observer?.observe(toolbar);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('orientationchange', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-      toolbar.style.alignItems = previous.alignItems;
-      toolbar.style.paddingBottom = previous.paddingBottom;
-      toolbar.style.overflowY = previous.overflowY;
-    };
-  }, []);
 
   useEffect(() => {
     if (!open && !selectedPhoto) return undefined;
@@ -272,7 +219,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
   }, [notes, search]);
 
   function closeWidget() {
-    setOpen(false);
+    onClose();
     setDraft(null);
     setConfirmDelete(false);
     setError('');
@@ -393,7 +340,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
         >
           <div className="min-w-0 flex-1">
             <h2 className="truncate font-serif text-lg font-semibold text-stone-800">Doctor notes</h2>
-            <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Questions, symptoms, results, images, and the exact days they relate to.</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Quick notes, photos, and related days.</p>
           </div>
           <button type="button" onClick={closeWidget} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-stone-200/70 text-2xl text-stone-500" aria-label="Close doctor notes">×</button>
         </div>
@@ -428,7 +375,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Related days</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Link symptom days, appointments, hikes, flare-ups, or treatments.</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Add today or one or two dates this note points back to.</p>
                   </div>
                   <button type="button" onClick={() => addDate(selectedDate)} className="min-h-10 w-full rounded-lg px-3 py-2 text-[11px] font-bold sm:w-auto" style={{ background: '#E4ECE6', color: '#476653' }}>+ Current day</button>
                 </div>
@@ -452,7 +399,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Images</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Save swelling, pain locations, scans, or written instructions.</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Add a symptom photo, screenshot, or instruction image.</p>
                   </div>
                   <button type="button" onClick={() => fileInputRef.current?.click()} disabled={preparingPhotos || draft.photoAttachments.length >= MAX_PHOTOS} className="min-h-10 w-full rounded-lg px-3 py-2 text-[11px] font-bold disabled:opacity-40 sm:w-auto" style={{ background: '#E4ECE6', color: '#476653' }}>
                     {preparingPhotos ? 'Preparing…' : '📷 Add photo'}
@@ -494,7 +441,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
               ) : filteredNotes.length === 0 ? (
                 <button type="button" onClick={startNew} className="min-h-44 w-full rounded-2xl border-2 border-dashed border-stone-200 bg-white/50 px-5 py-8 text-center">
                   <p className="font-serif text-lg font-semibold text-stone-700">No doctor notes yet</p>
-                  <p className="mt-1 text-xs leading-relaxed text-stone-400">Start with the symptom or question you do not want to forget.</p>
+                  <p className="mt-1 text-xs leading-relaxed text-stone-400">Add a note or photo you want handy later.</p>
                 </button>
               ) : (
                 <div className="min-w-0 space-y-2">
@@ -536,33 +483,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate }) {
     </div>
   ) : null;
 
-  const launcher = buttonPosition ? (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      className="fixed z-40 h-9 w-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm transition-all hover:shadow-md active:scale-95"
-      style={{
-        left: `${buttonPosition.left}px`,
-        top: `${buttonPosition.top}px`,
-        touchAction: 'manipulation',
-        background: 'white',
-        borderColor: '#e7e5e4',
-        color: '#78716c',
-      }}
-      title="Doctor notes"
-      aria-label="Doctor notes"
-    >
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-        <path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" />
-        <path d="M12 2.5V6h3M7 10h6M7 13h4" />
-      </svg>
-      <span style={{ fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 }}>doc</span>
-    </button>
-  ) : null;
-
   return (
     <>
-      {typeof document !== 'undefined' && launcher ? createPortal(launcher, document.body) : null}
       {typeof document !== 'undefined' && modal ? createPortal(modal, document.body) : null}
       {typeof document !== 'undefined' && photoViewer ? createPortal(photoViewer, document.body) : null}
     </>
