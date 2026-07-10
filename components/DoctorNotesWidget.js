@@ -206,6 +206,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [cleanupError, setCleanupError] = useState('');
   const [responseListening, setResponseListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [undoSnapshot, setUndoSnapshot] = useState(null);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const fileInputRef = useRef(null);
   const conversationRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -213,6 +216,25 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const recordingFinalRef = useRef('');
   const noteTouchStart = useRef(null);
   const lastTapRef = useRef({ id: '', time: 0 });
+
+  const draftOriginal = draft ? notes.find(note => note.id === draft.id) : null;
+  const draftBaseline = draftOriginal || (draft ? blankNote(selectedDate) : null);
+  if (draftBaseline && draft) draftBaseline.id = draft.id;
+  const draftDirty = !!draft && !!draftBaseline && JSON.stringify({
+    kind: draft.kind,
+    title: draft.title,
+    provider: draft.provider,
+    body: draft.body,
+    linkedDates: draft.linkedDates,
+    photoAttachments: draft.photoAttachments,
+  }) !== JSON.stringify({
+    kind: draftBaseline.kind,
+    title: draftBaseline.title,
+    provider: draftBaseline.provider,
+    body: draftBaseline.body,
+    linkedDates: draftBaseline.linkedDates,
+    photoAttachments: draftBaseline.photoAttachments,
+  });
 
   useEffect(() => {
     setDateToAdd(selectedDate);
@@ -288,6 +310,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setCleanupDraft(null);
     setAutoNewFromShortcut(false);
     setConfirmDelete(false);
+    setConfirmingDiscard(false);
     setResponseListening(false);
     setLiveTranscript('');
     setError('');
@@ -295,6 +318,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   function closeHeader() {
     if (draft) {
+      if (draftDirty) {
+        setConfirmingDiscard(true);
+        return;
+      }
       setDraft(null);
       setAutoNewFromShortcut(false);
       setConfirmDelete(false);
@@ -304,12 +331,50 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     closeWidget();
   }
 
+  function backToNotesHome() {
+    setDraft(null);
+    setRespondingTo(null);
+    setCleanupNote(null);
+    setCleanupDraft(null);
+    setAutoNewFromShortcut(false);
+    setConfirmDelete(false);
+    setConfirmingDiscard(false);
+    setError('');
+  }
+
+  function rememberUndo(label) {
+    setUndoSnapshot({ label, notes: notes.map(note => ({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] })) });
+  }
+
+  async function undoLastChange() {
+    if (!undoSnapshot) return;
+    const current = notes;
+    const previous = undoSnapshot.notes;
+    setNotes(previous);
+    setUndoSnapshot(null);
+    setError('');
+    try {
+      const previousIds = new Set(previous.map(note => note.id));
+      await Promise.all([
+        ...current.filter(note => !previousIds.has(note.id)).map(note => fetch(`/api/doctor-notes?id=${encodeURIComponent(note.id)}`, { method: 'DELETE' })),
+        ...previous.map(note => fetch('/api/doctor-notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(note),
+        })),
+      ]);
+    } catch {
+      setError('Undo restored locally, but could not fully sync.');
+    }
+  }
+
   function startNew() {
     setDraft(blankNote(selectedDate));
     setRespondingTo(null);
     setAutoNewFromShortcut(false);
     setDateToAdd(selectedDate);
     setConfirmDelete(false);
+    setConfirmingDiscard(false);
     setError('');
   }
 
@@ -377,6 +442,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         if (Math.abs(dy) > 45) return;
         if (Math.abs(dx) >= 45) {
           setSwipedNoteId(dx < 0 ? note.id : '');
+          if (dx >= 0) setConfirmDeleteId('');
           return;
         }
         const now = Date.now();
@@ -403,10 +469,12 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.error) || 'Could not save doctor note.');
       const saved = parseNote(data.row || draft);
+      rememberUndo(notes.some(note => note.id === saved.id) ? 'edit' : 'new note');
       setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
       setDraft(null);
       setAutoNewFromShortcut(false);
+      setConfirmingDiscard(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save doctor note.');
     } finally {
@@ -432,6 +500,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const response = await fetch(`/api/doctor-notes?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.error) || 'Could not delete doctor note.');
+      rememberUndo('delete');
       setNotes(previous => previous.filter(note => note.id !== id));
       setDraft(null);
     } catch (reason) {
@@ -448,14 +517,20 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   async function deleteNote(noteId) {
+    if (confirmDeleteId !== noteId) {
+      setConfirmDeleteId(noteId);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
       const response = await fetch(`/api/doctor-notes?id=${encodeURIComponent(noteId)}`, { method: 'DELETE' });
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.error) || 'Could not delete note.');
+      rememberUndo('delete');
       setNotes(previous => previous.filter(note => note.id !== noteId));
       if (swipedNoteId === noteId) setSwipedNoteId('');
+      setConfirmDeleteId('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not delete note.');
     } finally {
@@ -486,6 +561,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.error) || 'Could not save response.');
       const saved = parseNote(data.row || updated);
+      rememberUndo('response');
       setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
       setRespondingTo(null);
@@ -614,6 +690,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const data = await response.json();
       if (!response.ok) throw new Error(text(data.error) || 'Could not update note.');
       const saved = parseNote(data.row || updated);
+      rememberUndo('cleanup');
       setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
       setCleanupNote(null);
@@ -684,7 +761,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const modal = open ? (
     <div
       className="fixed inset-0 z-[120] flex h-[100dvh] w-screen max-w-full items-end justify-center overflow-hidden bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      onClick={closeWidget}
+      onClick={closeHeader}
     >
       <div
         className="relative flex h-[100dvh] max-h-[100dvh] w-screen min-w-0 max-w-full flex-col overflow-hidden bg-[#F6F1E7] shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:w-full sm:max-w-lg sm:rounded-3xl"
@@ -698,6 +775,11 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
             <h2 className="truncate font-serif text-lg font-semibold text-stone-800">Doctor notes</h2>
             <p className="mt-0.5 text-[11px] leading-snug text-stone-400">Quick notes, photos, and related days.</p>
           </div>
+          {undoSnapshot && (
+            <button type="button" onClick={() => void undoLastChange()} className="min-h-10 flex-shrink-0 rounded-xl bg-white px-3 py-2 text-xs font-bold text-stone-600" aria-label={`Undo ${undoSnapshot.label}`}>
+              Undo
+            </button>
+          )}
           <button type="button" onClick={closeHeader} className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-stone-200/70 text-2xl text-stone-500" aria-label="Close doctor notes">×</button>
         </div>
 
@@ -784,6 +866,16 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
             </div>
           ) : draft ? (
             <div className="min-w-0 space-y-3">
+              {confirmingDiscard && (
+                <div className="rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3">
+                  <p className="text-sm font-bold text-stone-800">Unsaved changes</p>
+                  <p className="mt-1 text-xs leading-relaxed text-stone-600">Save this note before going back?</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => { setConfirmingDiscard(false); void saveDraft(); }} disabled={saving} className="min-h-11 rounded-xl px-3 py-2 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>Save</button>
+                    <button type="button" onClick={backToNotesHome} className="min-h-11 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-stone-600">Discard</button>
+                  </div>
+                </div>
+              )}
               <div className="min-w-0">
                 <select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.currentTarget.value })} className="min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-stone-700" style={{ fontSize: 16 }}>
                   {NOTE_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -884,7 +976,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                   {filteredNotes.map(note => (
                     <div key={note.id} className="relative min-w-0 overflow-hidden rounded-2xl">
                       <button type="button" onClick={() => void deleteNote(note.id)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
-                        Delete
+                        {confirmDeleteId === note.id ? 'Confirm' : 'Delete'}
                       </button>
                       <article
                         onClick={() => {
