@@ -131,7 +131,7 @@ function shouldTryNext(status: number) {
 }
 
 function requestBodyForModel(body: Record<string, unknown>, model: string) {
-  const next = { ...body, model };
+  const next: Record<string, unknown> = { ...body, model };
 
   // Compound is a system rather than a normal hosted model. It does not need structured-output
   // enforcement; the route still validates and extracts the JSON response itself.
