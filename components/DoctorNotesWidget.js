@@ -1012,51 +1012,51 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={5} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {(responseTranscriptTiles.length > 0 || responseListening) && (
-                <div className="rounded-2xl border border-[#E8D9B4] bg-[#FDF8EE] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="rounded-xl border border-[#E8D9B4] bg-[#FDF8EE] p-2">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">{responseListening ? 'Live transcript' : 'Transcripts'}</p>
                     {responseListening && <span className="h-2 w-2 animate-pulse rounded-full bg-[#C96B7A]" />}
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {responseTranscriptTiles.map(tile => {
                       const liveTile = responseListening && recordingTranscriptIdRef.current === tile.id;
                       const isEditing = editingTranscriptId === tile.id;
                       return (
-                        <div key={tile.id} className="rounded-xl border border-[#E8D9B4] bg-white p-2.5 shadow-sm">
+                        <div key={tile.id} className="rounded-lg border border-[#E8D9B4] bg-white p-2 shadow-sm">
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-[#A97920]">
                               {liveTile ? 'Recording' : new Date(tile.updatedAt || tile.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                             </p>
                             {!liveTile && !isEditing && (
                               <div className="flex shrink-0 gap-1">
-                                <button type="button" onClick={() => startEditingTranscript(tile)} className="rounded-md bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-600">Edit</button>
-                                <button type="button" onClick={() => void deleteTranscript(tile.id)} className="rounded-md bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">Delete</button>
+                                <button type="button" onClick={() => startEditingTranscript(tile)} className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-600">Edit</button>
+                                <button type="button" onClick={() => void deleteTranscript(tile.id)} className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-500">Delete</button>
                               </div>
                             )}
                             {liveTile && <span className="text-[10px] font-bold text-[#C96B7A]">Live</span>}
                           </div>
                           {isEditing ? (
-                            <div className="mt-2 space-y-2">
+                            <div className="mt-1.5 space-y-1.5">
                               <textarea
                                 value={editingTranscriptValue}
                                 onChange={event => setEditingTranscriptValue(event.currentTarget.value)}
-                                rows={4}
-                                className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs leading-relaxed"
+                                rows={3}
+                                className="w-full min-w-0 resize-none rounded-lg border border-stone-200 bg-white px-2.5 py-2 text-xs leading-relaxed"
                                 style={{ fontSize: 16 }}
                               />
-                              <div className="grid grid-cols-2 gap-2">
-                                <button type="button" onClick={() => saveTranscriptEdit(tile.id)} className="min-h-10 rounded-lg bg-[#7E9B86] px-3 py-2 text-xs font-bold text-white">Save</button>
-                                <button type="button" onClick={cancelTranscriptEdit} className="min-h-10 rounded-lg bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600">Cancel</button>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <button type="button" onClick={() => saveTranscriptEdit(tile.id)} className="min-h-9 rounded-lg bg-[#7E9B86] px-2 py-1.5 text-xs font-bold text-white">Save</button>
+                                <button type="button" onClick={cancelTranscriptEdit} className="min-h-9 rounded-lg bg-stone-100 px-2 py-1.5 text-xs font-semibold text-stone-600">Cancel</button>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-stone-700">{tile.text || (liveTile ? 'Listening...' : 'Transcript')}</p>
+                            <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-[11px] leading-snug text-stone-700">{tile.text || (liveTile ? 'Listening...' : 'Transcript')}</p>
                           )}
                         </div>
                       );
                     })}
                     {responseTranscriptTiles.length === 0 && responseListening && (
-                      <p className="rounded-xl bg-white px-3 py-2 text-xs leading-relaxed text-stone-600">Listening...</p>
+                      <p className="rounded-lg bg-white px-2.5 py-1.5 text-[11px] leading-snug text-stone-600">Listening...</p>
                     )}
                   </div>
                 </div>
