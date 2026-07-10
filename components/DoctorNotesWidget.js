@@ -288,7 +288,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   function closeHeader() {
-    if (autoNewFromShortcut && draft) {
+    if (draft) {
       setDraft(null);
       setAutoNewFromShortcut(false);
       setConfirmDelete(false);
@@ -399,8 +399,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
       const saved = parseNote(data.row || draft);
       setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
         .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
-      if (autoNewFromShortcut) closeWidget();
-      else setDraft(null);
+      setDraft(null);
+      setAutoNewFromShortcut(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save doctor note.');
     } finally {
@@ -412,8 +412,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     if (!draft) return;
     const id = draft.id;
     if (!notes.some(note => note.id === id)) {
-      if (autoNewFromShortcut) closeWidget();
-      else setDraft(null);
+      setDraft(null);
+      setAutoNewFromShortcut(false);
       return;
     }
     if (!confirmDelete) {
@@ -823,10 +823,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
 
-              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-                <button type="button" onClick={() => void saveDraft()} disabled={saving} className="col-span-2 min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50 sm:col-span-1" style={{ background: '#7E9B86' }}>{saving ? 'Saving…' : 'Save note'}</button>
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <button type="button" onClick={() => void saveDraft()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving…' : 'Save note'}</button>
                 <button type="button" onClick={() => void copyNote(draft)} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600">Copy</button>
-                <button type="button" onClick={() => { if (autoNewFromShortcut) closeWidget(); else setDraft(null); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
               </div>
               {notes.some(note => note.id === draft.id) && (
                 <button type="button" onClick={() => void deleteDraft()} disabled={saving} className="min-h-11 w-full min-w-0 rounded-xl px-3 py-2 text-xs font-semibold" style={{ color: confirmDelete ? '#fff' : '#C96B7A', background: confirmDelete ? '#C96B7A' : '#FBEFF1' }}>
