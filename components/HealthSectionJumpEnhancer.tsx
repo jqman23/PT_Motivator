@@ -20,9 +20,11 @@ function createJumpButton() {
   button.title = 'How are you feeling?';
   button.innerHTML = `
     <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.25"/>
-      <path d="M9.1 10h.01M14.9 10h.01" stroke-width="2.4"/>
-      <path d="M8.8 14.1c.9 1.25 1.95 1.85 3.2 1.85s2.3-.6 3.2-1.85"/>
+      <path d="M5 15.5a7 7 0 0 1 14 0"/>
+      <path d="M7.4 13.2l-1.2-1M12 10.2V8.6M16.6 13.2l1.2-1"/>
+      <path d="M12 15.5l3.1-3.1"/>
+      <circle cx="12" cy="15.5" r="1.15" fill="currentColor" stroke="none"/>
+      <path d="M7.2 18h9.6"/>
     </svg>
   `;
   Object.assign(button.style, {
