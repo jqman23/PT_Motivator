@@ -19,9 +19,10 @@ function createJumpButton() {
   button.setAttribute('aria-label', 'Jump to how are you feeling');
   button.title = 'How are you feeling?';
   button.innerHTML = `
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M12 20s-7-4.2-7-10a4.1 4.1 0 0 1 7-2.7A4.1 4.1 0 0 1 19 10c0 5.8-7 10-7 10z"/>
-      <path d="M7.5 12h2l1.1-2.5 2.1 5 1.1-2.5h2.7"/>
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.25"/>
+      <path d="M9.1 10h.01M14.9 10h.01" stroke-width="2.4"/>
+      <path d="M8.8 14.1c.9 1.25 1.95 1.85 3.2 1.85s2.3-.6 3.2-1.85"/>
     </svg>
   `;
   Object.assign(button.style, {
@@ -29,6 +30,7 @@ function createJumpButton() {
     height: '36px',
     minWidth: '36px',
     flex: '0 0 36px',
+    alignSelf: 'center',
     marginLeft: '8px',
     display: 'flex',
     alignItems: 'center',
@@ -66,6 +68,7 @@ export default function HealthSectionJumpEnhancer() {
       const stickyToolbar = whitePill?.parentElement;
       if (!sunshineButton || !whitePill || !stickyToolbar) return;
 
+      stickyToolbar.style.alignItems = 'center';
       stickyToolbar.appendChild(createJumpButton());
     };
 
