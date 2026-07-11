@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-const HOLD_MS = 1000;
+const HOLD_MS = 1500;
 const DOUBLE_TAP_MS = 285;
 const MOVE_TOLERANCE = 12;
 const EMPTY_DRAFT = {
@@ -128,14 +128,15 @@ export default function ExerciseGestureEnhancer() {
         clearHold();
         holdTimer = window.setTimeout(() => {
           if (!pointerStart) return;
+          const holdPoint = pointerStart;
           blockNextClick = true;
           clearSingleTap();
           lastTapAt = 0;
           try {
             card.dispatchEvent(new PointerEvent('pointercancel', {
               bubbles: true,
-              pointerId: pointerStart.pointerId,
-              pointerType: pointerStart.pointerType,
+              pointerId: holdPoint.pointerId,
+              pointerType: holdPoint.pointerType,
             }));
           } catch {}
           try { navigator.vibrate?.(18); } catch {}
@@ -143,8 +144,8 @@ export default function ExerciseGestureEnhancer() {
             bubbles: true,
             cancelable: true,
             button: 2,
-            clientX: pointerStart.x,
-            clientY: pointerStart.y,
+            clientX: holdPoint.x,
+            clientY: holdPoint.y,
           }));
           pointerStart = null;
         }, HOLD_MS);
@@ -213,7 +214,7 @@ export default function ExerciseGestureEnhancer() {
       card.addEventListener('pointerleave', onPointerEnd, true);
       card.addEventListener('click', onClick, true);
       card.addEventListener('dblclick', onDoubleClick, true);
-      card.title = 'Tap to check off. Hold 1 second for history. Double tap for sets, reps or time, and weight.';
+      card.title = 'Tap to check off. Hold 1.5 seconds for history. Double tap for sets, reps or time, and weight.';
 
       cleanups.set(card, () => {
         clearHold();
