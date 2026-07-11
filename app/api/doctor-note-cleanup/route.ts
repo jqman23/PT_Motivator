@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
       'Default to a short, direct action phrase or one compact sentence. Do not expand a short question into a full narrative.',
       'Only include timeline, location, severity, triggers, relievers, functional impact, treatments, or tests if the original explicitly includes them.',
       'If the note is mainly a question, rewrite it as a concise ask. Example: "hindfoot valgus deformity how to test for it" should become "Ask about physical exam maneuvers, imaging studies, or other tests for hindfoot valgus."',
+      'For improvedTitle, use a short direct topic label. Avoid filler prefixes like "Question about", "Concern about", "Discussion of", or "Follow-up on". Example title: "Testing for hindfoot valgus deformity".',
       'Avoid extra status bullets like "current status", "goal", or "concern" unless the original note clearly asks for that structure.',
       'If details are missing, do not fabricate them. Put at most two useful follow-up prompts in questions.',
       'Tone: concise, specific, medically literate, but still clearly my note.',
