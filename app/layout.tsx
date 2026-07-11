@@ -10,6 +10,7 @@ import HealthSectionJumpEnhancer from "@/components/HealthSectionJumpEnhancer";
 import WeekGoalInputEnhancer from "@/components/WeekGoalInputEnhancer";
 import ExerciseNotePhotoButtonCleanup from "@/components/ExerciseNotePhotoButtonCleanup";
 import ExerciseGestureEnhancer from "@/components/ExerciseGestureEnhancer";
+import ExerciseMoveHandleCompatibility from "@/components/ExerciseMoveHandleCompatibility";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -61,6 +62,7 @@ export default function RootLayout({
         <WeekGoalInputEnhancer />
         <ExerciseNotePhotoButtonCleanup />
         <ExerciseGestureEnhancer />
+        <ExerciseMoveHandleCompatibility />
       </body>
     </html>
   );
