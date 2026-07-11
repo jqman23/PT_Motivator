@@ -1,0 +1,159 @@
+name: Apply doctor note reorder mode
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-doctor-note-reorder.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add persistent long-press note reordering
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('components/DoctorNotesWidget.js')
+          source = path.read_text()
+
+          def replace_once(old, new, label):
+              global source
+              if old not in source:
+                  raise SystemExit(f'Missing expected code for {label}')
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              "const DOCTOR_LIST_CONFIG_KEY = 'doctorNoteDoctors';\n",
+              "const DOCTOR_LIST_CONFIG_KEY = 'doctorNoteDoctors';\nconst DOCTOR_ORDER_CONFIG_KEY = 'doctorNoteOrder';\n",
+              'order config constant',
+          )
+
+          replace_once(
+              "function parseDoctorList(value) {\n  if (!Array.isArray(value)) return [];\n  return Array.from(new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));\n}\n",
+              "function parseDoctorList(value) {\n  if (!Array.isArray(value)) return [];\n  return Array.from(new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));\n}\n\nfunction parseNoteOrder(value) {\n  if (!Array.isArray(value)) return [];\n  return Array.from(new Set(value.filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean)));\n}\n\nfunction applyNoteOrder(items, orderIds) {\n  if (!orderIds.length) return items;\n  const positions = new Map(orderIds.map((id, index) => [id, index]));\n  return items\n    .map((note, originalIndex) => ({ note, originalIndex }))\n    .sort((a, b) => {\n      const aPosition = positions.get(a.note.id);\n      const bPosition = positions.get(b.note.id);\n      const aKnown = Number.isInteger(aPosition);\n      const bKnown = Number.isInteger(bPosition);\n      if (aKnown && bKnown) return aPosition - bPosition;\n      if (aKnown !== bKnown) return aKnown ? 1 : -1;\n      return a.originalIndex - b.originalIndex;\n    })\n    .map(item => item.note);\n}\n\nfunction replaceNoteInOrder(items, saved) {\n  const index = items.findIndex(note => note.id === saved.id);\n  if (index < 0) return [saved, ...items];\n  const next = [...items];\n  next[index] = saved;\n  return next;\n}\n",
+              'order helpers',
+          )
+
+          replace_once(
+              "  const [confirmDeleteResponseId, setConfirmDeleteResponseId] = useState('');\n",
+              "  const [confirmDeleteResponseId, setConfirmDeleteResponseId] = useState('');\n  const [reorderMode, setReorderMode] = useState(false);\n",
+              'reorder state',
+          )
+
+          replace_once(
+              "  const lastTapRef = useRef({ id: '', time: 0 });\n",
+              "  const lastTapRef = useRef({ id: '', time: 0 });\n  const longPressTimerRef = useRef(null);\n  const longPressStartRef = useRef(null);\n  const suppressNextNoteClickRef = useRef(false);\n  const orderSaveTimerRef = useRef(null);\n  const pendingOrderRef = useRef([]);\n",
+              'reorder refs',
+          )
+
+          replace_once(
+              "      fetch(`/api/config?key=${encodeURIComponent(DOCTOR_LIST_CONFIG_KEY)}`, { cache: 'no-store' })\n        .then(response => response.json())\n        .then(data => parseDoctorList(data.value))\n        .catch(() => []),\n    ])\n      .then(([nextNotes, nextDoctors]) => {\n        if (cancelled) return;\n        setNotes(nextNotes);\n        setDoctors(nextDoctors);\n      })",
+              "      fetch(`/api/config?key=${encodeURIComponent(DOCTOR_LIST_CONFIG_KEY)}`, { cache: 'no-store' })\n        .then(response => response.json())\n        .then(data => parseDoctorList(data.value))\n        .catch(() => []),\n      fetch(`/api/config?key=${encodeURIComponent(DOCTOR_ORDER_CONFIG_KEY)}`, { cache: 'no-store' })\n        .then(response => response.json())\n        .then(data => parseNoteOrder(data.value))\n        .catch(() => []),\n    ])\n      .then(([nextNotes, nextDoctors, nextOrder]) => {\n        if (cancelled) return;\n        setNotes(applyNoteOrder(nextNotes, nextOrder));\n        setDoctors(nextDoctors);\n      })",
+              'load saved order',
+          )
+
+          replace_once(
+              "  function closeWidget() {\n    recognitionRef.current?.stop?.();",
+              "  function closeWidget() {\n    clearLongPressTimer();\n    if (orderSaveTimerRef.current) window.clearTimeout(orderSaveTimerRef.current);\n    setReorderMode(false);\n    recognitionRef.current?.stop?.();",
+              'close widget cleanup',
+          )
+
+          replace_once(
+              "  function closeHeader() {\n    if (respondingTo || cleanupNote || cleanupDraft) {",
+              "  function closeHeader() {\n    if (reorderMode) {\n      finishReorderMode();\n      return;\n    }\n    if (respondingTo || cleanupNote || cleanupDraft) {",
+              'close reorder mode',
+          )
+
+          replace_once(
+              "    setConfirmDeleteResponseId('');\n    recordingFinalRef.current = '';\n    recordingLiveRef.current = '';\n  }\n\n  function rememberUndo(label) {",
+              "    setConfirmDeleteResponseId('');\n    setReorderMode(false);\n    clearLongPressTimer();\n    recordingFinalRef.current = '';\n    recordingLiveRef.current = '';\n  }\n\n  function rememberUndo(label) {",
+              'notes home cleanup',
+          )
+
+          replace_once(
+              "  function noteSwipeHandlers(note) {",
+              "  function clearLongPressTimer() {\n    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);\n    longPressTimerRef.current = null;\n    longPressStartRef.current = null;\n  }\n\n  function beginNoteLongPress(event, noteId) {\n    if (reorderMode || (event.pointerType === 'mouse' && event.button !== 0)) return;\n    if (event.target instanceof Element && event.target.closest('button, input, textarea, select, a')) return;\n    clearLongPressTimer();\n    longPressStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };\n    longPressTimerRef.current = window.setTimeout(() => {\n      suppressNextNoteClickRef.current = true;\n      setSearch('');\n      setSwipedNoteId('');\n      setConfirmDeleteId('');\n      setReorderMode(true);\n      navigator.vibrate?.(25);\n      clearLongPressTimer();\n    }, 550);\n  }\n\n  function trackNoteLongPress(event) {\n    const start = longPressStartRef.current;\n    if (!start || start.pointerId !== event.pointerId) return;\n    if (Math.abs(event.clientX - start.x) > 12 || Math.abs(event.clientY - start.y) > 12) clearLongPressTimer();\n  }\n\n  async function persistNoteOrderIds(ids) {\n    try {\n      const response = await fetch('/api/config', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify({ key: DOCTOR_ORDER_CONFIG_KEY, value: ids }),\n      });\n      if (!response.ok) throw new Error('Could not save note order.');\n    } catch {\n      setError('The notes moved here, but their order could not sync.');\n    }\n  }\n\n  function queueNoteOrderSave(nextNotes) {\n    pendingOrderRef.current = nextNotes.map(note => note.id);\n    if (orderSaveTimerRef.current) window.clearTimeout(orderSaveTimerRef.current);\n    orderSaveTimerRef.current = window.setTimeout(() => {\n      orderSaveTimerRef.current = null;\n      void persistNoteOrderIds(pendingOrderRef.current);\n    }, 180);\n  }\n\n  function moveNote(noteId, direction) {\n    const index = notes.findIndex(note => note.id === noteId);\n    const targetIndex = index + direction;\n    if (index < 0 || targetIndex < 0 || targetIndex >= notes.length) return;\n    const next = [...notes];\n    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];\n    setNotes(next);\n    queueNoteOrderSave(next);\n  }\n\n  function finishReorderMode() {\n    clearLongPressTimer();\n    if (orderSaveTimerRef.current) window.clearTimeout(orderSaveTimerRef.current);\n    orderSaveTimerRef.current = null;\n    pendingOrderRef.current = notes.map(note => note.id);\n    void persistNoteOrderIds(pendingOrderRef.current);\n    setReorderMode(false);\n    suppressNextNoteClickRef.current = false;\n  }\n\n  function noteSwipeHandlers(note) {",
+              'long press and order functions',
+          )
+
+          old_saved = "    setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]\n      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));"
+          count = source.count(old_saved)
+          if count < 2:
+              raise SystemExit(f'Expected multiple saved-note reorder blocks, found {count}')
+          source = source.replace(old_saved, "    setNotes(previous => replaceNoteInOrder(previous, saved));")
+
+          replace_once(
+              "              <div className=\"mb-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2\">\n                <input value={search} onChange={event => setSearch(event.currentTarget.value)} placeholder=\"Search symptoms, doctors, dates…\" className=\"min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5\" style={{ fontSize: 16 }} />\n                <button type=\"button\" onClick={startNew} className=\"min-h-11 rounded-xl px-4 text-sm font-bold text-white\" style={{ background: '#7E9B86' }}>+ New</button>\n              </div>",
+              "              {reorderMode ? (\n                <div className=\"mb-3 flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[#CAD9CF] bg-[#E4ECE6] px-3 py-2.5\">\n                  <div className=\"min-w-0\">\n                    <p className=\"text-sm font-bold text-[#476653]\">Reorder notes</p>\n                    <p className=\"text-[11px] leading-snug text-[#5F7666]\">Use the arrows, then tap Done.</p>\n                  </div>\n                  <button type=\"button\" onClick={finishReorderMode} className=\"min-h-10 flex-shrink-0 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[#476653]\">Done</button>\n                </div>\n              ) : (\n                <>\n                  <div className=\"mb-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2\">\n                    <input value={search} onChange={event => setSearch(event.currentTarget.value)} placeholder=\"Search symptoms, doctors, dates…\" className=\"min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5\" style={{ fontSize: 16 }} />\n                    <button type=\"button\" onClick={startNew} className=\"min-h-11 rounded-xl px-4 text-sm font-bold text-white\" style={{ background: '#7E9B86' }}>+ New</button>\n                  </div>\n                  {notes.length > 1 && <p className=\"mb-3 px-1 text-[10px] text-stone-400\">Press and hold a note to reorder.</p>}\n                </>\n              )}",
+              'reorder toolbar',
+          )
+
+          replace_once(
+              "                          {(swipedNoteId === note.id || confirmDeleteId === note.id) && (",
+              "                          {!reorderMode && (swipedNoteId === note.id || confirmDeleteId === note.id) && (",
+              'disable swipe delete while reordering',
+          )
+
+          replace_once(
+              "                            style={{ transform: swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)' }}",
+              "                            style={{ transform: !reorderMode && swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)' }}",
+              'disable swipe transform while reordering',
+          )
+
+          replace_once(
+              "                            <article\n                              onClick={() => {\n                                if (swipedNoteId === note.id) {",
+              "                            <article\n                              onPointerDown={event => beginNoteLongPress(event, note.id)}\n                              onPointerMove={trackNoteLongPress}\n                              onPointerUp={clearLongPressTimer}\n                              onPointerCancel={clearLongPressTimer}\n                              onPointerLeave={clearLongPressTimer}\n                              onContextMenu={event => event.preventDefault()}\n                              onClick={() => {\n                                if (reorderMode || suppressNextNoteClickRef.current) {\n                                  suppressNextNoteClickRef.current = false;\n                                  return;\n                                }\n                                if (swipedNoteId === note.id) {",
+              'article long press handlers',
+          )
+
+          replace_once(
+              "                              className=\"min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm active:scale-[0.995]\"\n                              style={{ touchAction: 'pan-y' }}\n                              {...noteSwipeHandlers(note)}",
+              "                              className={`min-w-0 overflow-hidden rounded-2xl border bg-white p-3 shadow-sm ${reorderMode ? 'cursor-default border-[#CAD9CF] ring-2 ring-[#7E9B86]/20' : 'cursor-pointer border-stone-100 active:scale-[0.995]'}`}\n                              style={{ touchAction: reorderMode ? 'none' : 'pan-y' }}\n                              {...(reorderMode ? {} : noteSwipeHandlers(note))}",
+              'article reorder styling',
+          )
+
+          replace_once(
+              "                                {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt=\"\" className=\"h-14 w-14 flex-shrink-0 rounded-xl object-cover\" />}",
+              "                                {reorderMode ? (\n                                  <div className=\"grid flex-shrink-0 grid-rows-2 gap-1\">\n                                    <button type=\"button\" onClick={event => { event.stopPropagation(); moveNote(note.id, -1); }} disabled={notes.findIndex(item => item.id === note.id) === 0} className=\"flex h-9 w-10 items-center justify-center rounded-lg bg-[#E4ECE6] text-lg font-bold text-[#476653] disabled:opacity-25\" aria-label={`Move ${note.title || typeLabel(note.kind)} up`}>↑</button>\n                                    <button type=\"button\" onClick={event => { event.stopPropagation(); moveNote(note.id, 1); }} disabled={notes.findIndex(item => item.id === note.id) === notes.length - 1} className=\"flex h-9 w-10 items-center justify-center rounded-lg bg-[#E4ECE6] text-lg font-bold text-[#476653] disabled:opacity-25\" aria-label={`Move ${note.title || typeLabel(note.kind)} down`}>↓</button>\n                                  </div>\n                                ) : note.photoAttachments.length > 0 ? (\n                                  <img src={note.photoAttachments[0].dataUrl} alt=\"\" className=\"h-14 w-14 flex-shrink-0 rounded-xl object-cover\" />\n                                ) : null}",
+              'move controls',
+          )
+
+          replace_once(
+              "                              <div className=\"mt-2 flex min-w-0 flex-wrap items-center gap-1.5\">",
+              "                              {!reorderMode && <div className=\"mt-2 flex min-w-0 flex-wrap items-center gap-1.5\">",
+              'hide note actions start',
+          )
+          replace_once(
+              "                              </div>\n                            </article>",
+              "                              </div>}\n                            </article>",
+              'hide note actions end',
+          )
+
+          replace_once(
+              "                        {responses.length > 0 && (",
+              "                        {!reorderMode && responses.length > 0 && (",
+              'hide responses while reordering',
+          )
+
+          path.write_text(source)
+          Path('.github/workflows/apply-doctor-note-reorder.yml').unlink()
+          PY
+
+      - name: Commit reorder mode
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/DoctorNotesWidget.js .github/workflows/apply-doctor-note-reorder.yml
+          git commit -m "Add persistent long-press note reordering"
+          git push origin main
