@@ -53,16 +53,26 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
     existing?.remove();
     grip?.style.removeProperty('position');
     grip?.style.removeProperty('z-index');
+    grip?.style.removeProperty('text-shadow');
     checkbox?.style.removeProperty('position');
     checkbox?.style.removeProperty('z-index');
+    checkbox?.style.removeProperty('background-color');
+    checkbox?.style.removeProperty('border-color');
+    checkbox?.style.removeProperty('backdrop-filter');
+    checkbox?.style.removeProperty('box-shadow');
     return;
   }
 
   card.style.position = 'relative';
   grip!.style.position = 'relative';
-  grip!.style.zIndex = '2';
+  grip!.style.zIndex = '3';
+  grip!.style.textShadow = '0 1px 3px rgba(255,255,255,.98)';
   checkbox!.style.position = 'relative';
-  checkbox!.style.zIndex = '2';
+  checkbox!.style.zIndex = '3';
+  checkbox!.style.backgroundColor = 'rgba(255,255,255,.78)';
+  checkbox!.style.borderColor = 'rgba(255,255,255,.92)';
+  checkbox!.style.backdropFilter = 'blur(2px)';
+  checkbox!.style.boxShadow = '0 1px 5px rgba(53,59,51,.12)';
 
   if (existing) {
     const img = existing.querySelector('img');
@@ -75,7 +85,7 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   Object.assign(rail.style, {
     position: 'absolute',
     inset: '0 auto 0 0',
-    width: '78px',
+    width: '96px',
     borderRadius: '16px 0 0 16px',
     overflow: 'hidden',
     pointerEvents: 'none',
@@ -89,15 +99,16 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
     width: '100%',
     height: '100%',
     objectFit: 'cover',
+    objectPosition: 'center',
     display: 'block',
-    opacity: '0.88',
+    opacity: '0.96',
   });
 
   const wash = document.createElement('div');
   Object.assign(wash.style, {
     position: 'absolute',
     inset: '0',
-    background: 'linear-gradient(90deg, rgba(255,255,255,.18) 0%, rgba(255,255,255,.34) 72%, rgba(255,255,255,.92) 100%)',
+    background: 'linear-gradient(90deg, rgba(255,255,255,.02) 0%, rgba(255,255,255,.05) 68%, rgba(255,255,255,.28) 100%)',
   });
 
   rail.append(img, wash);
