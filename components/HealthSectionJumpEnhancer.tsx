@@ -19,12 +19,10 @@ function createJumpButton() {
   button.setAttribute('aria-label', 'Jump to how are you feeling');
   button.title = 'How are you feeling?';
   button.innerHTML = `
-    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M5 15.5a7 7 0 0 1 14 0"/>
-      <path d="M7.4 13.2l-1.2-1M12 10.2V8.6M16.6 13.2l1.2-1"/>
-      <path d="M12 15.5l3.1-3.1"/>
-      <circle cx="12" cy="15.5" r="1.15" fill="currentColor" stroke="none"/>
-      <path d="M7.2 18h9.6"/>
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true">
+      <rect x="5" y="13" width="3.2" height="6" rx="1.6" />
+      <rect x="10.4" y="9" width="3.2" height="10" rx="1.6" />
+      <rect x="15.8" y="5" width="3.2" height="14" rx="1.6" />
     </svg>
   `;
   Object.assign(button.style, {
