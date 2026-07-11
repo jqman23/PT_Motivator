@@ -7,6 +7,7 @@ import TextareaSpacebarFix from "@/components/TextareaSpacebarFix";
 import TimerBackgroundNotifications from "@/components/TimerBackgroundNotifications";
 import DoctorNotesReorderEnhancer from "@/components/DoctorNotesReorderEnhancer";
 import HealthSectionJumpEnhancer from "@/components/HealthSectionJumpEnhancer";
+import WeekGoalInputEnhancer from "@/components/WeekGoalInputEnhancer";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -54,6 +55,7 @@ export default function RootLayout({
         <TimerBackgroundNotifications />
         <DoctorNotesReorderEnhancer />
         <HealthSectionJumpEnhancer />
+        <WeekGoalInputEnhancer />
       </body>
     </html>
   );
