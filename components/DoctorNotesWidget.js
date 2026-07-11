@@ -400,6 +400,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   function closeHeader() {
+    if (respondingTo || cleanupNote || cleanupDraft) {
+      backToNotesHome();
+      return;
+    }
     if (draft) {
       if (draftDirty) {
         setConfirmingDiscard(true);
