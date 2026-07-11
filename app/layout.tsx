@@ -15,6 +15,7 @@ import DurationTypeAutofillEnhancer from "@/components/DurationTypeAutofillEnhan
 import ExerciseTileMetadataEnhancer from "@/components/ExerciseTileMetadataEnhancer";
 import "./globals.css";
 import "./widget-rescue.css";
+import "./quick-log-polish.css";
 
 // Deployment marker: rollback state confirmed.
 const DRIVE_FILE_ID = "1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD";
