@@ -57,10 +57,13 @@ export async function POST(req: NextRequest) {
       'Do not write about me as "the patient". Do not say "patient asks", "patient reports", or similar third-person clinical phrasing.',
       'Do not diagnose. Do not add medical facts. Do not invent symptoms, dates, tests, severity, medications, or advice.',
       'Preserve uncertainty using patient language like "seems", "maybe", or "not sure" when the original is uncertain.',
-      'A strong doctor note includes the reason/question, timeline or onset, location/side, symptom quality, severity if provided, triggers, relievers, functional impact, treatments/tests already tried, and the decision or answer needed.',
-      'If details are missing, do not fabricate them. Put at most three useful follow-up prompts in questions.',
-      'Tone: concise, specific, medically literate, but still clearly a patient note.',
-      'Use short paragraphs or compact bullets only when helpful.',
+      'Default to a short, direct action phrase or one compact sentence. Do not expand a short question into a full narrative.',
+      'Only include timeline, location, severity, triggers, relievers, functional impact, treatments, or tests if the original explicitly includes them.',
+      'If the note is mainly a question, rewrite it as a concise ask. Example: "hindfoot valgus deformity how to test for it" should become "Ask about physical exam maneuvers, imaging studies, or other tests for hindfoot valgus."',
+      'Avoid extra status bullets like "current status", "goal", or "concern" unless the original note clearly asks for that structure.',
+      'If details are missing, do not fabricate them. Put at most two useful follow-up prompts in questions.',
+      'Tone: concise, specific, medically literate, but still clearly my note.',
+      'Use compact bullets only when the original has multiple distinct points.',
       'JSON shape: {"improvedTitle":"","improvedBody":"","highlights":[],"questions":[]}.',
     ].join(' ');
 
