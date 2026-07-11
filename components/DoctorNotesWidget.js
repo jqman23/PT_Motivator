@@ -163,7 +163,7 @@ function responseTemplate() {
   return { answer: '', nextSteps: '' };
 }
 
-function responseSection(response, transcriptCount = 0) {
+function responseSection(response, title = '') {
   const timestamp = new Date().toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -172,9 +172,8 @@ function responseSection(response, transcriptCount = 0) {
     minute: '2-digit',
   });
   return [
-    `Response - ${timestamp}`,
+    title || `Response - ${timestamp}`,
     response.answer.trim() ? `Answer / notes: ${response.answer.trim()}` : '',
-    transcriptCount > 0 ? `Transcript tiles: ${transcriptCount}` : '',
     response.nextSteps.trim() ? `Next steps: ${response.nextSteps.trim()}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -207,6 +206,27 @@ function splitBodyAndResponses(body) {
     .filter(Boolean);
 
   return { noteBody, responses };
+}
+
+function parseResponseForEdit(section) {
+  const title = text(section).split('\n')[0]?.trim() || '';
+  const answer = text(section).match(/Answer \/ notes:\s*([\s\S]*?)(?:\nNext steps:|$)/)?.[1]?.trim() || '';
+  const nextSteps = text(section).match(/Next steps:\s*([\s\S]*)$/)?.[1]?.trim() || '';
+  return { title, draft: { answer, nextSteps } };
+}
+
+function responsePreview(section) {
+  return text(section)
+    .replace(/^Response - .+?\n?/, '')
+    .replace(/^Answer \/ notes:\s*/m, '')
+    .replace(/^Next steps:\s*/m, 'Next steps: ')
+    .trim();
+}
+
+function bodyWithResponses(noteBody, responses) {
+  return [text(noteBody).trim(), ...responses.map(response => text(response).trim()).filter(Boolean)]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function fallbackCopy(value) {
@@ -258,6 +278,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [undoSnapshot, setUndoSnapshot] = useState(null);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
+  const [collapsedResponses, setCollapsedResponses] = useState({});
+  const [swipedResponseId, setSwipedResponseId] = useState('');
+  const [confirmDeleteResponseId, setConfirmDeleteResponseId] = useState('');
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
   const recordingFinalRef = useRef('');
@@ -265,6 +288,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const recordingStopIntentRef = useRef('');
   const recordingTranscriptIdRef = useRef('');
   const noteTouchStart = useRef(null);
+  const responseTouchStart = useRef(null);
   const lastTapRef = useRef({ id: '', time: 0 });
 
   const draftOriginal = draft ? notes.find(note => note.id === draft.id) : null;
@@ -368,6 +392,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setResponseTranscriptTiles([]);
     setEditingTranscriptId('');
     setEditingTranscriptValue('');
+    setSwipedResponseId('');
+    setConfirmDeleteResponseId('');
     recordingFinalRef.current = '';
     recordingLiveRef.current = '';
     setError('');
@@ -405,6 +431,8 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setResponseTranscriptTiles([]);
     setEditingTranscriptId('');
     setEditingTranscriptValue('');
+    setSwipedResponseId('');
+    setConfirmDeleteResponseId('');
     recordingFinalRef.current = '';
     recordingLiveRef.current = '';
   }
@@ -453,15 +481,23 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setError('');
   }
 
-  function startResponse(note) {
+  function startResponse(note, responseIndex = null) {
+    const { noteBody, responses } = splitBodyAndResponses(note.body);
+    const editingResponse = responseIndex !== null ? responses[responseIndex] : '';
+    const parsedResponse = editingResponse ? parseResponseForEdit(editingResponse) : null;
     setDraft(null);
     setRespondingTo({
       ...note,
+      body: note.body,
+      noteBody,
+      responses,
+      editingResponseIndex: responseIndex,
+      editingResponseTitle: parsedResponse?.title || '',
       linkedDates: [...note.linkedDates],
       photoAttachments: [...note.photoAttachments],
       responseTranscripts: [...(note.responseTranscripts || [])],
     });
-    setResponseDraft(responseTemplate());
+    setResponseDraft(parsedResponse?.draft || responseTemplate());
     setResponseTranscriptTiles(note.responseTranscripts?.length > 0 ? note.responseTranscripts : parseLegacyResponseTranscripts(note.body));
     setEditingTranscriptId('');
     setEditingTranscriptValue('');
@@ -470,6 +506,21 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     recordingFinalRef.current = '';
     setConfirmDelete(false);
     setError('');
+  }
+
+  async function saveUpdatedNote(updated, undoLabel, errorMessage) {
+    const response = await fetch('/api/doctor-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(text(data.error) || errorMessage);
+    const saved = parseNote(data.row || updated);
+    rememberUndo(undoLabel);
+    setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
+    return saved;
   }
 
   async function startCleanup(note) {
@@ -624,13 +675,102 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     }
   }
 
+  function responseKey(noteId, responseIndex) {
+    return `${noteId}:response:${responseIndex}`;
+  }
+
+  function toggleResponseCollapsed(key) {
+    setCollapsedResponses(previous => ({ ...previous, [key]: !previous[key] }));
+    setSwipedResponseId('');
+    setConfirmDeleteResponseId('');
+  }
+
+  function responseSwipeHandlers(note, responseIndex) {
+    const key = responseKey(note.id, responseIndex);
+    return {
+      onTouchStart(event) {
+        event.stopPropagation();
+        const touch = event.touches[0];
+        responseTouchStart.current = touch ? { key, x: touch.clientX, y: touch.clientY } : null;
+      },
+      onTouchEnd(event) {
+        event.stopPropagation();
+        const start = responseTouchStart.current;
+        responseTouchStart.current = null;
+        const touch = event.changedTouches[0];
+        if (!start || !touch || start.key !== key) return;
+        const dx = touch.clientX - start.x;
+        const dy = touch.clientY - start.y;
+        if (Math.abs(dy) > 45) return;
+        if (Math.abs(dx) >= 45) {
+          setSwipedResponseId(dx < 0 ? key : '');
+          if (dx >= 0) setConfirmDeleteResponseId('');
+          return;
+        }
+        toggleResponseCollapsed(key);
+      },
+    };
+  }
+
+  async function deleteResponse(note, responseIndex) {
+    const key = responseKey(note.id, responseIndex);
+    if (confirmDeleteResponseId !== key) {
+      setConfirmDeleteResponseId(key);
+      return;
+    }
+
+    const { noteBody, responses } = splitBodyAndResponses(note.body);
+    const nextResponses = responses.filter((_, index) => index !== responseIndex);
+    setSaving(true);
+    setError('');
+    try {
+      const updated = {
+        ...note,
+        body: bodyWithResponses(noteBody, nextResponses),
+        responseTranscripts: nextResponses.length === 0 ? [] : [...(note.responseTranscripts || [])],
+      };
+      await saveUpdatedNote(updated, 'delete response', 'Could not delete response.');
+      setSwipedResponseId('');
+      setConfirmDeleteResponseId('');
+      setCollapsedResponses(previous => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not delete response.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveResponse() {
     if (!respondingTo) return;
-    const section = responseSection(responseDraft, responseTranscriptTiles.length);
     const answerNotes = responseDraft.answer.trim();
-    if (!answerNotes && !responseDraft.nextSteps.trim() && responseTranscriptTiles.length === 0) {
-      setError('Add an answer, transcript, or next step before saving.');
-      return;
+    const nextSteps = responseDraft.nextSteps.trim();
+    const hasResponseText = !!answerNotes || !!nextSteps;
+    const hasResponseContent = hasResponseText || responseTranscriptTiles.length > 0;
+    const editingIndex = Number.isInteger(respondingTo.editingResponseIndex) ? respondingTo.editingResponseIndex : null;
+    const nextResponses = [...(respondingTo.responses || [])];
+
+    if (!hasResponseContent) {
+      if (editingIndex !== null) nextResponses.splice(editingIndex, 1);
+      else {
+        setRespondingTo(null);
+        setResponseDraft(responseTemplate());
+        setResponseTranscriptTiles([]);
+        setEditingTranscriptId('');
+        setEditingTranscriptValue('');
+        recordingTranscriptIdRef.current = '';
+        recordingFinalRef.current = '';
+        recordingLiveRef.current = '';
+        setError('');
+        return;
+      }
+    } else {
+      const section = responseSection(responseDraft, respondingTo.editingResponseTitle || '');
+      if (editingIndex !== null) nextResponses[editingIndex] = section;
+      else nextResponses.push(section);
     }
 
     setSaving(true);
@@ -638,30 +778,26 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     try {
       const updated = {
         ...respondingTo,
-        body: [respondingTo.body?.trim(), section].filter(Boolean).join('\n\n'),
-        responseTranscripts: responseTranscriptTiles.map(tile => ({
+        body: bodyWithResponses(respondingTo.noteBody, nextResponses),
+        responseTranscripts: nextResponses.length === 0 ? [] : responseTranscriptTiles.map(tile => ({
           id: tile.id,
           text: tile.text,
           createdAt: tile.createdAt,
           updatedAt: tile.updatedAt,
         })),
       };
-      const response = await fetch('/api/doctor-notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(text(data.error) || 'Could not save response.');
-      const saved = parseNote(data.row || updated);
-      rememberUndo('response');
-      setNotes(previous => [saved, ...previous.filter(note => note.id !== saved.id)]
-        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)));
+      delete updated.noteBody;
+      delete updated.responses;
+      delete updated.editingResponseIndex;
+      delete updated.editingResponseTitle;
+      await saveUpdatedNote(updated, hasResponseContent ? 'response' : 'delete response', 'Could not save response.');
       setRespondingTo(null);
       setResponseDraft(responseTemplate());
       setResponseTranscriptTiles([]);
       setEditingTranscriptId('');
       setEditingTranscriptValue('');
+      setSwipedResponseId('');
+      setConfirmDeleteResponseId('');
       recordingTranscriptIdRef.current = '';
       recordingFinalRef.current = '';
       recordingLiveRef.current = '';
@@ -676,7 +812,6 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     if (!respondingTo) return;
     const raw = [
       responseDraft.answer.trim() ? `Answer / notes: ${responseDraft.answer.trim()}` : '',
-      ...responseTranscriptTiles.map(tile => (tile.text.trim() ? `Transcript: ${tile.text.trim()}` : '')),
       responseDraft.nextSteps.trim() ? `Next steps: ${responseDraft.nextSteps.trim()}` : '',
     ].filter(Boolean).join('\n');
     if (!raw) {
@@ -1023,7 +1158,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               <div className="rounded-2xl border border-stone-200 bg-white p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Responding to</p>
                 <h3 className="mt-1 text-sm font-bold text-stone-800">{respondingTo.title || typeLabel(respondingTo.kind)}</h3>
-                {respondingTo.body && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.body}</p>}
+                {respondingTo.noteBody && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.noteBody}</p>}
               </div>
 
               <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={5} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
@@ -1084,7 +1219,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setResponseTranscriptTiles([]); setEditingTranscriptId(''); setEditingTranscriptValue(''); recordingTranscriptIdRef.current = ''; recordingFinalRef.current = ''; recordingLiveRef.current = ''; }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setResponseTranscriptTiles([]); setEditingTranscriptId(''); setEditingTranscriptValue(''); setSwipedResponseId(''); setConfirmDeleteResponseId(''); recordingTranscriptIdRef.current = ''; recordingFinalRef.current = ''; recordingLiveRef.current = ''; }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
                 {responseListening ? (
                   <>
@@ -1252,13 +1387,45 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                             </div>
                           </article>
                           {responses.length > 0 && (
-                            <div className="ml-4 mt-1.5 space-y-1.5">
-                              {responses.map((response, index) => (
-                                <section key={`${note.id}-response-${index}`} className="rounded-2xl border border-[#DCE8DF] bg-[#F4FAF5] px-3 py-2 shadow-sm">
-                                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#476653]">Response to note</p>
-                                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-600">{response}</p>
-                                </section>
-                              ))}
+                            <div className="relative ml-4 mt-1.5 space-y-1.5 border-l-2 border-[#DCE8DF] pl-3">
+                              {responses.map((response, index) => {
+                                const key = responseKey(note.id, index);
+                                const collapsed = collapsedResponses[key] === true;
+                                const parsed = parseResponseForEdit(response);
+                                const preview = responsePreview(response);
+                                const showTranscriptBadge = index === responses.length - 1 && note.responseTranscripts.length > 0;
+                                return (
+                                  <div key={key} className="relative min-w-0 overflow-hidden rounded-2xl">
+                                    <button type="button" onClick={() => void deleteResponse(note, index)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
+                                      {confirmDeleteResponseId === key ? 'Confirm' : 'Delete'}
+                                    </button>
+                                    <section
+                                      className="relative min-w-0 rounded-2xl border border-[#DCE8DF] bg-[#F4FAF5] px-3 py-2 shadow-sm transition-transform"
+                                      style={{ transform: swipedResponseId === key ? 'translateX(-5.75rem)' : 'translateX(0)', touchAction: 'pan-y' }}
+                                      {...responseSwipeHandlers(note, index)}
+                                    >
+                                      <span className="absolute -left-[1.05rem] top-5 h-2.5 w-2.5 rounded-full border-2 border-[#F4FAF5] bg-[#7E9B86]" />
+                                      <div className="flex min-w-0 items-start justify-between gap-2">
+                                        <button type="button" onClick={() => toggleResponseCollapsed(key)} className="min-w-0 flex-1 text-left">
+                                          <span className="flex min-w-0 items-center gap-1.5">
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#476653]">Response</span>
+                                            {showTranscriptBadge && <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-[#476653]">{note.responseTranscripts.length} transcript{note.responseTranscripts.length === 1 ? '' : 's'}</span>}
+                                          </span>
+                                          <span className="mt-0.5 block truncate text-[11px] font-semibold text-stone-700">{parsed.title || 'Response to note'}</span>
+                                        </button>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                          <button type="button" onClick={event => { event.stopPropagation(); startResponse(note, index); }} className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#476653]">Edit</button>
+                                          <button type="button" onClick={event => { event.stopPropagation(); toggleResponseCollapsed(key); }} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-[#476653]" aria-label={collapsed ? 'Expand response' : 'Collapse response'}>
+                                            {collapsed ? '⌄' : '⌃'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                      {!collapsed && preview && <p className="mt-2 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-600">{preview}</p>}
+                                      {!collapsed && !preview && showTranscriptBadge && <p className="mt-2 text-xs leading-relaxed text-stone-500">Transcript saved separately.</p>}
+                                    </section>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
