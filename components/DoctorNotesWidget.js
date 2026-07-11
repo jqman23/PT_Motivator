@@ -88,7 +88,7 @@ function parseNote(row) {
   };
 }
 
-function blankNote(selectedDate) {
+function blankNote() {
   const now = new Date().toISOString();
   return {
     id: makeId(),
@@ -97,7 +97,7 @@ function blankNote(selectedDate) {
     provider: '',
     referenceText: '',
     body: '',
-    linkedDates: selectedDate ? [selectedDate] : [],
+    linkedDates: [],
     photoAttachments: [],
     pinned: true,
     createdAt: now,
@@ -253,7 +253,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState(null);
   const [search, setSearch] = useState('');
-  const [dateToAdd, setDateToAdd] = useState(selectedDate);
+  const [dateToAdd, setDateToAdd] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -292,7 +292,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const lastTapRef = useRef({ id: '', time: 0 });
 
   const draftOriginal = draft ? notes.find(note => note.id === draft.id) : null;
-  const draftBaseline = draftOriginal || (draft ? blankNote(selectedDate) : null);
+  const draftBaseline = draftOriginal || (draft ? blankNote() : null);
   if (draftBaseline && draft) draftBaseline.id = draft.id;
   const draftDirty = !!draft && !!draftBaseline && JSON.stringify({
     kind: draft.kind,
@@ -311,7 +311,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   });
 
   useEffect(() => {
-    setDateToAdd(selectedDate);
+    setDateToAdd('');
   }, [selectedDate]);
 
   useEffect(() => {
@@ -330,9 +330,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     if (!open) return undefined;
     let cancelled = false;
     if (startInNew) {
-      setDraft(blankNote(selectedDate));
+      setDraft(blankNote());
       setAutoNewFromShortcut(true);
-      setDateToAdd(selectedDate);
+      setDateToAdd('');
       setConfirmDelete(false);
       setError('');
     }
@@ -476,10 +476,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   function startNew() {
-    setDraft(blankNote(selectedDate));
+    setDraft(blankNote());
     setRespondingTo(null);
     setAutoNewFromShortcut(false);
-    setDateToAdd(selectedDate);
+    setDateToAdd('');
     setConfirmDelete(false);
     setConfirmingDiscard(false);
     setError('');
