@@ -1479,9 +1479,6 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                                         </button>
                                         <div className="flex shrink-0 items-center gap-1">
                                           <button type="button" onClick={event => { event.stopPropagation(); startResponse(note, index); }} className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#476653]">Edit</button>
-                                          <button type="button" onClick={event => { event.stopPropagation(); toggleResponseCollapsed(key); }} className="min-h-7 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#476653]" aria-label={collapsed ? 'Expand response' : 'Collapse response'}>
-                                            {collapsed ? 'Show' : 'Hide'}
-                                          </button>
                                         </div>
                                       </div>
                                       {!collapsed && preview && <p className="mt-2 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-600">{preview}</p>}
