@@ -12,6 +12,7 @@ import ExerciseNotePhotoButtonCleanup from "@/components/ExerciseNotePhotoButton
 import "./globals.css";
 import "./widget-rescue.css";
 
+// Deployment marker: rollback state confirmed.
 const DRIVE_FILE_ID = "1PFb1U9txQRO4tPzQepBWkbEChoKPNeYD";
 const DRIVE_ICON_URL = `https://drive.google.com/thumbnail?id=${DRIVE_FILE_ID}&sz=w512`;
 
