@@ -1,18 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const HOLD_MS = 1500;
 const DOUBLE_TAP_MS = 285;
 const MOVE_TOLERANCE = 12;
 const EMPTY_DRAFT = {
   mode: 'reps',
+  kindText: 'Reps',
   sets: '',
-  reps: '',
-  duration: '',
+  value: '',
   durationUnit: 'sec',
-  weight: '',
-  weightUnit: 'lb',
 };
 
 function localDateString() {
@@ -38,24 +36,32 @@ function numberString(value) {
   return Number.isFinite(parsed) ? String(parsed) : '';
 }
 
+function modeFromKind(value, fallback = 'reps') {
+  const clean = String(value || '').trim().toLowerCase();
+  if (clean.startsWith('d')) return 'duration';
+  if (clean.startsWith('r')) return 'reps';
+  return fallback;
+}
+
+function kindLabel(mode) {
+  return mode === 'duration' ? 'Duration' : 'Reps';
+}
+
 function draftFromMetric(metric) {
-  let fallbackWeightUnit = 'lb';
-  try {
-    fallbackWeightUnit = localStorage.getItem('pt-exercise-weight-unit') === 'kg' ? 'kg' : 'lb';
-  } catch {}
+  if (!metric) return { ...EMPTY_DRAFT };
 
-  if (!metric) return { ...EMPTY_DRAFT, weightUnit: fallbackWeightUnit };
+  const durationSeconds = Number(metric.duration_seconds || 0);
+  const mode = durationSeconds > 0 ? 'duration' : 'reps';
+  const useMinutes = durationSeconds >= 60 && durationSeconds % 60 === 0;
 
-  const seconds = Number(metric.duration_seconds || 0);
-  const useMinutes = seconds >= 60 && seconds % 60 === 0;
   return {
-    mode: seconds > 0 ? 'duration' : 'reps',
+    mode,
+    kindText: kindLabel(mode),
     sets: numberString(metric.sets_count),
-    reps: numberString(metric.reps_count),
-    duration: seconds > 0 ? String(useMinutes ? seconds / 60 : seconds) : '',
+    value: mode === 'duration'
+      ? String(useMinutes ? durationSeconds / 60 : durationSeconds)
+      : numberString(metric.reps_count),
     durationUnit: useMinutes ? 'min' : 'sec',
-    weight: numberString(metric.weight_value),
-    weightUnit: metric.weight_unit === 'kg' ? 'kg' : fallbackWeightUnit,
   };
 }
 
@@ -69,14 +75,27 @@ function isInteractiveTarget(target) {
   return target instanceof Element && Boolean(target.closest('button, input, textarea, select, a, [role="button"]'));
 }
 
+function focusAndSelect(ref) {
+  window.requestAnimationFrame(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  });
+}
+
 export default function ExerciseGestureEnhancer() {
   const [active, setActive] = useState(null);
-  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [hasCurrent, setHasCurrent] = useState(false);
   const [seededFromLast, setSeededFromLast] = useState(false);
+  const [preservedWeight, setPreservedWeight] = useState(null);
+  const [preservedWeightUnit, setPreservedWeightUnit] = useState('lb');
+  const dirtyRef = useRef(false);
+  const setsRef = useRef(null);
+  const valueRef = useRef(null);
+  const kindRef = useRef(null);
 
   useEffect(() => {
     const cleanups = new Map();
@@ -84,10 +103,10 @@ export default function ExerciseGestureEnhancer() {
     const openQuickLog = (card, clientX) => {
       const title = card.querySelector('.text-sm.font-semibold');
       const rect = (title || card).getBoundingClientRect();
-      const halfWidth = 119;
+      const halfWidth = 113;
       const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, clientX || rect.left + rect.width / 2));
-      const placeBelow = rect.top < 145;
-      const y = placeBelow ? rect.bottom + 6 : rect.top - 6;
+      const placeBelow = rect.top < 130;
+      const y = placeBelow ? rect.bottom + 5 : rect.top - 5;
 
       setActive({
         exerciseId: card.dataset.exerciseCardId,
@@ -214,7 +233,7 @@ export default function ExerciseGestureEnhancer() {
       card.addEventListener('pointerleave', onPointerEnd, true);
       card.addEventListener('click', onClick, true);
       card.addEventListener('dblclick', onDoubleClick, true);
-      card.title = 'Tap to check off. Hold 1.5 seconds for history. Double tap for sets, reps or time, and weight.';
+      card.title = 'Tap to check off. Hold 1.5 seconds for history. Double tap for quick sets and reps or duration.';
 
       cleanups.set(card, () => {
         clearHold();
@@ -244,12 +263,15 @@ export default function ExerciseGestureEnhancer() {
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    dirtyRef.current = false;
     setLoading(true);
     setSaving(false);
     setError('');
     setHasCurrent(false);
     setSeededFromLast(false);
-    setDraft(EMPTY_DRAFT);
+    setPreservedWeight(null);
+    setPreservedWeightUnit('lb');
+    setDraft({ ...EMPTY_DRAFT });
 
     fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
       cache: 'no-store',
@@ -264,13 +286,12 @@ export default function ExerciseGestureEnhancer() {
         const source = data.current || data.previous;
         setHasCurrent(Boolean(data.current));
         setSeededFromLast(!data.current && Boolean(data.previous));
-        setDraft(draftFromMetric(source));
+        setPreservedWeight(data.current?.weight_value ?? null);
+        setPreservedWeightUnit(data.current?.weight_unit === 'kg' ? 'kg' : 'lb');
+        if (!dirtyRef.current) setDraft(draftFromMetric(source));
       })
       .catch(loadError => {
-        if (!cancelled) {
-          setDraft(draftFromMetric(null));
-          setError(loadError instanceof Error ? loadError.message : 'Could not load.');
-        }
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Could not load.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -279,23 +300,47 @@ export default function ExerciseGestureEnhancer() {
     return () => { cancelled = true; };
   }, [active]);
 
-  const updateDraft = patch => setDraft(previous => ({ ...previous, ...patch }));
+  const updateDraft = patch => {
+    dirtyRef.current = true;
+    setError('');
+    setDraft(previous => ({ ...previous, ...patch }));
+  };
 
-  const save = async () => {
+  const cancel = () => {
+    if (saving) return;
+    dirtyRef.current = false;
+    setActive(null);
+  };
+
+  const saveAndClose = async () => {
     if (!active || saving || loading) return;
-    const mainValue = draft.mode === 'reps' ? draft.reps : draft.duration;
-    if (!draft.sets && !mainValue && !draft.weight) {
-      setError('Add a value.');
+    if (!dirtyRef.current) {
+      setActive(null);
       return;
     }
 
+    const mode = modeFromKind(draft.kindText, draft.mode);
+    const hasAnyValue = Boolean(draft.sets || draft.value);
     setSaving(true);
     setError('');
-    const durationSeconds = draft.mode === 'duration' && draft.duration
-      ? Math.round(Number(draft.duration) * (draft.durationUnit === 'min' ? 60 : 1))
-      : null;
 
     try {
+      if (!hasAnyValue) {
+        if (hasCurrent) {
+          const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
+            method: 'DELETE',
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not clear.');
+        }
+        dirtyRef.current = false;
+        setActive(null);
+        return;
+      }
+
+      const durationSeconds = mode === 'duration' && draft.value
+        ? Math.round(Number(draft.value) * (draft.durationUnit === 'min' ? 60 : 1))
+        : null;
       const response = await fetch('/api/exercise-metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -303,36 +348,18 @@ export default function ExerciseGestureEnhancer() {
           date: active.date,
           exerciseId: active.exerciseId,
           sets: draft.sets || null,
-          reps: draft.mode === 'reps' ? draft.reps || null : null,
+          reps: mode === 'reps' ? draft.value || null : null,
           durationSeconds,
-          weight: draft.weight || null,
-          weightUnit: draft.weightUnit,
+          weight: preservedWeight,
+          weightUnit: preservedWeightUnit,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save.');
-      try { localStorage.setItem('pt-exercise-weight-unit', draft.weightUnit); } catch {}
+      dirtyRef.current = false;
       setActive(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const clear = async () => {
-    if (!active || saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
-        method: 'DELETE',
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not clear.');
-      setActive(null);
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : 'Could not clear.');
     } finally {
       setSaving(false);
     }
@@ -345,13 +372,13 @@ export default function ExerciseGestureEnhancer() {
       <button
         type="button"
         className="fixed inset-0 z-[109] cursor-default bg-transparent"
-        aria-label="Close quick exercise log"
-        onClick={() => !saving && setActive(null)}
+        aria-label="Save and close quick exercise log"
+        onClick={() => void saveAndClose()}
       />
       <div
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
-          width: 'min(238px, calc(100vw - 16px))',
+          width: 'min(226px, calc(100vw - 16px))',
           left: active.x,
           top: active.y,
           transform: active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
@@ -361,48 +388,35 @@ export default function ExerciseGestureEnhancer() {
       >
         <div className="flex items-center gap-1.5">
           <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-stone-700">{active.exerciseName}</p>
-          {loading && <span className="text-[10px] text-stone-400">…</span>}
-          {seededFromLast && !loading && <span className="text-[9px] text-stone-400">last</span>}
+          {loading && <span className="text-[9px] text-stone-400">loading</span>}
+          {saving && <span className="text-[9px] text-stone-400">saving</span>}
+          {seededFromLast && !loading && !saving && <span className="text-[9px] text-stone-400">last</span>}
           <button
             type="button"
-            onClick={() => !saving && setActive(null)}
-            className="flex h-5 w-5 items-center justify-center rounded-md bg-white text-sm leading-none text-stone-400"
-            aria-label="Close"
+            onClick={cancel}
+            disabled={saving}
+            className="flex h-5 w-5 items-center justify-center rounded-md bg-white text-sm leading-none text-stone-400 disabled:opacity-40"
+            aria-label="Cancel quick log"
+            title="Cancel without saving"
           >
             ×
           </button>
         </div>
 
-        <div className="mt-1 flex gap-1">
-          <button
-            type="button"
-            onClick={() => updateDraft({ mode: 'reps' })}
-            className="rounded-md px-2 py-1 text-[10px] font-bold"
-            style={{ background: draft.mode === 'reps' ? '#E4ECE6' : '#fff', color: draft.mode === 'reps' ? '#476653' : '#a8a29e' }}
-          >
-            Reps
-          </button>
-          <button
-            type="button"
-            onClick={() => updateDraft({ mode: 'duration' })}
-            className="rounded-md px-2 py-1 text-[10px] font-bold"
-            style={{ background: draft.mode === 'duration' ? '#E4ECE6' : '#fff', color: draft.mode === 'duration' ? '#476653' : '#a8a29e' }}
-          >
-            Time
-          </button>
-        </div>
-
-        <div className="mt-1.5 grid grid-cols-3 gap-1">
+        <div className="mt-1.5 grid grid-cols-[46px_58px_1fr] gap-1">
           <label className="rounded-lg bg-white px-1.5 py-1">
-            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">S</span>
+            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Sets</span>
             <input
+              ref={setsRef}
               autoFocus
-              type="number"
-              min="1"
-              max="99"
+              type="text"
               inputMode="numeric"
               value={draft.sets}
-              onChange={event => updateDraft({ sets: event.target.value })}
+              onChange={event => {
+                const next = event.target.value.replace(/\D/g, '').slice(0, 1);
+                updateDraft({ sets: next });
+                if (next.length === 1) focusAndSelect(valueRef);
+              }}
               placeholder="3"
               className="w-full bg-transparent text-base font-semibold text-stone-700 outline-none"
               style={{ fontSize: 16 }}
@@ -410,77 +424,63 @@ export default function ExerciseGestureEnhancer() {
           </label>
 
           <label className="rounded-lg bg-white px-1.5 py-1">
-            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">{draft.mode === 'reps' ? 'R' : 'T'}</span>
-            <div className="flex items-center gap-0.5">
+            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Value</span>
+            <input
+              ref={valueRef}
+              type="text"
+              inputMode="numeric"
+              value={draft.value}
+              onChange={event => {
+                const next = event.target.value.replace(/\D/g, '').slice(0, 3);
+                updateDraft({ value: next });
+                if (next.length === 2) focusAndSelect(kindRef);
+              }}
+              placeholder={draft.mode === 'duration' ? '45' : '10'}
+              className="w-full bg-transparent text-base font-semibold text-stone-700 outline-none"
+              style={{ fontSize: 16 }}
+            />
+          </label>
+
+          <label className="min-w-0 rounded-lg bg-white px-1.5 py-1">
+            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Type</span>
+            <div className="flex items-center gap-1">
               <input
-                type="number"
-                min="1"
-                inputMode="numeric"
-                value={draft.mode === 'reps' ? draft.reps : draft.duration}
-                onChange={event => updateDraft(draft.mode === 'reps' ? { reps: event.target.value } : { duration: event.target.value })}
-                placeholder={draft.mode === 'reps' ? '10' : '45'}
-                className="min-w-0 flex-1 bg-transparent text-base font-semibold text-stone-700 outline-none"
+                ref={kindRef}
+                type="text"
+                list="exercise-entry-kind-options"
+                value={draft.kindText}
+                onFocus={event => event.currentTarget.select()}
+                onChange={event => {
+                  const kindText = event.target.value;
+                  updateDraft({ kindText, mode: modeFromKind(kindText, draft.mode) });
+                }}
+                onBlur={() => {
+                  const mode = modeFromKind(draft.kindText, draft.mode);
+                  setDraft(previous => ({ ...previous, mode, kindText: kindLabel(mode) }));
+                }}
+                placeholder="Reps"
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-stone-700 outline-none"
                 style={{ fontSize: 16 }}
               />
               {draft.mode === 'duration' && (
                 <button
                   type="button"
                   onClick={() => updateDraft({ durationUnit: draft.durationUnit === 'sec' ? 'min' : 'sec' })}
-                  className="text-[8px] font-bold text-stone-400"
+                  className="shrink-0 text-[8px] font-bold text-stone-400"
+                  title="Toggle seconds or minutes"
                 >
                   {draft.durationUnit}
                 </button>
               )}
             </div>
-          </label>
-
-          <label className="rounded-lg bg-white px-1.5 py-1">
-            <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">W</span>
-            <div className="flex items-center gap-0.5">
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                inputMode="decimal"
-                value={draft.weight}
-                onChange={event => updateDraft({ weight: event.target.value })}
-                placeholder="40"
-                className="min-w-0 flex-1 bg-transparent text-base font-semibold text-stone-700 outline-none"
-                style={{ fontSize: 16 }}
-              />
-              <button
-                type="button"
-                onClick={() => updateDraft({ weightUnit: draft.weightUnit === 'lb' ? 'kg' : 'lb' })}
-                className="text-[8px] font-bold text-stone-400"
-              >
-                {draft.weightUnit}
-              </button>
-            </div>
+            <datalist id="exercise-entry-kind-options">
+              <option value="Reps" />
+              <option value="Duration" />
+            </datalist>
           </label>
         </div>
 
-        <div className="mt-1.5 flex items-center gap-1">
-          {hasCurrent && (
-            <button
-              type="button"
-              onClick={() => void clear()}
-              disabled={saving}
-              className="rounded-md px-1.5 py-1 text-[9px] font-semibold text-red-500 disabled:opacity-40"
-            >
-              Clear
-            </button>
-          )}
-          {error && <span className="min-w-0 flex-1 truncate text-[9px] text-red-500">{error}</span>}
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={loading || saving}
-            className="ml-auto rounded-lg px-3 py-1.5 text-[10px] font-bold text-white disabled:opacity-40"
-            style={{ background: '#7E9B86' }}
-          >
-            {saving ? '…' : 'Save'}
-          </button>
-        </div>
+        {error && <p className="mt-1 truncate text-[9px] text-red-500">{error}</p>}
       </div>
     </>
   );
