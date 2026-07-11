@@ -1,0 +1,83 @@
+[data-pt-quick-log="true"] {
+  width: min(196px, calc(100vw - 12px)) !important;
+  padding: 6px !important;
+  border-radius: 14px !important;
+}
+
+[data-pt-quick-log="true"] > div:first-child {
+  min-height: 20px;
+  gap: 4px !important;
+}
+
+[data-pt-quick-log="true"] > div:first-child > p {
+  font-size: 10px !important;
+  line-height: 1.1 !important;
+}
+
+[data-pt-quick-log="true"] > div:first-child > button {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 7px !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) {
+  grid-template-columns: 42px 52px minmax(0, 1fr) !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+  align-items: stretch !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label {
+  box-sizing: border-box;
+  display: flex;
+  height: 52px;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  border-radius: 10px !important;
+  padding: 5px 6px !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label > span {
+  display: block;
+  height: 8px;
+  font-size: 7px !important;
+  line-height: 8px !important;
+  letter-spacing: 0.08em !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label > input,
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label > div {
+  box-sizing: border-box;
+  height: 28px !important;
+  margin-top: 5px !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) input {
+  height: 28px !important;
+  min-height: 28px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+  line-height: 28px !important;
+  vertical-align: middle !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label > div {
+  align-items: center !important;
+  gap: 3px !important;
+}
+
+[data-pt-quick-log="true"] > div:nth-of-type(2) > label > div > button {
+  flex: 0 0 auto;
+  border-radius: 5px;
+  padding: 2px 3px;
+  font-size: 7px !important;
+  line-height: 1 !important;
+}
+
+[data-pt-quick-log="true"] > p {
+  margin-top: 4px !important;
+  font-size: 8px !important;
+}
