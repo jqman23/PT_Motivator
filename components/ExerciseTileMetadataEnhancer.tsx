@@ -43,6 +43,21 @@ function cardIsDone(card: HTMLElement) {
   return Boolean(checkbox?.querySelector('svg'));
 }
 
+function resetPrimaryImageStyles(card: HTMLElement, grip?: HTMLElement | null, checkbox?: HTMLElement | null) {
+  card.style.removeProperty('overflow');
+  card.style.removeProperty('isolation');
+  grip?.style.removeProperty('position');
+  grip?.style.removeProperty('z-index');
+  grip?.style.removeProperty('text-shadow');
+  grip?.style.removeProperty('background-color');
+  checkbox?.style.removeProperty('position');
+  checkbox?.style.removeProperty('z-index');
+  checkbox?.style.removeProperty('background-color');
+  checkbox?.style.removeProperty('border-color');
+  checkbox?.style.removeProperty('backdrop-filter');
+  checkbox?.style.removeProperty('box-shadow');
+}
+
 function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   const existing = card.querySelector<HTMLElement>('[data-primary-image-rail="true"]');
   const grip = card.querySelector<HTMLElement>('[title="Move exercise"]');
@@ -51,30 +66,32 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
 
   if (!shouldShow) {
     existing?.remove();
-    grip?.style.removeProperty('position');
-    grip?.style.removeProperty('z-index');
-    grip?.style.removeProperty('text-shadow');
-    checkbox?.style.removeProperty('position');
-    checkbox?.style.removeProperty('z-index');
-    checkbox?.style.removeProperty('background-color');
-    checkbox?.style.removeProperty('border-color');
-    checkbox?.style.removeProperty('backdrop-filter');
-    checkbox?.style.removeProperty('box-shadow');
+    resetPrimaryImageStyles(card, grip, checkbox);
     return;
   }
 
+  const cardRect = card.getBoundingClientRect();
+  const checkboxRect = checkbox!.getBoundingClientRect();
+  const railWidth = Math.max(92, Math.ceil(checkboxRect.right - cardRect.left + 12));
+
   card.style.position = 'relative';
+  card.style.overflow = 'hidden';
+  card.style.isolation = 'isolate';
+
   grip!.style.position = 'relative';
   grip!.style.zIndex = '3';
   grip!.style.textShadow = '0 1px 3px rgba(255,255,255,.98)';
+  grip!.style.backgroundColor = 'rgba(255,255,255,.28)';
+
   checkbox!.style.position = 'relative';
   checkbox!.style.zIndex = '3';
-  checkbox!.style.backgroundColor = 'rgba(255,255,255,.78)';
-  checkbox!.style.borderColor = 'rgba(255,255,255,.92)';
+  checkbox!.style.backgroundColor = 'rgba(255,255,255,.72)';
+  checkbox!.style.borderColor = 'rgba(255,255,255,.95)';
   checkbox!.style.backdropFilter = 'blur(2px)';
-  checkbox!.style.boxShadow = '0 1px 5px rgba(53,59,51,.12)';
+  checkbox!.style.boxShadow = '0 1px 5px rgba(53,59,51,.14)';
 
   if (existing) {
+    existing.style.width = `${railWidth}px`;
     const img = existing.querySelector('img');
     if (img && img.getAttribute('src') !== imageUrl) img.setAttribute('src', imageUrl!);
     return;
@@ -84,8 +101,10 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   rail.dataset.primaryImageRail = 'true';
   Object.assign(rail.style, {
     position: 'absolute',
-    inset: '0 auto 0 0',
-    width: '96px',
+    left: '-1px',
+    top: '-1px',
+    bottom: '-1px',
+    width: `${railWidth}px`,
     borderRadius: '16px 0 0 16px',
     overflow: 'hidden',
     pointerEvents: 'none',
@@ -101,17 +120,10 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
     objectFit: 'cover',
     objectPosition: 'center',
     display: 'block',
-    opacity: '0.96',
+    opacity: '1',
   });
 
-  const wash = document.createElement('div');
-  Object.assign(wash.style, {
-    position: 'absolute',
-    inset: '0',
-    background: 'linear-gradient(90deg, rgba(255,255,255,.02) 0%, rgba(255,255,255,.05) 68%, rgba(255,255,255,.28) 100%)',
-  });
-
-  rail.append(img, wash);
+  rail.append(img);
   card.prepend(rail);
 }
 
