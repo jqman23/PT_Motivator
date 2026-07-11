@@ -12,6 +12,7 @@ import ExerciseNotePhotoButtonCleanup from "@/components/ExerciseNotePhotoButton
 import ExerciseGestureEnhancer from "@/components/ExerciseGestureEnhancer";
 import ExerciseMoveHandleCompatibility from "@/components/ExerciseMoveHandleCompatibility";
 import DurationTypeAutofillEnhancer from "@/components/DurationTypeAutofillEnhancer";
+import ExerciseTileMetadataEnhancer from "@/components/ExerciseTileMetadataEnhancer";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -65,6 +66,7 @@ export default function RootLayout({
         <ExerciseGestureEnhancer />
         <ExerciseMoveHandleCompatibility />
         <DurationTypeAutofillEnhancer />
+        <ExerciseTileMetadataEnhancer />
       </body>
     </html>
   );
