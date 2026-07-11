@@ -8,6 +8,7 @@ import TimerBackgroundNotifications from "@/components/TimerBackgroundNotificati
 import DoctorNotesReorderEnhancer from "@/components/DoctorNotesReorderEnhancer";
 import HealthSectionJumpEnhancer from "@/components/HealthSectionJumpEnhancer";
 import WeekGoalInputEnhancer from "@/components/WeekGoalInputEnhancer";
+import ExerciseNotePhotoButtonCleanup from "@/components/ExerciseNotePhotoButtonCleanup";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -56,6 +57,7 @@ export default function RootLayout({
         <DoctorNotesReorderEnhancer />
         <HealthSectionJumpEnhancer />
         <WeekGoalInputEnhancer />
+        <ExerciseNotePhotoButtonCleanup />
       </body>
     </html>
   );
