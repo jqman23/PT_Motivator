@@ -1270,19 +1270,23 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
 
-              <div className="grid min-w-0 grid-cols-2 gap-2">
-                <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={closeResponseEditor} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
-                <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
-                <button type="button" onClick={() => void deleteEditingResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-semibold disabled:opacity-50" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Delete</button>
-                {responseListening ? (
-                  <>
-                    <button type="button" onClick={pauseResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Pause</button>
-                    <button type="button" onClick={stopResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Stop</button>
-                  </>
-                ) : (
-                  <button type="button" onClick={() => startResponseRecording(responsePaused)} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responsePaused ? '#E4ECE6' : '#FDF8EE', color: responsePaused ? '#476653' : '#A97920' }}>{responsePaused ? 'Resume' : 'Record voice'}</button>
-                )}
+              <div className="space-y-2">
+                <div className="grid min-w-0 grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
+                  {responseListening ? (
+                    <div className="grid min-w-0 grid-cols-2 gap-1.5">
+                      <button type="button" onClick={pauseResponseRecording} className="min-h-12 min-w-0 rounded-xl px-2 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Pause</button>
+                      <button type="button" onClick={stopResponseRecording} className="min-h-12 min-w-0 rounded-xl px-2 py-3 text-sm font-bold" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Stop</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => startResponseRecording(responsePaused)} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: responsePaused ? '#E4ECE6' : '#FDF8EE', color: responsePaused ? '#476653' : '#A97920' }}>{responsePaused ? 'Resume' : 'Record voice'}</button>
+                  )}
+                </div>
+                <div className="grid min-w-0 grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
+                  <button type="button" onClick={closeResponseEditor} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                </div>
+                <button type="button" onClick={() => void deleteEditingResponse()} disabled={saving} className="min-h-12 w-full min-w-0 rounded-xl px-3 py-3 text-sm font-semibold disabled:opacity-50" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Delete</button>
               </div>
             </div>
           ) : draft ? (
