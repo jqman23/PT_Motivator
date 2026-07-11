@@ -4,6 +4,8 @@ import { callGroqChat, getGroqModelChain } from '@/lib/groq';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
 const DEFAULT_MODEL = getGroqModelChain('summary')[0];
+const NO_ACTIVITY_SUMMARY = 'Nothing was logged yesterday, so there is no daily recap to show yet.';
+const UNAVAILABLE_SUMMARY = 'Sunshine could not generate the daily recap right now. Please try again shortly.';
 
 function offsetDateStr(base: string, days: number): string {
   const d = new Date(base + 'T12:00:00');
@@ -26,25 +28,42 @@ function dateInAppTimeZone(): string {
 }
 
 export async function POST() {
+  const today = dateInAppTimeZone();
+  const yesterday = offsetDateStr(today, -1);
+
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    const today = dateInAppTimeZone();
-    const yesterday = offsetDateStr(today, -1);
 
-    // Return cached summary if already generated for this app-local day.
+    // Reuse only a real cached recap. Older code could cache a null result for the whole day,
+    // which made every later tap on the sun button appear to do nothing.
     const [cachedDate, cachedText] = await Promise.all([
       getConfig('dailySummaryDate') as Promise<string | null>,
       getConfig('dailySummaryText') as Promise<string | null>,
     ]);
-    if (cachedDate === today) {
-      return NextResponse.json({ summary: cachedText ?? null, date: yesterday, cacheDate: today, timeZone: APP_TIME_ZONE, model: null });
+    const usableCachedText = typeof cachedText === 'string' ? cachedText.trim() : '';
+    if (cachedDate === today && usableCachedText) {
+      return NextResponse.json({
+        summary: usableCachedText,
+        date: yesterday,
+        cacheDate: today,
+        timeZone: APP_TIME_ZONE,
+        model: null,
+        status: 'cached',
+      });
     }
 
-    // No API key — mark as done for today, return nothing.
+    // Do not cache configuration failures as a completed daily summary. That allows the next
+    // tap to retry immediately after the environment is corrected.
     if (!apiKey) {
-      await setConfig('dailySummaryDate', today);
-      await setConfig('dailySummaryText', null);
-      return NextResponse.json({ summary: null, date: yesterday, cacheDate: today, timeZone: APP_TIME_ZONE, model: DEFAULT_MODEL });
+      return NextResponse.json({
+        summary: UNAVAILABLE_SUMMARY,
+        date: yesterday,
+        cacheDate: today,
+        timeZone: APP_TIME_ZONE,
+        model: DEFAULT_MODEL,
+        status: 'unavailable',
+        error: 'missing_api_key',
+      }, { status: 503 });
     }
 
     const [logRows, noteRows, healthRows, libraryData, ptSessions] = await Promise.all([
@@ -59,10 +78,17 @@ export async function POST() {
       .filter(r => r.completed)
       .map(r => r.exercise_id);
 
+    // A manual tap still needs visible feedback when there is no source activity. Do not cache
+    // this response because the user may add or correct yesterday's log and tap again.
     if (completedIds.length === 0) {
-      await setConfig('dailySummaryDate', today);
-      await setConfig('dailySummaryText', null);
-      return NextResponse.json({ summary: null, date: yesterday, cacheDate: today, timeZone: APP_TIME_ZONE, model: DEFAULT_MODEL });
+      return NextResponse.json({
+        summary: NO_ACTIVITY_SUMMARY,
+        date: yesterday,
+        cacheDate: today,
+        timeZone: APP_TIME_ZONE,
+        model: null,
+        status: 'no_activity',
+      });
     }
 
     const library = Array.isArray(libraryData) ? (libraryData as Array<{ id: string; name: string }>) : [];
@@ -101,12 +127,31 @@ export async function POST() {
       max_completion_tokens: 110,
     });
 
-    const summary = (data?.choices?.[0]?.message?.content?.trim() ?? null) as string | null;
+    const summary = String(data?.choices?.[0]?.message?.content ?? '').trim();
+    if (!summary) throw new Error('Groq returned an empty daily summary');
 
-    await setConfig('dailySummaryDate', today);
-    await setConfig('dailySummaryText', summary);
-    return NextResponse.json({ summary, date: yesterday, cacheDate: today, timeZone: APP_TIME_ZONE, model });
-  } catch {
-    return NextResponse.json({ summary: null });
+    await Promise.all([
+      setConfig('dailySummaryDate', today),
+      setConfig('dailySummaryText', summary),
+    ]);
+    return NextResponse.json({
+      summary,
+      date: yesterday,
+      cacheDate: today,
+      timeZone: APP_TIME_ZONE,
+      model,
+      status: 'generated',
+    });
+  } catch (error) {
+    console.error('Daily summary generation failed:', error);
+    return NextResponse.json({
+      summary: UNAVAILABLE_SUMMARY,
+      date: yesterday,
+      cacheDate: today,
+      timeZone: APP_TIME_ZONE,
+      model: DEFAULT_MODEL,
+      status: 'unavailable',
+      error: error instanceof Error ? error.message : 'Unknown daily summary error',
+    }, { status: 500 });
   }
 }
