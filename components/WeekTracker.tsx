@@ -268,7 +268,7 @@ export default function WeekTracker({
             color: palette.accent,
             exercises: category.exerciseIds
               .map(id => exercises.find(exercise => exercise.id === id))
-              .filter((exercise): exercise is Exercise => Boolean(exercise) && !exercise.optional),
+              .filter((exercise): exercise is Exercise => !!exercise && !exercise.optional),
           };
         })
         .filter(group => group.exercises.length || !hidden.category.includes(group.id));
