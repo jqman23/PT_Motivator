@@ -192,6 +192,23 @@ function parseLegacyResponseTranscripts(body) {
     .filter(tile => tile.text);
 }
 
+function splitBodyAndResponses(body) {
+  const clean = text(body).trim();
+  if (!clean) return { noteBody: '', responses: [] };
+
+  const responseStart = clean.search(/(?:^|\n{2,})Response - /);
+  if (responseStart < 0) return { noteBody: clean, responses: [] };
+
+  const noteBody = clean.slice(0, responseStart).trim();
+  const responseText = clean.slice(responseStart).trim();
+  const responses = responseText
+    .split(/\n{2,}(?=Response - )/)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  return { noteBody, responses };
+}
+
 function fallbackCopy(value) {
   const textarea = document.createElement('textarea');
   textarea.value = value;
@@ -1188,48 +1205,66 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 </button>
               ) : (
                 <div className="min-w-0 space-y-2">
-                  {filteredNotes.map(note => (
-                    <div key={note.id} className="relative min-w-0 overflow-hidden rounded-2xl">
-                      <button type="button" onClick={() => void deleteNote(note.id)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
-                        {confirmDeleteId === note.id ? 'Confirm' : 'Delete'}
-                      </button>
-                      <article
-                        onClick={() => {
-                          if (swipedNoteId === note.id) {
-                            setSwipedNoteId('');
-                            return;
-                          }
-                          setDraft({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] });
-                          setConfirmDelete(false);
-                        }}
-                        className="relative min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm transition-transform active:scale-[0.995]"
-                        style={{ transform: swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)', touchAction: 'pan-y' }}
-                        {...noteSwipeHandlers(note)}
-                        onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); void startCleanup(note); }}
-                      >
-                        <div className="flex min-w-0 items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              {note.pinned && <span className="flex-shrink-0 text-sm text-[#D9A94B]">★</span>}
-                              <p className="min-w-0 truncate text-sm font-bold text-stone-800">{note.title || typeLabel(note.kind)}</p>
+                  {filteredNotes.map(note => {
+                    const { noteBody, responses } = splitBodyAndResponses(note.body);
+                    return (
+                      <div key={note.id} className="relative min-w-0 overflow-hidden rounded-2xl">
+                        <button type="button" onClick={() => void deleteNote(note.id)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
+                          {confirmDeleteId === note.id ? 'Confirm' : 'Delete'}
+                        </button>
+                        <div
+                          className="relative min-w-0 transition-transform"
+                          style={{ transform: swipedNoteId === note.id ? 'translateX(-5.75rem)' : 'translateX(0)' }}
+                        >
+                          <article
+                            onClick={() => {
+                              if (swipedNoteId === note.id) {
+                                setSwipedNoteId('');
+                                return;
+                              }
+                              setDraft({ ...note, linkedDates: [...note.linkedDates], photoAttachments: [...note.photoAttachments] });
+                              setConfirmDelete(false);
+                            }}
+                            className="min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-stone-100 bg-white p-3 shadow-sm active:scale-[0.995]"
+                            style={{ touchAction: 'pan-y' }}
+                            {...noteSwipeHandlers(note)}
+                            onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); void startCleanup(note); }}
+                          >
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  {note.pinned && <span className="flex-shrink-0 text-sm text-[#D9A94B]">★</span>}
+                                  <p className="min-w-0 truncate text-sm font-bold text-stone-800">{note.title || typeLabel(note.kind)}</p>
+                                </div>
+                                <p className="mt-0.5 min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-stone-400">{typeLabel(note.kind)}{note.provider ? ` · ${note.provider}` : ''}</p>
+                                {noteBody && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{noteBody}</p>}
+                              </div>
+                              {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl object-cover" />}
                             </div>
-                            <p className="mt-0.5 min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-stone-400">{typeLabel(note.kind)}{note.provider ? ` · ${note.provider}` : ''}</p>
-                            {note.body && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{note.body}</p>}
-                          </div>
-                          {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl object-cover" />}
+                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                              {note.linkedDates.slice(0, 2).map(date => <span key={date} className="max-w-full truncate rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">{formatDate(date)}</span>)}
+                              {note.linkedDates.length > 2 && <span className="text-[10px] text-stone-400">+{note.linkedDates.length - 2}</span>}
+                              <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1.5">
+                                <button type="button" onClick={event => { event.stopPropagation(); void startCleanup(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-600">Clean up</button>
+                                <button type="button" onClick={event => { event.stopPropagation(); startResponse(note); }} className="min-h-9 rounded-lg px-3 py-1 text-[10px] font-bold text-white" style={{ background: '#7E9B86' }}>Respond</button>
+                                <button type="button" onClick={event => { event.stopPropagation(); void copyNote(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-500">Copy</button>
+                              </div>
+                            </div>
+                          </article>
+                          {responses.length > 0 && (
+                            <div className="ml-4 mt-1.5 space-y-1.5">
+                              {responses.map((response, index) => (
+                                <section key={`${note.id}-response-${index}`} className="rounded-2xl border border-[#DCE8DF] bg-[#F4FAF5] px-3 py-2 shadow-sm">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#476653]">Response to note</p>
+                                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-600">{response}</p>
+                                </section>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                          {note.linkedDates.slice(0, 2).map(date => <span key={date} className="max-w-full truncate rounded-full bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-500">{formatDate(date)}</span>)}
-                          {note.linkedDates.length > 2 && <span className="text-[10px] text-stone-400">+{note.linkedDates.length - 2}</span>}
-                          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1.5">
-                            <button type="button" onClick={event => { event.stopPropagation(); void startCleanup(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-600">Clean up</button>
-                            <button type="button" onClick={event => { event.stopPropagation(); startResponse(note); }} className="min-h-9 rounded-lg px-3 py-1 text-[10px] font-bold text-white" style={{ background: '#7E9B86' }}>Respond</button>
-                            <button type="button" onClick={event => { event.stopPropagation(); void copyNote(note); }} className="min-h-9 rounded-lg bg-stone-100 px-3 py-1 text-[10px] font-semibold text-stone-500">Copy</button>
-                          </div>
-                        </div>
-                      </article>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
