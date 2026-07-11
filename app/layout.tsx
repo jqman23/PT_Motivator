@@ -6,6 +6,7 @@ import FloatingWidgetDockToggle from "@/components/FloatingWidgetDockToggle";
 import TextareaSpacebarFix from "@/components/TextareaSpacebarFix";
 import TimerBackgroundNotifications from "@/components/TimerBackgroundNotifications";
 import DoctorNotesReorderEnhancer from "@/components/DoctorNotesReorderEnhancer";
+import HealthSectionJumpEnhancer from "@/components/HealthSectionJumpEnhancer";
 import "./globals.css";
 import "./widget-rescue.css";
 
@@ -52,6 +53,7 @@ export default function RootLayout({
         <TextareaSpacebarFix />
         <TimerBackgroundNotifications />
         <DoctorNotesReorderEnhancer />
+        <HealthSectionJumpEnhancer />
       </body>
     </html>
   );
