@@ -15,7 +15,7 @@ type ToolbarPrefs = {
   dailySummary?: boolean;
 };
 
-interface Props {
+type Props = {
   log: LogMap;
   today: string;
   selectedDate: string;
@@ -23,7 +23,7 @@ interface Props {
   exercises: Exercise[];
   layout: CategoryConfig[];
   onSelectDate: (date: string) => void;
-}
+};
 
 type WeekGroup = {
   id: string;
@@ -38,9 +38,12 @@ type WeekPrefs = {
   goals: Record<WeekMode, Record<string, number>>;
 };
 
-type SwipeStart = {
-  x: number;
-  y: number;
+type SwipeStart = { x: number; y: number };
+
+type LogRow = {
+  date?: string;
+  exercise_id?: string;
+  completed?: boolean;
 };
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -49,25 +52,22 @@ const PREF_KEY = 'weekTrackerPrefs';
 const LEGACY_PREF_KEY = 'pt-week-tracker-prefs';
 const SWIPE_THRESHOLD = 52;
 
-function todayStr(date: Date): string {
+function dateString(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function daysForWeek(today: string, weekOffset: number): Date[] {
   const end = new Date(`${today}T12:00:00`);
   end.setDate(end.getDate() + weekOffset * 7);
-
-  const out: Date[] = [];
-  for (let index = 6; index >= 0; index -= 1) {
-    const date = new Date(end);
-    date.setDate(end.getDate() - index);
-    out.push(date);
-  }
-  return out;
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(end);
+    day.setDate(end.getDate() - (6 - index));
+    return day;
+  });
 }
 
-function displayDay(dateString: string) {
-  return new Date(`${dateString}T12:00:00`).toLocaleDateString(undefined, {
+function displayDay(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -92,7 +92,6 @@ function defaultPrefs(): WeekPrefs {
 
 function readLocalPrefs(): WeekPrefs {
   if (typeof window === 'undefined') return defaultPrefs();
-
   try {
     const parsed = JSON.parse(localStorage.getItem(LEGACY_PREF_KEY) || '{}') as Partial<WeekPrefs>;
     return {
@@ -111,22 +110,28 @@ function readLocalPrefs(): WeekPrefs {
   }
 }
 
-function weekTitle(weekOffset: number) {
-  if (weekOffset === 0) return 'This week';
-  if (weekOffset === -1) return 'Previous week';
-  return `${Math.abs(weekOffset)} weeks ago`;
+function weekTitle(offset: number) {
+  if (offset === 0) return 'This week';
+  if (offset === -1) return 'Previous week';
+  return `${Math.abs(offset)} weeks ago`;
 }
 
-export default function WeekTracker({
-  log,
-  today,
-  selectedDate,
-  ptSessions,
-  exercises,
-  layout,
-  onSelectDate,
-}: Props) {
+function rowsToLog(rows: unknown): LogMap {
+  const next: LogMap = {};
+  if (!Array.isArray(rows)) return next;
+  for (const item of rows as LogRow[]) {
+    if (typeof item.date !== 'string' || typeof item.exercise_id !== 'string') continue;
+    const day = item.date.split('T')[0];
+    if (!next[day]) next[day] = {};
+    next[day][item.exercise_id] = item.completed === true;
+  }
+  return next;
+}
+
+export default function WeekTracker({ log, today, selectedDate, ptSessions, exercises, layout, onSelectDate }: Props) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [historicalLog, setHistoricalLog] = useState<LogMap>({});
+  const [weekLoading, setWeekLoading] = useState(false);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
   const [mode, setMode] = useState<WeekMode>('type');
   const [hidden, setHidden] = useState<Record<WeekMode, string[]>>({ type: [], category: [] });
@@ -138,23 +143,60 @@ export default function WeekTracker({
   const swipeStartRef = useRef<SwipeStart | null>(null);
   const suppressNextDayClickRef = useRef(false);
   const suppressResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
 
   const days = useMemo(() => daysForWeek(today, weekOffset), [today, weekOffset]);
+  const weekStart = dateString(days[0]);
+  const weekEnd = dateString(days[days.length - 1]);
+
+  const displayedLog = useMemo(() => {
+    const merged: LogMap = { ...historicalLog };
+    for (const [day, entries] of Object.entries(log)) {
+      merged[day] = { ...(merged[day] || {}), ...entries };
+    }
+    return merged;
+  }, [historicalLog, log]);
 
   useEffect(() => {
     setWeekOffset(0);
     setHoveredDay(null);
   }, [today]);
 
-  useEffect(() => {
-    return () => {
-      if (suppressResetTimerRef.current) clearTimeout(suppressResetTimerRef.current);
-    };
+  useEffect(() => () => {
+    if (suppressResetTimerRef.current) clearTimeout(suppressResetTimerRef.current);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++requestRef.current;
+    setWeekLoading(true);
 
+    fetch(`/api/log?start=${encodeURIComponent(weekStart)}&end=${encodeURIComponent(weekEnd)}`, { cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) throw new Error('Could not load week');
+        return response.json();
+      })
+      .then(data => {
+        if (cancelled || requestId !== requestRef.current) return;
+        const rangeLog = rowsToLog(data.rows);
+        setHistoricalLog(previous => {
+          const next = { ...previous };
+          for (const day of days) delete next[dateString(day)];
+          return { ...next, ...rangeLog };
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled && requestId === requestRef.current) setWeekLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [days, weekEnd, weekStart]);
+
+  useEffect(() => {
+    let cancelled = false;
     const applyPrefs = (prefs: WeekPrefs) => {
       if (cancelled) return;
       setMode(prefs.mode);
@@ -163,37 +205,32 @@ export default function WeekTracker({
       setPrefsLoaded(true);
     };
 
-    (async () => {
-      try {
-        const response = await fetch(`/api/config?key=${encodeURIComponent(PREF_KEY)}`, { cache: 'no-store' });
-        const data = await response.json();
-        if (data?.value && typeof data.value === 'object') {
-          const value = data.value as Partial<WeekPrefs>;
-          applyPrefs({
-            mode: value.mode === 'category' ? 'category' : 'type',
-            hidden: {
-              type: Array.isArray(value.hidden?.type) ? value.hidden.type : [],
-              category: Array.isArray(value.hidden?.category) ? value.hidden.category : [],
-            },
-            goals: {
-              type: value.goals?.type && typeof value.goals.type === 'object' ? value.goals.type : {},
-              category: value.goals?.category && typeof value.goals.category === 'object' ? value.goals.category : {},
-            },
-          });
-          return;
-        }
-      } catch {
-        // Fall through to the local migration.
-      }
-
-      const localPrefs = readLocalPrefs();
-      applyPrefs(localPrefs);
-      void fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: PREF_KEY, value: localPrefs }),
+    fetch(`/api/config?key=${encodeURIComponent(PREF_KEY)}`, { cache: 'no-store' })
+      .then(response => response.json())
+      .then(data => {
+        if (!data?.value || typeof data.value !== 'object') throw new Error('No saved preferences');
+        const value = data.value as Partial<WeekPrefs>;
+        applyPrefs({
+          mode: value.mode === 'category' ? 'category' : 'type',
+          hidden: {
+            type: Array.isArray(value.hidden?.type) ? value.hidden.type : [],
+            category: Array.isArray(value.hidden?.category) ? value.hidden.category : [],
+          },
+          goals: {
+            type: value.goals?.type && typeof value.goals.type === 'object' ? value.goals.type : {},
+            category: value.goals?.category && typeof value.goals.category === 'object' ? value.goals.category : {},
+          },
+        });
+      })
+      .catch(() => {
+        const local = readLocalPrefs();
+        applyPrefs(local);
+        void fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: PREF_KEY, value: local }),
+        });
       });
-    })();
 
     return () => {
       cancelled = true;
@@ -202,7 +239,6 @@ export default function WeekTracker({
 
   useEffect(() => {
     if (!prefsLoaded) return;
-
     const value = { mode, hidden, goals };
     localStorage.setItem(LEGACY_PREF_KEY, JSON.stringify(value));
     void fetch('/api/config', {
@@ -214,21 +250,17 @@ export default function WeekTracker({
 
   useEffect(() => {
     let cancelled = false;
-
     fetch('/api/config?key=widgetPrefs', { cache: 'no-store' })
       .then(response => response.json())
       .then(data => {
-        if (!cancelled && data?.value && typeof data.value === 'object') {
-          setToolbarPrefs(data.value as ToolbarPrefs);
-        }
+        if (!cancelled && data?.value && typeof data.value === 'object') setToolbarPrefs(data.value as ToolbarPrefs);
       })
-      .catch(() => {});
+      .catch(() => undefined);
 
     const onPrefsChange = (event: Event) => {
       const detail = (event as CustomEvent<ToolbarPrefs>).detail;
       if (detail && typeof detail === 'object') setToolbarPrefs(detail);
     };
-
     window.addEventListener('pt-widget-prefs-change', onPrefsChange);
     return () => {
       cancelled = true;
@@ -244,13 +276,11 @@ export default function WeekTracker({
         ['Reorder & edit', toolbarPrefs.manage !== false],
         ['Show daily summary', toolbarPrefs.dailySummary !== false],
       ];
-
-      visibility.forEach(([title, visible]) => {
+      for (const [title, visible] of visibility) {
         const button = document.querySelector<HTMLElement>(`button[title="${title}"]`);
         if (button) button.style.display = visible ? '' : 'none';
-      });
+      }
     };
-
     syncToolbar();
     const observer = new MutationObserver(syncToolbar);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -268,20 +298,17 @@ export default function WeekTracker({
             color: palette.accent,
             exercises: category.exerciseIds
               .map(id => exercises.find(exercise => exercise.id === id))
-              .filter((exercise): exercise is Exercise => !!exercise && !exercise.optional),
+              .filter((exercise): exercise is Exercise => Boolean(exercise && !exercise.optional)),
           };
         })
         .filter(group => group.exercises.length || !hidden.category.includes(group.id));
     }
 
     const byType = new Map<string, Exercise[]>();
-    exercises
-      .filter(exercise => !exercise.optional)
-      .forEach(exercise => {
-        const type = normalizeType(exercise.cat);
-        byType.set(type, [...(byType.get(type) ?? []), exercise]);
-      });
-
+    exercises.filter(exercise => !exercise.optional).forEach(exercise => {
+      const type = normalizeType(exercise.cat);
+      byType.set(type, [...(byType.get(type) ?? []), exercise]);
+    });
     return Array.from(byType.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([type, items], index) => ({
@@ -298,22 +325,19 @@ export default function WeekTracker({
     return Math.max(1, Math.min(99, Number(goals[mode][group.id] ?? (group.exercises.length || 1))));
   }
 
-  function groupCount(dateString: string, group: WeekGroup) {
-    const dayLog = log[dateString] || {};
-    return group.exercises.filter(exercise => dayLog[exercise.id]).length;
+  function groupCount(day: string, group: WeekGroup) {
+    const entries = displayedLog[day] || {};
+    return group.exercises.filter(exercise => entries[exercise.id]).length;
   }
 
-  function groupFraction(dateString: string, group: WeekGroup) {
+  function groupFraction(day: string, group: WeekGroup) {
     const denominator = groupGoal(group);
-    return denominator ? Math.min(1, groupCount(dateString, group) / denominator) : 0;
+    return denominator ? Math.min(1, groupCount(day, group) / denominator) : 0;
   }
 
   function setGroupGoal(groupId: string, value: string) {
     const next = Math.max(1, Math.min(99, Number(value) || 1));
-    setGoals(previous => ({
-      ...previous,
-      [mode]: { ...previous[mode], [groupId]: next },
-    }));
+    setGoals(previous => ({ ...previous, [mode]: { ...previous[mode], [groupId]: next } }));
   }
 
   function toggleGroup(groupId: string) {
@@ -321,11 +345,7 @@ export default function WeekTracker({
       const current = new Set(previous[mode]);
       if (current.has(groupId)) current.delete(groupId);
       else current.add(groupId);
-
-      return {
-        ...previous,
-        [mode]: Array.from(current),
-      };
+      return { ...previous, [mode]: Array.from(current) };
     });
   }
 
@@ -345,7 +365,6 @@ export default function WeekTracker({
       swipeStartRef.current = null;
       return;
     }
-
     const touch = event.touches[0];
     swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
   }
@@ -353,10 +372,8 @@ export default function WeekTracker({
   function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
     const start = swipeStartRef.current;
     swipeStartRef.current = null;
-
     const touch = event.changedTouches[0];
     if (!start || !touch) return;
-
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
     if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) <= Math.abs(dy) * 1.15) return;
@@ -378,40 +395,29 @@ export default function WeekTracker({
     suppressNextDayClickRef.current = false;
   }
 
-  function handleDayClick(dateString: string) {
+  function handleDayClick(day: string) {
     if (suppressNextDayClickRef.current) {
       suppressNextDayClickRef.current = false;
       return;
     }
-
-    const isTouchLike = window.matchMedia('(hover: none), (pointer: coarse)').matches;
-    if (isTouchLike) {
-      setHoveredDay(dateString);
-      return;
-    }
-
-    onSelectDate(dateString);
+    const touchLike = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+    if (touchLike) setHoveredDay(day);
+    else onSelectDate(day);
   }
 
   const hovered = hoveredDay
     ? {
-        groups: visibleGroups.map(group => ({
-          group,
-          done: groupCount(hoveredDay, group),
-          total: groupGoal(group),
-        })),
+        groups: visibleGroups.map(group => ({ group, done: groupCount(hoveredDay, group), total: groupGoal(group) })),
         ptSession: ptSessions?.find(session => session.date === hoveredDay),
       }
     : null;
 
   const completions = visibleGroups.map(group => {
-    const totalDone = days.reduce((sum, day) => sum + groupCount(todayStr(day), group), 0);
-    return `${group.name}: ${totalDone}/${groupGoal(group) * 7}`;
+    const done = days.reduce((sum, day) => sum + groupCount(dateString(day), group), 0);
+    return `${group.name}: ${done}/${groupGoal(group) * 7}`;
   });
 
-  const weekHasSession = Boolean(
-    ptSessions?.some(session => days.some(day => todayStr(day) === session.date))
-  );
+  const weekHasSession = Boolean(ptSessions?.some(session => days.some(day => dateString(day) === session.date)));
 
   return (
     <div
@@ -420,119 +426,49 @@ export default function WeekTracker({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onClickCapture={handleCardClickCapture}
-      onTouchCancel={() => {
-        swipeStartRef.current = null;
-      }}
+      onTouchCancel={() => { swipeStartRef.current = null; }}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={moveToOlderWeek}
-              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-stone-50 text-base text-stone-500"
-              aria-label="Show previous week"
-              title="Previous week"
-            >
-              ‹
-            </button>
-
+            <button type="button" onClick={moveToOlderWeek} className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-stone-50 text-base text-stone-500" aria-label="Show previous week">‹</button>
             <div className="min-w-0">
-              <h2 className="truncate font-serif text-base font-semibold text-stone-800">
-                {weekTitle(weekOffset)}
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="truncate font-serif text-base font-semibold text-stone-800">{weekTitle(weekOffset)}</h2>
+                {weekLoading && <span className="text-[9px] text-stone-300">Loading…</span>}
+              </div>
               <p className="mt-0.5 text-[10px] text-stone-400">
                 {days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                 {' - '}
-                {days[days.length - 1].toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
+                {days[days.length - 1].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             </div>
-
-            <button
-              type="button"
-              onClick={moveToNewerWeek}
-              disabled={weekOffset === 0}
-              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-stone-50 text-base text-stone-500 disabled:opacity-25"
-              aria-label="Show newer week"
-              title="Newer week"
-            >
-              ›
-            </button>
+            <button type="button" onClick={moveToNewerWeek} disabled={weekOffset === 0} className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-stone-50 text-base text-stone-500 disabled:opacity-25" aria-label="Show newer week">›</button>
           </div>
-          <p className="mt-1 pl-8 text-[9px] text-stone-300">
-            Swipe right for earlier · left for newer
-          </p>
+          <p className="mt-1 pl-8 text-[9px] text-stone-300">Swipe right for earlier · left for newer</p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(previous => !previous)}
-          className="flex-shrink-0 rounded-lg bg-stone-50 px-2.5 py-1.5 text-[10px] font-bold text-stone-500"
-        >
-          Set goal
-        </button>
+        <button type="button" onClick={() => setSettingsOpen(previous => !previous)} className="flex-shrink-0 rounded-lg bg-stone-50 px-2.5 py-1.5 text-[10px] font-bold text-stone-500">Set goal</button>
       </div>
 
       {settingsOpen && (
         <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2">
           <div className="mb-2 grid grid-cols-2 gap-1.5">
             {(['type', 'category'] as const).map(value => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setMode(value)}
-                className="rounded-lg px-2 py-1.5 text-[11px] font-bold capitalize"
-                style={{
-                  background: mode === value ? '#7E9B86' : '#fff',
-                  color: mode === value ? '#fff' : '#78716c',
-                }}
-              >
-                {value}
-              </button>
+              <button key={value} type="button" onClick={() => setMode(value)} className="rounded-lg px-2 py-1.5 text-[11px] font-bold capitalize" style={{ background: mode === value ? '#7E9B86' : '#fff', color: mode === value ? '#fff' : '#78716c' }}>{value}</button>
             ))}
           </div>
-
           <div className="flex flex-wrap gap-1.5">
             {groups.map(group => {
               const isHidden = hidden[mode].includes(group.id);
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => toggleGroup(group.id)}
-                  className="rounded-full border px-2 py-1 text-[10px] font-semibold"
-                  style={{
-                    borderColor: isHidden ? '#e7e5e4' : group.color,
-                    color: isHidden ? '#a8a29e' : group.color,
-                    background: isHidden ? '#fff' : `${group.color}14`,
-                  }}
-                >
-                  {isHidden ? 'Show ' : 'Hide '}
-                  {group.name}
-                </button>
-              );
+              return <button key={group.id} type="button" onClick={() => toggleGroup(group.id)} className="rounded-full border px-2 py-1 text-[10px] font-semibold" style={{ borderColor: isHidden ? '#e7e5e4' : group.color, color: isHidden ? '#a8a29e' : group.color, background: isHidden ? '#fff' : `${group.color}14` }}>{isHidden ? 'Show ' : 'Hide '}{group.name}</button>;
             })}
           </div>
-
           <div className="mt-2 space-y-1.5">
             {visibleGroups.map(group => (
               <div key={group.id} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold capitalize text-stone-600">
-                  {group.name}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold capitalize text-stone-600">{group.name}</span>
                 <span className="text-[10px] text-stone-400">daily goal</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={groupGoal(group)}
-                  onChange={event => setGroupGoal(group.id, event.target.value)}
-                  className="w-14 rounded-lg border border-stone-200 px-2 py-1 text-center text-xs font-bold text-stone-700"
-                />
+                <input type="number" min={1} max={99} value={groupGoal(group)} onChange={event => setGroupGoal(group.id, event.target.value)} className="w-14 rounded-lg border border-stone-200 px-2 py-1 text-center text-xs font-bold text-stone-700" />
               </div>
             ))}
           </div>
@@ -545,54 +481,22 @@ export default function WeekTracker({
             <p className="truncate text-xs font-semibold capitalize text-stone-700">{group.name}</p>
             <p className="text-[10px] text-stone-400">goal: {groupGoal(group)}/day</p>
           </div>
-
           <div className="flex flex-1 justify-between gap-1">
             {days.map(day => {
-              const dateString = todayStr(day);
-              const fraction = groupFraction(dateString, group);
-              const hasAnyDayData = visibleGroups.some(item => groupFraction(dateString, item) > 0);
-              const isToday = dateString === today;
-              const isSelected = dateString === selectedDate;
-              const ptSession = ptSessions?.find(session => session.date === dateString);
-              const showPTCircle = visibleGroups[0]?.id === group.id && Boolean(ptSession) && !hasAnyDayData;
-              const isHovered = hoveredDay === dateString;
-
+              const dayString = dateString(day);
+              const fraction = groupFraction(dayString, group);
+              const hasAnyData = visibleGroups.some(item => groupFraction(dayString, item) > 0);
+              const isToday = dayString === today;
+              const isSelected = dayString === selectedDate;
+              const ptSession = ptSessions?.find(session => session.date === dayString);
+              const showPTCircle = visibleGroups[0]?.id === group.id && Boolean(ptSession) && !hasAnyData;
+              const isHovered = hoveredDay === dayString;
               return (
-                <button
-                  key={dateString}
-                  type="button"
-                  onClick={() => handleDayClick(dateString)}
-                  onMouseEnter={() => setHoveredDay(dateString)}
-                  onMouseLeave={() => setHoveredDay(null)}
-                  onFocus={() => setHoveredDay(dateString)}
-                  onBlur={() => setHoveredDay(null)}
-                  className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 outline-none transition-colors ${
-                    isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'
-                  }`}
-                  title={`Show ${displayDay(dateString)} summary`}
-                >
-                  <div
-                    className={`relative h-5 w-5 overflow-hidden rounded-full border-2 transition-transform ${
-                      showPTCircle
-                        ? 'border-[#E7D4A3] bg-[#FCF8EE]'
-                        : isSelected
-                          ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30'
-                          : isToday
-                            ? 'border-[#D9A94B]'
-                            : 'border-stone-200'
-                    } ${isHovered ? 'scale-110' : 'scale-100'}`}
-                  >
-                    {fraction > 0 && (
-                      <div
-                        className="absolute bottom-0 left-0 right-0"
-                        style={{ height: `${fraction * 100}%`, background: group.color }}
-                      />
-                    )}
+                <button key={dayString} type="button" onClick={() => handleDayClick(dayString)} onMouseEnter={() => setHoveredDay(dayString)} onMouseLeave={() => setHoveredDay(null)} onFocus={() => setHoveredDay(dayString)} onBlur={() => setHoveredDay(null)} className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 outline-none transition-colors ${isHovered ? 'bg-stone-100' : 'hover:bg-stone-50 focus-visible:bg-stone-100'}`} title={`Show ${displayDay(dayString)} summary`}>
+                  <div className={`relative h-5 w-5 overflow-hidden rounded-full border-2 transition-transform ${showPTCircle ? 'border-[#E7D4A3] bg-[#FCF8EE]' : isSelected ? 'border-[#D9A94B] ring-2 ring-[#D9A94B]/30' : isToday ? 'border-[#D9A94B]' : 'border-stone-200'} ${isHovered ? 'scale-110' : 'scale-100'}`}>
+                    {fraction > 0 && <div className="absolute bottom-0 left-0 right-0" style={{ height: `${fraction * 100}%`, background: group.color }} />}
                   </div>
-
-                  <span className={`text-[9px] font-medium ${isHovered ? 'text-stone-600' : 'text-stone-400'}`}>
-                    {DAY_LABELS[day.getDay()]}
-                  </span>
+                  <span className={`text-[9px] font-medium ${isHovered ? 'text-stone-600' : 'text-stone-400'}`}>{DAY_LABELS[day.getDay()]}</span>
                 </button>
               );
             })}
@@ -607,55 +511,24 @@ export default function WeekTracker({
               <p className="flex-shrink-0 text-xs font-bold text-stone-700">{displayDay(hoveredDay)}</p>
               {hovered.ptSession && (
                 <>
-                  <span
-                    className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                    style={{ background: '#FBF5E8', color: '#D9A94B' }}
-                  >
-                    {sessionLabel(hovered.ptSession.kind)}
-                  </span>
-                  {hovered.ptSession.note?.trim() && (
-                    <span className="truncate text-[10px] text-stone-400">{hovered.ptSession.note}</span>
-                  )}
+                  <span className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: '#FBF5E8', color: '#D9A94B' }}>{sessionLabel(hovered.ptSession.kind)}</span>
+                  {hovered.ptSession.note?.trim() && <span className="truncate text-[10px] text-stone-400">{hovered.ptSession.note}</span>}
                 </>
               )}
             </div>
-
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {hovered.groups.map(({ group, done, total }) => (
-                <span key={group.id} className="text-xs text-stone-500">
-                  <span className="font-semibold" style={{ color: group.color }}>
-                    {done}/{total}
-                  </span>{' '}
-                  {group.name}
-                </span>
-              ))}
-
-              {!hovered.ptSession && hovered.groups.every(item => item.done === 0) && (
-                <span className="text-xs italic text-stone-400">No activity logged</span>
-              )}
+              {hovered.groups.map(({ group, done, total }) => <span key={group.id} className="text-xs text-stone-500"><span className="font-semibold" style={{ color: group.color }}>{done}/{total}</span>{' '}{group.name}</span>)}
+              {!hovered.ptSession && hovered.groups.every(item => item.done === 0) && <span className="text-xs italic text-stone-400">No activity logged</span>}
             </div>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-center text-[11px] text-stone-400">Tap or hover a day for a summary</p>
-          </div>
+          <div className="flex h-full items-center justify-center"><p className="text-center text-[11px] text-stone-400">Tap or hover a day for a summary</p></div>
         )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-y-1">
-        <p className="truncate text-[10px] text-stone-400">
-          {completions.length ? completions.join(' · ') : 'No groups selected'}
-        </p>
-
-        {weekHasSession && (
-          <div className="flex items-center gap-1">
-            <div
-              className="h-2 w-2 rounded-full border"
-              style={{ background: '#FBF5E8', borderColor: '#D9A94B' }}
-            />
-            <span className="text-[10px] text-stone-400">PT / training session</span>
-          </div>
-        )}
+        <p className="truncate text-[10px] text-stone-400">{completions.length ? completions.join(' · ') : 'No groups selected'}</p>
+        {weekHasSession && <div className="flex items-center gap-1"><div className="h-2 w-2 rounded-full border" style={{ background: '#FBF5E8', borderColor: '#D9A94B' }} /><span className="text-[10px] text-stone-400">PT / training session</span></div>}
       </div>
     </div>
   );
