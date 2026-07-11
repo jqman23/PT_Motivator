@@ -680,7 +680,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   }
 
   function toggleResponseCollapsed(key) {
-    setCollapsedResponses(previous => ({ ...previous, [key]: !previous[key] }));
+    setCollapsedResponses(previous => ({ ...previous, [key]: previous[key] === false }));
     setSwipedResponseId('');
     setConfirmDeleteResponseId('');
   }
@@ -705,9 +705,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         if (Math.abs(dx) >= 45) {
           setSwipedResponseId(dx < 0 ? key : '');
           if (dx >= 0) setConfirmDeleteResponseId('');
-          return;
         }
-        toggleResponseCollapsed(key);
       },
     };
   }
@@ -737,6 +735,61 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         delete next[key];
         return next;
       });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not delete response.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function closeResponseEditor() {
+    recordingStopIntentRef.current = 'stop';
+    recognitionRef.current?.stop?.();
+    setRespondingTo(null);
+    setResponseDraft(responseTemplate());
+    setResponseListening(false);
+    setResponsePaused(false);
+    setLiveTranscript('');
+    setResponseTranscriptTiles([]);
+    setEditingTranscriptId('');
+    setEditingTranscriptValue('');
+    setSwipedResponseId('');
+    setConfirmDeleteResponseId('');
+    recordingTranscriptIdRef.current = '';
+    recordingFinalRef.current = '';
+    recordingLiveRef.current = '';
+    setError('');
+  }
+
+  async function deleteEditingResponse() {
+    if (!respondingTo) return;
+    const editingIndex = Number.isInteger(respondingTo.editingResponseIndex) ? respondingTo.editingResponseIndex : null;
+    if (editingIndex === null) {
+      closeResponseEditor();
+      return;
+    }
+
+    const nextResponses = [...(respondingTo.responses || [])];
+    nextResponses.splice(editingIndex, 1);
+    setSaving(true);
+    setError('');
+    try {
+      const updated = {
+        ...respondingTo,
+        body: bodyWithResponses(respondingTo.noteBody, nextResponses),
+        responseTranscripts: nextResponses.length === 0 ? [] : responseTranscriptTiles.map(tile => ({
+          id: tile.id,
+          text: tile.text,
+          createdAt: tile.createdAt,
+          updatedAt: tile.updatedAt,
+        })),
+      };
+      delete updated.noteBody;
+      delete updated.responses;
+      delete updated.editingResponseIndex;
+      delete updated.editingResponseTitle;
+      await saveUpdatedNote(updated, 'delete response', 'Could not delete response.');
+      closeResponseEditor();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not delete response.');
     } finally {
@@ -1148,7 +1201,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               {cleanupError && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{cleanupError}</p>}
 
-              <div className="grid min-w-0 grid-cols-2 gap-2">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
                 <button type="button" onClick={() => void incorporateCleanup()} disabled={saving || cleanupLoading} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Incorporate'}</button>
                 <button type="button" onClick={() => { setCleanupNote(null); setCleanupDraft(null); setCleanupError(''); }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
               </div>
@@ -1219,8 +1272,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <div className="grid min-w-0 grid-cols-2 gap-2">
                 <button type="button" onClick={() => void saveResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86' }}>{saving ? 'Saving...' : 'Save response'}</button>
-                <button type="button" onClick={() => { recordingStopIntentRef.current = 'stop'; recognitionRef.current?.stop?.(); setRespondingTo(null); setResponseDraft(responseTemplate()); setResponseListening(false); setResponsePaused(false); setLiveTranscript(''); setResponseTranscriptTiles([]); setEditingTranscriptId(''); setEditingTranscriptValue(''); setSwipedResponseId(''); setConfirmDeleteResponseId(''); recordingTranscriptIdRef.current = ''; recordingFinalRef.current = ''; recordingLiveRef.current = ''; }} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
+                <button type="button" onClick={closeResponseEditor} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-500">Cancel</button>
                 <button type="button" onClick={() => void cleanupResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl bg-white px-3 py-3 text-sm font-semibold text-stone-600 disabled:opacity-50">Clean up</button>
+                <button type="button" onClick={() => void deleteEditingResponse()} disabled={saving} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-semibold disabled:opacity-50" style={{ background: '#FBEFF1', color: '#C96B7A' }}>Delete</button>
                 {responseListening ? (
                   <>
                     <button type="button" onClick={pauseResponseRecording} className="min-h-12 min-w-0 rounded-xl px-3 py-3 text-sm font-bold" style={{ background: '#FDF8EE', color: '#A97920' }}>Pause</button>
@@ -1387,21 +1441,18 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                             </div>
                           </article>
                           {responses.length > 0 && (
-                            <div className="relative ml-4 mt-1.5 space-y-1.5 border-l-2 border-[#DCE8DF] pl-3">
+                            <div className="relative ml-4 mt-1.5 space-y-1.5 border-l border-[#DCE8DF] pl-3">
                               {responses.map((response, index) => {
                                 const key = responseKey(note.id, index);
-                                const collapsed = collapsedResponses[key] === true;
+                                const collapsed = collapsedResponses[key] !== false;
                                 const parsed = parseResponseForEdit(response);
                                 const preview = responsePreview(response);
                                 const showTranscriptBadge = index === responses.length - 1 && note.responseTranscripts.length > 0;
                                 return (
-                                  <div key={key} className="relative min-w-0 overflow-hidden rounded-2xl">
-                                    <button type="button" onClick={() => void deleteResponse(note, index)} disabled={saving} className="absolute inset-y-0 right-0 flex w-24 items-center justify-center rounded-2xl bg-[#C96B7A] text-xs font-bold text-white disabled:opacity-60">
-                                      {confirmDeleteResponseId === key ? 'Confirm' : 'Delete'}
-                                    </button>
+                                  <div key={key} className="relative min-w-0 rounded-2xl">
                                     <section
-                                      className="relative min-w-0 rounded-2xl border border-[#DCE8DF] bg-[#F4FAF5] px-3 py-2 shadow-sm transition-transform"
-                                      style={{ transform: swipedResponseId === key ? 'translateX(-5.75rem)' : 'translateX(0)', touchAction: 'pan-y' }}
+                                      className="relative min-w-0 rounded-2xl border border-[#DCE8DF] bg-[#F4FAF5] px-3 py-2 shadow-sm"
+                                      style={{ touchAction: 'pan-y' }}
                                       {...responseSwipeHandlers(note, index)}
                                     >
                                       <span className="absolute -left-[1.05rem] top-5 h-2.5 w-2.5 rounded-full border-2 border-[#F4FAF5] bg-[#7E9B86]" />
@@ -1415,14 +1466,22 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                                         </button>
                                         <div className="flex shrink-0 items-center gap-1">
                                           <button type="button" onClick={event => { event.stopPropagation(); startResponse(note, index); }} className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#476653]">Edit</button>
-                                          <button type="button" onClick={event => { event.stopPropagation(); toggleResponseCollapsed(key); }} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-[#476653]" aria-label={collapsed ? 'Expand response' : 'Collapse response'}>
-                                            {collapsed ? '⌄' : '⌃'}
+                                          <button type="button" onClick={event => { event.stopPropagation(); toggleResponseCollapsed(key); }} className="min-h-7 rounded-lg bg-white px-2 py-1 text-[10px] font-bold text-[#476653]" aria-label={collapsed ? 'Expand response' : 'Collapse response'}>
+                                            {collapsed ? 'Show' : 'Hide'}
                                           </button>
                                         </div>
                                       </div>
                                       {!collapsed && preview && <p className="mt-2 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-600">{preview}</p>}
                                       {!collapsed && !preview && showTranscriptBadge && <p className="mt-2 text-xs leading-relaxed text-stone-500">Transcript saved separately.</p>}
                                     </section>
+                                    {(swipedResponseId === key || confirmDeleteResponseId === key) && (
+                                      <div className="mt-1 flex justify-end gap-1.5">
+                                        <button type="button" onClick={() => { setSwipedResponseId(''); setConfirmDeleteResponseId(''); }} className="min-h-8 rounded-lg bg-white px-2.5 py-1 text-[10px] font-semibold text-stone-500">Cancel</button>
+                                        <button type="button" onClick={() => void deleteResponse(note, index)} disabled={saving} className="min-h-8 rounded-lg px-2.5 py-1 text-[10px] font-bold text-white disabled:opacity-60" style={{ background: '#C96B7A' }}>
+                                          {confirmDeleteResponseId === key ? 'Confirm delete' : 'Delete response'}
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
