@@ -9,23 +9,6 @@ function markMoveHandles() {
     handle.setAttribute('role', 'button');
     handle.setAttribute('aria-label', 'Move exercise up or down');
     handle.dataset.exerciseMoveHandle = 'true';
-
-    const card = handle.closest<HTMLElement>('[data-exercise-card-id]');
-    if (!card) return;
-
-    const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
-    const upButton = buttons.find(button => button.textContent?.includes('↑ Up'));
-    const downButton = buttons.find(button => button.textContent?.includes('↓ Down'));
-    const controls = upButton?.parentElement;
-
-    if (controls && downButton?.parentElement === controls) {
-      controls.dataset.exerciseMoveControls = 'true';
-      card.dataset.moveControlsOpen = 'true';
-      upButton.setAttribute('aria-label', 'Move exercise up');
-      downButton.setAttribute('aria-label', 'Move exercise down');
-    } else if (!card.querySelector('[data-exercise-move-controls="true"]')) {
-      delete card.dataset.moveControlsOpen;
-    }
   });
 }
 
