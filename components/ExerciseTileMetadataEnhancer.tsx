@@ -43,72 +43,72 @@ function cardIsDone(card: HTMLElement) {
   return Boolean(checkbox?.querySelector('svg'));
 }
 
-function resetPrimaryImageStyles(card: HTMLElement, grip?: HTMLElement | null, checkbox?: HTMLElement | null) {
-  card.style.removeProperty('overflow');
-  card.style.removeProperty('isolation');
-  grip?.style.removeProperty('position');
-  grip?.style.removeProperty('z-index');
-  grip?.style.removeProperty('text-shadow');
-  grip?.style.removeProperty('background-color');
-  checkbox?.style.removeProperty('position');
-  checkbox?.style.removeProperty('z-index');
-  checkbox?.style.removeProperty('background-color');
-  checkbox?.style.removeProperty('border-color');
-  checkbox?.style.removeProperty('backdrop-filter');
-  checkbox?.style.removeProperty('box-shadow');
+function showImagePreview(imageUrl: string, exerciseName: string) {
+  document.querySelector('[data-exercise-image-preview="true"]')?.remove();
+
+  const backdrop = document.createElement('button');
+  backdrop.type = 'button';
+  backdrop.dataset.exerciseImagePreview = 'true';
+  backdrop.setAttribute('aria-label', `Close image preview for ${exerciseName}`);
+  Object.assign(backdrop.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '200',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px',
+    border: '0',
+    background: 'rgba(28, 31, 27, .72)',
+  });
+
+  const image = document.createElement('img');
+  image.src = imageUrl;
+  image.alt = exerciseName;
+  Object.assign(image.style, {
+    maxWidth: 'min(92vw, 560px)',
+    maxHeight: '82vh',
+    objectFit: 'contain',
+    borderRadius: '18px',
+    background: 'white',
+    boxShadow: '0 18px 55px rgba(0, 0, 0, .3)',
+  });
+  image.addEventListener('click', event => event.stopPropagation());
+  backdrop.addEventListener('click', () => backdrop.remove());
+  backdrop.append(image);
+  document.body.append(backdrop);
 }
 
 function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
-  const existing = card.querySelector<HTMLElement>('[data-primary-image-rail="true"]');
-  const grip = card.querySelector<HTMLElement>('[title="Move exercise"]');
-  const checkbox = grip?.nextElementSibling as HTMLElement | null;
-  const shouldShow = Boolean(imageUrl && grip && checkbox && !cardIsDone(card));
+  const existing = card.querySelector<HTMLButtonElement>('[data-exercise-thumbnail="true"]');
+  const shouldShow = Boolean(imageUrl && !cardIsDone(card));
 
   if (!shouldShow) {
     existing?.remove();
-    resetPrimaryImageStyles(card, grip, checkbox);
     return;
   }
 
-  const cardRect = card.getBoundingClientRect();
-  const checkboxRect = checkbox!.getBoundingClientRect();
-  const railWidth = Math.max(92, Math.ceil(checkboxRect.right - cardRect.left + 12));
-
-  card.style.position = 'relative';
-  card.style.overflow = 'hidden';
-  card.style.isolation = 'isolate';
-
-  grip!.style.position = 'relative';
-  grip!.style.zIndex = '3';
-  grip!.style.textShadow = '0 1px 3px rgba(255,255,255,.98)';
-  grip!.style.backgroundColor = 'rgba(255,255,255,.28)';
-
-  checkbox!.style.position = 'relative';
-  checkbox!.style.zIndex = '3';
-  checkbox!.style.backgroundColor = 'rgba(255,255,255,.72)';
-  checkbox!.style.borderColor = 'rgba(255,255,255,.95)';
-  checkbox!.style.backdropFilter = 'blur(2px)';
-  checkbox!.style.boxShadow = '0 1px 5px rgba(53,59,51,.14)';
-
   if (existing) {
-    existing.style.width = `${railWidth}px`;
     const img = existing.querySelector('img');
     if (img && img.getAttribute('src') !== imageUrl) img.setAttribute('src', imageUrl!);
     return;
   }
 
-  const rail = document.createElement('div');
-  rail.dataset.primaryImageRail = 'true';
-  Object.assign(rail.style, {
-    position: 'absolute',
-    left: '-1px',
-    top: '-1px',
-    bottom: '-1px',
-    width: `${railWidth}px`,
-    borderRadius: '16px 0 0 16px',
+  const exerciseName = card.querySelector<HTMLElement>('.text-sm.font-semibold')?.textContent?.trim() || 'exercise';
+  const thumbnail = document.createElement('button');
+  thumbnail.type = 'button';
+  thumbnail.dataset.exerciseThumbnail = 'true';
+  thumbnail.setAttribute('aria-label', `Enlarge image for ${exerciseName}`);
+  Object.assign(thumbnail.style, {
+    width: '56px',
+    height: '56px',
+    flex: '0 0 56px',
+    padding: '2px',
+    border: '1px solid #e7e5e4',
+    borderRadius: '12px',
     overflow: 'hidden',
-    pointerEvents: 'none',
-    zIndex: '0',
+    background: 'white',
+    touchAction: 'manipulation',
   });
 
   const img = document.createElement('img');
@@ -121,11 +121,20 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
     objectPosition: 'center',
     display: 'block',
     opacity: '1',
-    backgroundColor: 'white',
+    borderRadius: '9px',
   });
 
-  rail.append(img);
-  card.prepend(rail);
+  thumbnail.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    showImagePreview(img.src, exerciseName);
+  });
+  thumbnail.addEventListener('pointerdown', event => event.stopPropagation());
+  thumbnail.append(img);
+
+  const actionArea = card.lastElementChild;
+  if (actionArea) card.insertBefore(thumbnail, actionArea);
+  else card.append(thumbnail);
 }
 
 export default function ExerciseTileMetadataEnhancer() {
@@ -229,6 +238,7 @@ export default function ExerciseTileMetadataEnhancer() {
       observer.disconnect();
       document.removeEventListener('click', onClick, true);
       window.clearInterval(dateTimer);
+      document.querySelector('[data-exercise-image-preview="true"]')?.remove();
     };
   }, []);
 
