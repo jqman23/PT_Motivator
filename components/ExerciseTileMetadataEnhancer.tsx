@@ -12,6 +12,7 @@ type MetricRow = {
   sets_count?: number | string | null;
   reps_count?: number | string | null;
   duration_seconds?: number | string | null;
+  scope_multiplier?: number | string | null;
 };
 
 function localDateString() {
@@ -31,8 +32,12 @@ function metricLabel(metric: MetricRow | null | undefined) {
   const sets = Number(metric.sets_count || 0);
   const reps = Number(metric.reps_count || 0);
   const seconds = Number(metric.duration_seconds || 0);
+  const scope = [2, 4].includes(Number(metric.scope_multiplier)) ? Number(metric.scope_multiplier) : 1;
   if (!sets) return '';
-  if (reps) return `${sets}×${reps} reps`;
+  if (reps) {
+    const base = `${sets}×${reps} reps`;
+    return scope > 1 ? `${base} ×${scope} (${sets * reps * scope} total)` : base;
+  }
   if (seconds) return `${sets}×${seconds} ${seconds === 1 ? 'sec' : 'secs'}`;
   return '';
 }
@@ -81,7 +86,9 @@ function showImagePreview(imageUrl: string, exerciseName: string) {
 
 function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   const existing = card.querySelector<HTMLButtonElement>('[data-exercise-thumbnail="true"]');
-  const shouldShow = Boolean(imageUrl && !cardIsDone(card));
+  const actionArea = card.lastElementChild as HTMLElement | null;
+  const actionsExpanded = actionArea?.dataset.actionsExpanded === 'true';
+  const shouldShow = Boolean(imageUrl && !cardIsDone(card) && !actionsExpanded);
 
   if (!shouldShow) {
     existing?.remove();
@@ -132,8 +139,9 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   thumbnail.addEventListener('pointerdown', event => event.stopPropagation());
   thumbnail.append(img);
 
-  const actionArea = card.lastElementChild;
-  if (actionArea) card.insertBefore(thumbnail, actionArea);
+  const typeBadge = card.querySelector('[data-mobile-primary-type="true"]');
+  if (typeBadge) card.insertBefore(thumbnail, typeBadge);
+  else if (actionArea) card.insertBefore(thumbnail, actionArea);
   else card.append(thumbnail);
 }
 
@@ -215,10 +223,12 @@ export default function ExerciseTileMetadataEnhancer() {
       const card = target?.closest<HTMLElement>('[data-exercise-card-id]');
       if (card) window.setTimeout(() => syncPrimaryImage(card, imageMap.get(card.dataset.exerciseCardId || '')), 50);
     };
+    const onMetricSaved = () => scanCards(true);
 
     const observer = new MutationObserver(() => scanCards(false));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('click', onClick, true);
+    window.addEventListener('pt-exercise-metric-saved', onMetricSaved);
 
     const dateTimer = window.setInterval(() => {
       const nextDate = selectedDateFromPage();
@@ -237,6 +247,7 @@ export default function ExerciseTileMetadataEnhancer() {
       cancelled = true;
       observer.disconnect();
       document.removeEventListener('click', onClick, true);
+      window.removeEventListener('pt-exercise-metric-saved', onMetricSaved);
       window.clearInterval(dateTimer);
       document.querySelector('[data-exercise-image-preview="true"]')?.remove();
     };

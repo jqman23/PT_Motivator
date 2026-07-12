@@ -12,6 +12,7 @@ type MetricInput = {
   durationSeconds?: unknown;
   weight?: unknown;
   weightUnit?: unknown;
+  scopeMultiplier?: unknown;
 };
 
 async function ensureTable() {
@@ -29,6 +30,10 @@ async function ensureTable() {
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(date, exercise_id)
     )
+  `;
+  await sql`
+    ALTER TABLE exercise_metrics
+    ADD COLUMN IF NOT EXISTS scope_multiplier INTEGER NOT NULL DEFAULT 1
   `;
 }
 
@@ -66,13 +71,13 @@ export async function GET(req: NextRequest) {
   try {
     await ensureTable();
     const currentRows = await sql`
-      SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit
+      SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
       FROM exercise_metrics
       WHERE date = ${date}::date AND exercise_id = ${exerciseId}
       LIMIT 1
     `;
     const previousRows = await sql`
-      SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit
+      SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
       FROM exercise_metrics
       WHERE date < ${date}::date AND exercise_id = ${exerciseId}
       ORDER BY date DESC
@@ -103,15 +108,16 @@ export async function POST(req: NextRequest) {
   const durationSeconds = nullableInteger(body.durationSeconds, 1, 86400);
   const weight = nullableDecimal(body.weight, 0, 9999.99);
   const weightUnit = body.weightUnit === 'kg' ? 'kg' : 'lb';
+  const scopeMultiplier = body.scopeMultiplier === 2 || body.scopeMultiplier === 4 ? body.scopeMultiplier : 1;
 
   try {
     await ensureTable();
     const rows = await sql`
       INSERT INTO exercise_metrics (
-        date, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, updated_at
+        date, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier, updated_at
       )
       VALUES (
-        ${date}::date, ${exerciseId}, ${sets}, ${reps}, ${durationSeconds}, ${weight}, ${weightUnit}, NOW()
+        ${date}::date, ${exerciseId}, ${sets}, ${reps}, ${durationSeconds}, ${weight}, ${weightUnit}, ${scopeMultiplier}, NOW()
       )
       ON CONFLICT (date, exercise_id)
       DO UPDATE SET
@@ -120,8 +126,9 @@ export async function POST(req: NextRequest) {
         duration_seconds = EXCLUDED.duration_seconds,
         weight_value = EXCLUDED.weight_value,
         weight_unit = EXCLUDED.weight_unit,
+        scope_multiplier = EXCLUDED.scope_multiplier,
         updated_at = NOW()
-      RETURNING date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit
+      RETURNING date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
     `;
     return NextResponse.json({ ok: true, metric: rows[0] });
   } catch (error) {

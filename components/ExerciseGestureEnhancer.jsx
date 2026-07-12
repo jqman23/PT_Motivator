@@ -8,6 +8,7 @@ const EMPTY_DRAFT = {
   sets: '',
   value: '',
   durationUnit: 'sec',
+  scopeMultiplier: 1,
 };
 
 function localDateString() {
@@ -65,6 +66,7 @@ function draftFromMetric(metric) {
       ? String(useMinutes ? durationSeconds / 60 : durationSeconds)
       : numberString(metric.reps_count),
     durationUnit: useMinutes ? 'min' : 'sec',
+    scopeMultiplier: metric.scope_multiplier === 2 || metric.scope_multiplier === 4 ? metric.scope_multiplier : 1,
   };
 }
 
@@ -192,6 +194,9 @@ export default function ExerciseGestureEnhancer() {
           if (!response.ok) throw new Error(data.error || 'Could not clear.');
         }
         dirtyRef.current = false;
+        window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', {
+          detail: { exerciseId: active.exerciseId },
+        }));
         setActive(null);
         return;
       }
@@ -210,11 +215,15 @@ export default function ExerciseGestureEnhancer() {
           durationSeconds,
           weight: preservedWeight,
           weightUnit: preservedWeightUnit,
+          scopeMultiplier: draft.scopeMultiplier,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save.');
       dirtyRef.current = false;
+      window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', {
+        detail: { exerciseId: active.exerciseId },
+      }));
       setActive(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save.');
@@ -340,6 +349,17 @@ export default function ExerciseGestureEnhancer() {
                   {draft.durationUnit}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => updateDraft({
+                  scopeMultiplier: draft.scopeMultiplier === 1 ? 2 : draft.scopeMultiplier === 2 ? 4 : 1,
+                })}
+                className="shrink-0 rounded bg-stone-100 px-1 py-0.5 text-[9px] font-black text-stone-500"
+                aria-label={`Scope multiplier ${draft.scopeMultiplier}. Tap for next multiplier.`}
+                title="×1 one side; ×2 both legs or directions; ×4 both legs and both directions"
+              >
+                ×{draft.scopeMultiplier}
+              </button>
             </div>
             <datalist id="exercise-entry-kind-options">
               <option value="REP" />
@@ -347,6 +367,12 @@ export default function ExerciseGestureEnhancer() {
             </datalist>
           </label>
         </div>
+
+        {draft.mode === 'reps' && draft.scopeMultiplier > 1 && draft.sets && draft.value && (
+          <p className="mt-1 text-right text-[9px] font-semibold text-stone-500">
+            {Number(draft.sets) * Number(draft.value) * draft.scopeMultiplier} total reps
+          </p>
+        )}
 
         {error && <p className="mt-1 truncate text-[9px] text-red-500">{error}</p>}
       </form>
