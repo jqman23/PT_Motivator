@@ -63,8 +63,9 @@ function enhanceCard(card: HTMLElement) {
   actionBox.style.justifyContent = 'flex-end';
   menu.style.display = '';
   const expanded = actionBox.dataset.actionsExpanded === 'true';
-  setButtons(actionButtons, expanded);
-  setPreview(actionBox, expanded);
+  const animating = actionBox.dataset.actionsAnimating === 'true';
+  setButtons(actionButtons, expanded && !animating);
+  setPreview(actionBox, expanded && !animating);
   setTypeBadge(card, expanded, true);
   menu.style.background = expanded ? '#E4ECE6' : '';
   menu.style.color = expanded ? '#7E9B86' : '';
@@ -76,11 +77,28 @@ function enhanceCard(card: HTMLElement) {
     event.stopPropagation();
     const nextExpanded = actionBox.dataset.actionsExpanded !== 'true';
     actionBox.dataset.actionsExpanded = String(nextExpanded);
-    setButtons(actionButtons, nextExpanded);
-    setPreview(actionBox, nextExpanded);
     setTypeBadge(card, nextExpanded, true);
     menu!.style.background = nextExpanded ? '#E4ECE6' : '';
     menu!.style.color = nextExpanded ? '#7E9B86' : '';
+    window.dispatchEvent(new CustomEvent('pt-exercise-actions-toggle', {
+      detail: { card, expanded: nextExpanded },
+    }));
+
+    if (nextExpanded) {
+      actionBox.dataset.actionsAnimating = 'true';
+      setButtons(actionButtons, false);
+      setPreview(actionBox, false);
+      window.setTimeout(() => {
+        if (actionBox.dataset.actionsExpanded !== 'true') return;
+        delete actionBox.dataset.actionsAnimating;
+        setButtons(actionButtons, true);
+        setPreview(actionBox, true);
+      }, 170);
+    } else {
+      delete actionBox.dataset.actionsAnimating;
+      setButtons(actionButtons, false);
+      setPreview(actionBox, false);
+    }
   });
 }
 
