@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Exercise } from '@/lib/exercises';
+import { Exercise, ExerciseTimerPrescription } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
 
@@ -48,6 +48,18 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const asString = (v: unknown) => typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '';
   const normalizeName = (v: unknown) => asString(v).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
   const importedList = (v: unknown) => Array.isArray(v) ? v.map(asString).filter(Boolean) : asString(v) ? split(asString(v)) : undefined;
+  const importedTimerPrescription = (value: unknown): ExerciseTimerPrescription | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const item = value as Record<string, unknown>;
+    const sets = Math.round(Number(item.sets));
+    const amount = Math.round(Number(item.amount));
+    const unit = asString(item.unit);
+    const scopeMultiplier = Number(item.scopeMultiplier);
+    if (!Number.isFinite(sets) || sets < 1 || !Number.isFinite(amount) || amount < 1) return undefined;
+    if (unit !== 'seconds' && unit !== 'reps') return undefined;
+    if (scopeMultiplier !== 1 && scopeMultiplier !== 2 && scopeMultiplier !== 4) return undefined;
+    return { sets, amount, unit, scopeMultiplier };
+  };
   const uniqueCategoryId = (name: string, used: Set<string>) => {
     const slug = normalizeName(name).replace(/\s+/g, '-').slice(0, 28) || 'category';
     let id = `cat-${slug}-${Date.now().toString(36)}`;
@@ -247,6 +259,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     if (videoTitles) out.videoTitles = videoTitles;
     if (tips) out.tips = tips;
     if (mainImageUrls) out.mainImageUrls = mainImageUrls.slice(0, 3);
+    const timerPrescription = importedTimerPrescription(item.timerPrescription);
+    if (timerPrescription) out.timerPrescription = timerPrescription;
 
     return out;
   };
@@ -338,6 +352,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               mainImageUrl: incoming.mainImageUrl,
               mainImageUrls: incoming.mainImageUrls,
               mainVideoUrl: incoming.mainVideoUrl,
+              timerPrescription: incoming.timerPrescription,
             });
             draftAdded += 1;
           }
@@ -348,9 +363,6 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       if (rawLayout.length) {
         const usedIds = new Set(layout.map(cat => cat.id));
         const nextLayout = [...layout];
-        let addedCategories = 0;
-        let updatedCategories = 0;
-
         rawLayout.forEach(raw => {
           const incoming = normalizeImportedCategory(raw);
           if (!incoming) return;
@@ -480,8 +492,10 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       ));
 
       const debugLines = Array.isArray(data.debug)
-        ? data.debug.slice(0, 15).map((d: any) =>
-            `${d.status}: ${d.name ?? d.id}${d.match ? ` → ${d.match}` : ''}${d.score !== undefined ? ` (${d.score})` : ''}`
+        ? data.debug.slice(0, 15).map((item: unknown) => {
+            const d = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+            return `${String(d.status ?? '')}: ${String(d.name ?? d.id ?? '')}${d.match ? ` → ${String(d.match)}` : ''}${d.score !== undefined ? ` (${String(d.score)})` : ''}`;
+          }
           ).join('\n')
         : '';
 
@@ -557,10 +571,10 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           </aside>
 
           <div className="flex-1 overflow-auto p-4">
-            <table className="w-full min-w-[1190px] border-separate border-spacing-y-2 text-xs">
+            <table className="w-full min-w-[1740px] border-separate border-spacing-y-2 text-xs">
               <thead>
                 <tr className="text-left text-stone-400 uppercase tracking-widest">
-                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Type</th><th>Category</th><th>Opt</th><th>Main media</th><th>Search/GIF</th><th>Videos</th><th>Tips</th>
+                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Timer prescription</th><th>Type</th><th>Category</th><th>Opt</th><th>Origin / source</th><th>Main media</th><th>Search / GIF</th><th>Video IDs / titles</th><th>Tips</th>
                 </tr>
               </thead>
               <tbody>{filtered.map(e => (
@@ -586,6 +600,26 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   <td className="p-2"><textarea value={e.cue} onChange={x=>patch(e.id,{cue:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2"><textarea value={e.sets ?? ''} onChange={x=>patch(e.id,{sets:x.target.value})} rows={2} className="w-28 border rounded-lg p-1 resize-none" /></td>
                   <td className="p-2">
+                    <div className="w-48 space-y-1">
+                      <label className="flex items-center gap-1 text-[10px] font-semibold text-stone-500">
+                        <input
+                          type="checkbox"
+                          checked={!!e.timerPrescription}
+                          onChange={x => patch(e.id, { timerPrescription: x.target.checked ? (e.timerPrescription ?? { sets: 2, amount: 60, unit: 'seconds', scopeMultiplier: 1 }) : undefined })}
+                        />
+                        timerPrescription
+                      </label>
+                      {e.timerPrescription && (
+                        <div className="grid grid-cols-2 gap-1">
+                          <input aria-label="Timer sets" title="timerPrescription.sets" type="number" min="1" value={e.timerPrescription.sets} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,sets:Math.max(1,Number(x.target.value)||1)}})} className="w-full border rounded-lg p-1" />
+                          <input aria-label="Timer amount" title="timerPrescription.amount" type="number" min="1" value={e.timerPrescription.amount} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,amount:Math.max(1,Number(x.target.value)||1)}})} className="w-full border rounded-lg p-1" />
+                          <select aria-label="Timer unit" title="timerPrescription.unit" value={e.timerPrescription.unit} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,unit:x.target.value as 'seconds'|'reps'}})} className="w-full border rounded-lg p-1 bg-white"><option value="seconds">seconds</option><option value="reps">reps</option></select>
+                          <select aria-label="Timer targets" title="timerPrescription.scopeMultiplier" value={e.timerPrescription.scopeMultiplier} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,scopeMultiplier:Number(x.target.value) as 1|2|4}})} className="w-full border rounded-lg p-1 bg-white"><option value={1}>×1</option><option value={2}>×2 R/L</option><option value={4}>×4 R/L inv+ev</option></select>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-2">
                     <input
                       value={e.cat}
                       onChange={x=>patch(e.id,{cat:cleanType(x.target.value)})}
@@ -595,6 +629,14 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   </td>
                   <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
+                  <td className="p-2">
+                    <div className="w-40 space-y-1">
+                      <select aria-label="Origin" value={e.origin ?? ''} onChange={x=>patch(e.id,{origin:(x.target.value || undefined) as Exercise['origin']})} className="w-full border rounded-lg p-1 bg-white">
+                        <option value="">No origin</option><option value="hep">hep</option><option value="patient_added">patient_added</option><option value="exercisedb">exercisedb</option><option value="api_ninjas">api_ninjas</option>
+                      </select>
+                      <input aria-label="Source ID" value={e.sourceId ?? ''} onChange={x=>patch(e.id,{sourceId:x.target.value || undefined})} className="w-full border rounded-lg p-1" placeholder="sourceId" />
+                    </div>
+                  </td>
                   <td className="p-2">
                     <div className="space-y-1">
                       {((e.mainImageUrls?.[0] || e.mainImageUrl)) && <img src={e.mainImageUrls?.[0] || e.mainImageUrl} alt="" className="w-36 h-20 rounded-lg object-cover border" />}
@@ -619,7 +661,10 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                     <textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="imageSearch" />
                     <textarea value={e.gifUrl ?? ''} onChange={x=>patch(e.id,{gifUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none mt-1" placeholder="gifUrl" />
                   </td>
-                  <td className="p-2"><textarea value={list(e.videoIds)} onChange={x=>patch(e.id,{videoIds:split(x.target.value)})} rows={3} className="w-32 border rounded-lg p-1 resize-none" /></td>
+                  <td className="p-2">
+                    <textarea aria-label="Video IDs" value={list(e.videoIds)} onChange={x=>patch(e.id,{videoIds:split(x.target.value)})} rows={3} className="w-44 border rounded-lg p-1 resize-none" placeholder="videoIds, one per line" />
+                    <textarea aria-label="Video titles" value={list(e.videoTitles)} onChange={x=>patch(e.id,{videoTitles:x.target.value.split('\n').map(v=>v.trim()).filter(Boolean)})} rows={3} className="w-44 border rounded-lg p-1 resize-none mt-1" placeholder="videoTitles, one per line" />
+                  </td>
                   <td className="p-2 rounded-r-xl"><textarea value={list(e.tips)} onChange={x=>patch(e.id,{tips:x.target.value.split('\n').filter(Boolean)})} rows={3} className="w-60 border rounded-lg p-1 resize-none" /></td>
                 </tr>
               ))}</tbody>
