@@ -76,25 +76,30 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
   const imageTouchStart = useRef<{ x: number; y: number } | null>(null);
   const videoTouchStart = useRef<{ x: number; y: number } | null>(null);
 
-  const uploadImage = async (file?: File | null) => {
-    if (!file) return;
+  const uploadImages = async (selectedFiles?: FileList | null) => {
+    const remainingSlots = MAX_PRIMARY_PHOTOS - photos.length;
+    const files = Array.from(selectedFiles ?? []).slice(0, remainingSlots);
+    if (!files.length) return;
     setUploading(true);
     setError('');
     try {
-      const dataUrl = await fileToImageDataUrl(file);
-      const res = await fetch('/api/media/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataUrl, name: file.name }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-      const nextPhotos = [...photos, data.url].slice(0, MAX_PRIMARY_PHOTOS);
+      const uploadedUrls = await Promise.all(files.map(async file => {
+        const dataUrl = await fileToImageDataUrl(file);
+        const res = await fetch('/api/media/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl, name: file.name }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.error || `Could not upload ${file.name}`);
+        return String(data.url);
+      }));
+      const nextPhotos = [...photos, ...uploadedUrls].slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
       setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
       window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not upload image');
+      setError(err instanceof Error ? err.message : 'Could not upload images');
     } finally {
       setUploading(false);
     }
@@ -217,13 +222,13 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
               <h2 className="font-serif text-xl font-semibold text-stone-800">{localExercise.name}</h2>
               <div className="flex items-center gap-1 sm:hidden">
                 {canAddPhoto && (
-                  <label className="inline-flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full bg-white text-[#7E9B86] shadow-sm border border-stone-100" title="Add photo">
+                  <label className="inline-flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full bg-white text-[#7E9B86] shadow-sm border border-stone-100" title={`Add up to ${MAX_PRIMARY_PHOTOS - photos.length} photos`}>
                     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3.5" y="5" width="13" height="10" rx="2" />
                       <path d="M6.5 12.5l2.4-2.6 2 2.1 1.7-1.7 1.9 2.2" />
                       <circle cx="7" cy="8" r="1" />
                     </svg>
-                    <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+                    <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={e => { void uploadImages(e.target.files); e.currentTarget.value = ''; }} />
                   </label>
                 )}
                 <button
@@ -348,12 +353,12 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
           {(canAddPhoto || !hasPrimaryVideo) && (
             <div className="hidden sm:flex flex-wrap gap-2">
               {canAddPhoto && (
-                <label className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-200 bg-white active:bg-stone-50" title="Add photo">
+                <label className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-stone-200 bg-white active:bg-stone-50" title={`Add up to ${MAX_PRIMARY_PHOTOS - photos.length} photos`}>
                   <span className="flex flex-col items-center justify-center leading-none">
                     <span className="text-lg text-stone-300">＋</span>
-                    <span className="sr-only">{uploading ? 'Uploading image' : 'Add photo'}</span>
+                    <span className="sr-only">{uploading ? 'Uploading images' : 'Add photos'}</span>
                   </span>
-                  <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e => { void uploadImage(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+                  <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={e => { void uploadImages(e.target.files); e.currentTarget.value = ''; }} />
                 </label>
               )}
 
