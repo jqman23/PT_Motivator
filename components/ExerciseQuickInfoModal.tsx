@@ -61,6 +61,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
   const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
   const hasPrimaryVideo = !!localExercise.mainVideoUrl;
   const [uploading, setUploading] = useState(false);
+  const [reorderingPhoto, setReorderingPhoto] = useState(false);
   const [videoSearchOpen, setVideoSearchOpen] = useState(false);
   const [videoQuery, setVideoQuery] = useState(localExercise.name);
   const [videoResults, setVideoResults] = useState<VideoResult[]>([]);
@@ -91,6 +92,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       const nextPhotos = [...photos, data.url].slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
       setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not upload image');
     } finally {
@@ -132,11 +134,31 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       const nextPhotos = photos.filter((_, i) => i !== index).slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
       setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
       setActivePhoto(current => Math.max(0, Math.min(current, nextPhotos.length - 1)));
       setImageSwipeX(0);
       setImageSwipeOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove photo');
+    }
+  };
+
+  const movePhoto = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= photos.length || reorderingPhoto) return;
+    const nextPhotos = [...photos];
+    [nextPhotos[index], nextPhotos[target]] = [nextPhotos[target], nextPhotos[index]];
+    setReorderingPhoto(true);
+    setError('');
+    try {
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
+      setActivePhoto(current => current === index ? target : current === target ? index : current);
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reorder photos');
+    } finally {
+      setReorderingPhoto(false);
     }
   };
 
@@ -290,14 +312,33 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
               {photos.length > 1 && (
                 <div className="flex flex-col gap-2">
                   {photos.map((photo, index) => (
-                    <button
-                      key={`${photo}-${index}`}
-                      onClick={() => { setActivePhoto(index); setImageSwipeX(0); setImageSwipeOpen(false); }}
-                      className="overflow-hidden rounded-xl border bg-white"
-                      style={{ borderColor: activePhoto === index ? '#7E9B86' : '#e7e5e4' }}
-                    >
-                      <img src={photo} alt="" className="h-[54px] w-full object-cover" />
-                    </button>
+                    <div key={`${photo}-${index}`} className="relative rounded-xl border bg-white p-1" style={{ borderColor: activePhoto === index ? '#7E9B86' : '#e7e5e4' }}>
+                      <button
+                        onClick={() => { setActivePhoto(index); setImageSwipeX(0); setImageSwipeOpen(false); }}
+                        className="relative block w-full overflow-hidden rounded-lg"
+                      >
+                        <img src={photo} alt="" className="h-[48px] w-full object-cover" />
+                        <span className="absolute left-1 top-1 rounded-full bg-black/65 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                          {index === 0 ? '1 · Tile' : index + 1}
+                        </span>
+                      </button>
+                      <div className="mt-1 grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          disabled={index === 0 || reorderingPhoto}
+                          onClick={() => void movePhoto(index, -1)}
+                          className="rounded-md bg-stone-100 py-0.5 text-[11px] font-bold text-stone-500 disabled:opacity-25"
+                          aria-label={`Move photo ${index + 1} earlier`}
+                        >↑</button>
+                        <button
+                          type="button"
+                          disabled={index === photos.length - 1 || reorderingPhoto}
+                          onClick={() => void movePhoto(index, 1)}
+                          className="rounded-md bg-stone-100 py-0.5 text-[11px] font-bold text-stone-500 disabled:opacity-25"
+                          aria-label={`Move photo ${index + 1} later`}
+                        >↓</button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
