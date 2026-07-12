@@ -15,7 +15,7 @@ const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'treatments', label: 'Meds / treatments', description: 'Assign treatment notes to days.' },
   { key: 'ptSessions', label: 'PT sessions', description: 'Mark PT appointment days.' },
   { key: 'reporting', label: 'Progress report', description: 'Charts and trend summaries.' },
-  { key: 'ptReport', label: 'PT PDF report', description: 'Generate a customizable PDF for your physical therapist.' },
+  { key: 'ptReport', label: 'Reports & exports', description: 'Generate a PT PDF or export date-range data as JSON.' },
   { key: 'dailySummary', label: 'Daily summary', description: 'Show or hide the sun summary control.' },
   { key: 'masterDatabase', label: 'Master database', description: 'Desktop-only bulk editor for every exercise field.' },
 ];

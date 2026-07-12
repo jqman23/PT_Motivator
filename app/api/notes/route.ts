@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNotesForDate, upsertNote, deleteNotesForDate } from '@/lib/db';
+import { getNotesForDate, getNotesForRange, upsertNote, deleteNotesForDate } from '@/lib/db';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const date = searchParams.get('date');
+  const start = searchParams.get('start');
+  const end = searchParams.get('end');
   const includePhotos = searchParams.get('includePhotos') !== 'false';
+  if (start && end) {
+    const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000;
+    if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end) || start > end || days > 400) {
+      return NextResponse.json({ error: 'valid start and end dates required' }, { status: 400 });
+    }
+    try {
+      return NextResponse.json({ rows: await getNotesForRange(start, end) });
+    } catch (err) {
+      console.error(err);
+      return NextResponse.json({ error: 'DB error' }, { status: 500 });
+    }
+  }
   if (!date || !DATE_PATTERN.test(date)) {
     return NextResponse.json({ error: 'date required' }, { status: 400 });
   }

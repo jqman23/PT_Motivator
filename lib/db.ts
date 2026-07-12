@@ -175,6 +175,16 @@ export async function getNotesForDate(date: string, includePhotos = true) {
   `;
 }
 
+export async function getNotesForRange(startDate: string, endDate: string) {
+  return sql`
+    SELECT date::text, exercise_id, note
+    FROM exercise_notes
+    WHERE date >= ${startDate}::date AND date <= ${endDate}::date
+      AND note != ''
+    ORDER BY date, exercise_id
+  `;
+}
+
 export async function getHealthForDate(date: string) {
   return sql`
     SELECT id, date, sleep_hours, sleep_quality, energy, mood, pain,
