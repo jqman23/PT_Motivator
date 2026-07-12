@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { VideoResult } from '@/app/api/yt-search/route';
-import { youtubeIdFromUrl, youtubeThumbnailUrl } from '@/lib/media';
+import { exerciseVideoSource, youtubeIdFromUrl, youtubeThumbnailUrl } from '@/lib/media';
 
 interface Props {
   exercise: Exercise;
@@ -15,6 +15,8 @@ export default function VideoModal({ exercise, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playingPrimary, setPlayingPrimary] = useState(false);
+  const mainSource = exerciseVideoSource(exercise.mainVideoUrl);
   const mainVideoId = youtubeIdFromUrl(exercise.mainVideoUrl);
   const mainVideo: VideoResult | null = mainVideoId ? {
     id: mainVideoId,
@@ -27,11 +29,6 @@ export default function VideoModal({ exercise, onClose }: Props) {
   const query = `${exercise.imageSearch} how to exercise physical therapy`;
 
   useEffect(() => {
-    setLoading(true);
-    setError('');
-    setVideos([]);
-    setPlayingId(null);
-
     fetch(`/api/yt-search?q=${encodeURIComponent(query)}`)
       .then(r => r.json())
       .then(data => {
@@ -52,49 +49,48 @@ export default function VideoModal({ exercise, onClose }: Props) {
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (playingId) setPlayingId(null);
+        if (playingId || playingPrimary) { setPlayingId(null); setPlayingPrimary(false); }
         else onClose();
       }
     };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
-  }, [onClose, playingId]);
+  }, [onClose, playingId, playingPrimary]);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
       onClick={() => onClose()}
-      onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
     >
       <div
         className="bg-white w-full sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         style={{ maxHeight: '92dvh' }}
         onClick={(e) => e.stopPropagation()}
-        onTouchEnd={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-stone-100 flex-shrink-0">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">
-              {playingId ? 'Now Playing' : 'Video Guide'}
+              {playingId || playingPrimary ? 'Now Playing' : 'Video Guide'}
             </p>
             <p className="text-sm font-semibold text-stone-800 leading-tight truncate">
               {playingId
                 ? (allVideos.find(v => v.id === playingId)?.title ?? exercise.name)
+                : playingPrimary ? `${exercise.name} main video`
                 : exercise.name}
             </p>
-            {playingId && (
+            {(playingId || playingPrimary) && (
               <p className="text-[11px] text-stone-400 truncate">
-                {allVideos.find(v => v.id === playingId)?.channel}
+                {playingId ? allVideos.find(v => v.id === playingId)?.channel : mainSource?.label}
               </p>
             )}
           </div>
           <button
-            onPointerDown={(e) => { e.stopPropagation(); if (playingId) setPlayingId(null); else onClose(); }}
+            onClick={(e) => { e.stopPropagation(); if (playingId || playingPrimary) { setPlayingId(null); setPlayingPrimary(false); } else onClose(); }}
             className="w-9 h-9 rounded-xl bg-stone-100 text-stone-500 flex items-center justify-center flex-shrink-0 text-xl leading-none font-light"
             style={{ touchAction: 'manipulation' }}
           >
-            {playingId ? (
+            {playingId || playingPrimary ? (
               // Back arrow
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-4 h-4">
                 <path d="M12 4L6 10l6 6" />
@@ -104,26 +100,59 @@ export default function VideoModal({ exercise, onClose }: Props) {
         </div>
 
         {/* ── Player (when a video is selected) ── */}
-        {playingId && (
+        {(playingId || (playingPrimary && mainSource)) && (
           <div className="flex-shrink-0" style={{ background: '#000' }}>
-            <div className="relative" style={{ paddingBottom: '56.25%' }}>
-              <iframe
-                src={`https://www.youtube.com/embed/${playingId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
-                title={allVideos.find(v => v.id === playingId)?.title ?? exercise.name}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                style={{
-                  position: 'absolute', inset: 0,
-                  width: '100%', height: '100%',
-                  border: 'none', display: 'block',
-                }}
-              />
+            <div
+              className="relative"
+              style={playingPrimary && mainSource?.kind === 'instagram'
+                ? { height: 'min(68dvh, 680px)' }
+                : { paddingBottom: '56.25%' }}
+            >
+              {playingId ? (
+                <iframe
+                  src={`https://www.youtube.com/embed/${playingId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
+                  title={allVideos.find(v => v.id === playingId)?.title ?? exercise.name}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="absolute inset-0 block h-full w-full border-0"
+                />
+              ) : mainSource?.kind === 'direct' ? (
+                <video src={mainSource.url} controls autoPlay playsInline className="absolute inset-0 h-full w-full object-contain" />
+              ) : mainSource?.embedUrl ? (
+                <iframe
+                  src={mainSource.embedUrl}
+                  title={`${exercise.name} main video`}
+                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="absolute inset-0 block h-full w-full border-0"
+                />
+              ) : null}
             </div>
+            {playingPrimary && mainSource && (
+              <a href={mainSource.url} target="_blank" rel="noreferrer" className="block bg-stone-900 px-3 py-2 text-center text-[11px] font-semibold text-stone-200">
+                Open original on {mainSource.label}
+              </a>
+            )}
           </div>
         )}
 
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto">
+          {mainSource && mainSource.kind !== 'youtube' && (
+            <div className="border-b border-stone-100 bg-[#F8F1E6] p-4">
+              {mainSource.kind === 'external' ? (
+                <a href={mainSource.url} target="_blank" rel="noreferrer" className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm">
+                  <span><span className="block text-sm font-semibold text-stone-800">{exercise.name} main video</span><span className="block text-[11px] text-stone-400">Open on {mainSource.label}</span></span>
+                  <span className="text-xl text-[#C17B4F]">↗</span>
+                </a>
+              ) : (
+                <button onClick={() => setPlayingPrimary(true)} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm" style={{ touchAction: 'manipulation' }}>
+                  <span><span className="block text-sm font-semibold text-stone-800">{exercise.name} main video</span><span className="block text-[11px] text-stone-400">Play from {mainSource.label}</span></span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#C17B4F] text-white">▶</span>
+                </button>
+              )}
+            </div>
+          )}
           {/* Loading */}
           {loading && (
             <div className="flex flex-col items-center justify-center gap-3 py-14">
@@ -133,7 +162,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
           )}
 
           {/* No API key */}
-          {!loading && error === 'noKey' && allVideos.length === 0 && (
+          {!loading && error === 'noKey' && !mainSource && allVideos.length === 0 && (
             <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
               <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" className="w-6 h-6">
@@ -148,14 +177,14 @@ export default function VideoModal({ exercise, onClose }: Props) {
           )}
 
           {/* Other error */}
-          {!loading && error && error !== 'noKey' && allVideos.length === 0 && (
+          {!loading && error && error !== 'noKey' && !mainSource && allVideos.length === 0 && (
             <div className="px-6 py-10 text-center">
-              <p className="text-sm text-stone-400">Couldn't load videos. Try again later.</p>
+              <p className="text-sm text-stone-400">Couldn&apos;t load videos. Try again later.</p>
             </div>
           )}
 
           {/* Empty results */}
-          {!loading && !error && allVideos.length === 0 && (
+          {!loading && !error && !mainSource && allVideos.length === 0 && (
             <div className="px-6 py-10 text-center">
               <p className="text-sm text-stone-400">No videos found for this exercise.</p>
             </div>
@@ -171,7 +200,7 @@ export default function VideoModal({ exercise, onClose }: Props) {
                   return (
                 <button
                   key={video.id}
-                  onPointerDown={() => setPlayingId(video.id)}
+                  onClick={() => setPlayingId(video.id)}
                   className={`w-full flex gap-3 items-center px-4 py-3 hover:bg-stone-50 active:bg-stone-100 transition-colors text-left ${isFeatured ? 'bg-[#F8F1E6]' : ''}`}
                   style={{ touchAction: 'manipulation' }}
                 >

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
+import { exerciseVideoSource } from '@/lib/media';
 
 type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
 
@@ -171,7 +172,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
       const img = new Image();
       img.onerror = () => reject(new Error('Could not load image'));
       img.onload = () => {
-        const maxSide = 1400;
+        const maxSide = 1200;
         const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -179,28 +180,36 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject(new Error('Could not prepare image'));
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
+        resolve(canvas.toDataURL('image/jpeg', 0.76));
       };
       img.src = String(reader.result ?? '');
     };
     reader.readAsDataURL(file);
   });
 
-  const uploadImage = async (id: string, file?: File | null) => {
-    if (!file) return;
+  const uploadImages = async (id: string, selectedFiles?: FileList | null) => {
+    const current = draft.find(ex => ex.id === id);
+    const currentPhotos = Array.from(new Set([...(current?.mainImageUrls ?? []), current?.mainImageUrl].filter(Boolean) as string[])).slice(0, 3);
+    const files = Array.from(selectedFiles ?? []).slice(0, 3 - currentPhotos.length);
+    if (!files.length) return;
     setUploadingId(id);
     try {
-      const dataUrl = await fileToImageDataUrl(file);
-      const res = await fetch('/api/media/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataUrl, name: file.name }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-      const current = draft.find(ex => ex.id === id);
-      const nextPhotos = Array.from(new Set([...(current?.mainImageUrls ?? []), current?.mainImageUrl, data.url].filter(Boolean) as string[])).slice(0, 3);
+      const results = await Promise.allSettled(files.map(async file => {
+        const dataUrl = await fileToImageDataUrl(file);
+        const res = await fetch('/api/media/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl, name: file.name }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.error || `Could not upload ${file.name}`);
+        return String(data.url);
+      }));
+      const uploadedUrls = results.filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled').map(result => result.value);
+      if (!uploadedUrls.length) throw new Error('Upload failed');
+      const nextPhotos = [...currentPhotos, ...uploadedUrls].slice(0, 3);
       patch(id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
+      if (uploadedUrls.length < files.length) alert(`${uploadedUrls.length} of ${files.length} images uploaded. Retry the others.`);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -391,7 +400,18 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   };
 
   const save = () => {
-    onLibraryChange(draft);
+    const invalidVideo = draft.find(ex => ex.mainVideoUrl?.trim() && !exerciseVideoSource(ex.mainVideoUrl));
+    if (invalidVideo) {
+      alert(`Invalid main video URL for ${invalidVideo.name}. Use an http or https URL.`);
+      return;
+    }
+    const normalized = draft.map(ex => {
+      const photos = Array.from(new Set([...(ex.mainImageUrls ?? []), ex.mainImageUrl].filter((url): url is string => Boolean(url?.trim())))).slice(0, 3);
+      const video = exerciseVideoSource(ex.mainVideoUrl);
+      return { ...ex, mainImageUrl: photos[0], mainImageUrls: photos, mainVideoUrl: video?.url };
+    });
+    setDraft(normalized);
+    onLibraryChange(normalized);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
@@ -589,10 +609,10 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                         placeholder="up to 3 main photo URLs, one per line"
                       />
                       <label className="block w-52 rounded-lg bg-stone-100 py-1.5 text-center text-[11px] font-semibold text-stone-600 cursor-pointer">
-                        {uploadingId === e.id ? 'Uploading...' : 'Upload image'}
-                        <input type="file" accept="image/*" className="hidden" disabled={uploadingId === e.id} onChange={x => { void uploadImage(e.id, x.target.files?.[0]); x.currentTarget.value = ''; }} />
+                        {uploadingId === e.id ? 'Uploading...' : 'Upload images'}
+                        <input type="file" accept="image/*" multiple className="hidden" disabled={uploadingId === e.id} onChange={x => { void uploadImages(e.id, x.target.files); x.currentTarget.value = ''; }} />
                       </label>
-                      <textarea value={e.mainVideoUrl ?? ''} onChange={x=>patch(e.id,{mainVideoUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="main YouTube/video URL" />
+                      <textarea value={e.mainVideoUrl ?? ''} onChange={x=>patch(e.id,{mainVideoUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="YouTube, Instagram, Vimeo, or video URL" />
                     </div>
                   </td>
                   <td className="p-2">

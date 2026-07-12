@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
-import { youtubeEmbedUrl, youtubeThumbnailUrl } from '@/lib/media';
+import { exerciseVideoSource, youtubeThumbnailUrl } from '@/lib/media';
 import type { VideoResult } from '@/app/api/yt-search/route';
 
 const MEDIA_SWIPE_REVEAL = 52;
@@ -34,7 +34,7 @@ const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject)
     const img = new Image();
     img.onerror = () => reject(new Error('Could not load image'));
     img.onload = () => {
-      const maxSide = 1400;
+      const maxSide = 1200;
       const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -42,7 +42,7 @@ const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject)
       const ctx = canvas.getContext('2d');
       if (!ctx) return reject(new Error('Could not prepare image'));
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.82));
+      resolve(canvas.toDataURL('image/jpeg', 0.76));
     };
     img.src = String(reader.result ?? '');
   };
@@ -51,15 +51,14 @@ const fileToImageDataUrl = (file: File) => new Promise<string>((resolve, reject)
 
 export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
   const [localExercise, setLocalExercise] = useState(exercise);
-  useEffect(() => setLocalExercise(exercise), [exercise.id]);
 
-  const embedUrl = youtubeEmbedUrl(localExercise.mainVideoUrl);
+  const videoSource = exerciseVideoSource(localExercise.mainVideoUrl);
   const photos = primaryPhotos(localExercise);
   const [activePhoto, setActivePhoto] = useState(0);
   const imageUrl = photos[activePhoto] || localExercise.gifUrl || youtubeThumbnailUrl(localExercise.mainVideoUrl);
   const hasPrimaryImage = photos.length > 0;
   const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
-  const hasPrimaryVideo = !!localExercise.mainVideoUrl;
+  const hasPrimaryVideo = !!videoSource;
   const [uploading, setUploading] = useState(false);
   const [reorderingPhoto, setReorderingPhoto] = useState(false);
   const [videoSearchOpen, setVideoSearchOpen] = useState(false);
@@ -83,7 +82,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     setUploading(true);
     setError('');
     try {
-      const uploadedUrls = await Promise.all(files.map(async file => {
+      const uploadResults = await Promise.allSettled(files.map(async file => {
         const dataUrl = await fileToImageDataUrl(file);
         const res = await fetch('/api/media/upload', {
           method: 'POST',
@@ -94,10 +93,18 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
         if (!res.ok || !data.url) throw new Error(data.error || `Could not upload ${file.name}`);
         return String(data.url);
       }));
+      const uploadedUrls = uploadResults
+        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+        .map(result => result.value);
+      if (!uploadedUrls.length) {
+        const firstFailure = uploadResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+        throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error('Could not upload images');
+      }
       const nextPhotos = [...photos, ...uploadedUrls].slice(0, MAX_PRIMARY_PHOTOS);
       await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
       setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
       window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
+      if (uploadedUrls.length < files.length) setError(`${uploadedUrls.length} of ${files.length} photos uploaded. You can retry the others.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not upload images');
     } finally {
@@ -125,9 +132,18 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
 
   const saveVideo = async (url: string) => {
     setError('');
+    const source = exerciseVideoSource(url);
+    if (!source) {
+      setError('Enter a valid http or https video URL.');
+      return;
+    }
     try {
-      await saveExercisePatch(exercise.id, { mainVideoUrl: url });
-      setLocalExercise(prev => ({ ...prev, mainVideoUrl: url }));
+      await saveExercisePatch(exercise.id, { mainVideoUrl: source.url });
+      setLocalExercise(prev => ({ ...prev, mainVideoUrl: source.url }));
+      setManualVideoUrl('');
+      setVideoSearchOpen(false);
+      setShowMainVideo(true);
+      window.dispatchEvent(new CustomEvent('pt-exercise-video-updated', { detail: { exerciseId: exercise.id, videoUrl: source.url } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save video');
     }
@@ -172,6 +188,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     try {
       await saveExercisePatch(exercise.id, { [field]: undefined });
       setLocalExercise(prev => ({ ...prev, [field]: undefined }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-video-updated', { detail: { exerciseId: exercise.id, videoUrl: '' } }));
       setShowMainVideo(false);
       setVideoSwipeX(0);
       setVideoSwipeOpen(false);
@@ -232,7 +249,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                   </label>
                 )}
                 <button
-                  onPointerDown={e => { e.stopPropagation(); if (hasPrimaryVideo) setShowMainVideo(prev => !prev); else setVideoSearchOpen(prev => !prev); }}
+                  onClick={() => { if (hasPrimaryVideo) setShowMainVideo(prev => !prev); else setVideoSearchOpen(prev => !prev); }}
                   className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#C17B4F] shadow-sm border border-stone-100"
                   title={hasPrimaryVideo ? 'Show main video' : 'Add video'}
                 >
@@ -244,12 +261,12 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
             </div>
             <p className="text-xs text-stone-500 mt-1">{localExercise.cue}</p>
           </div>
-          <button onPointerDown={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 text-xl text-stone-500">×</button>
+          <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 text-xl text-stone-500">×</button>
         </div>
         <div className="p-5 space-y-4">
           {error && <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{error}</p>}
 
-          {showMainVideo && embedUrl && (
+          {showMainVideo && videoSource && (
             <div className="relative overflow-hidden rounded-2xl bg-red-500 shadow-sm">
               <button
                 onClick={() => clearMedia('mainVideoUrl')}
@@ -277,14 +294,27 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                     Remove video
                   </button>
                 )}
-                <iframe
-                  src={embedUrl}
-                  title={`${localExercise.name} main video`}
-                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                  className="absolute inset-0 h-full w-full border-0"
-                />
+                {videoSource.kind === 'direct' ? (
+                  <video src={videoSource.url} controls playsInline className="absolute inset-0 h-full w-full bg-black object-contain" />
+                ) : videoSource.embedUrl ? (
+                  <iframe
+                    src={videoSource.embedUrl}
+                    title={`${localExercise.name} main video`}
+                    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 h-full w-full border-0"
+                  />
+                ) : (
+                  <a href={videoSource.url} target="_blank" rel="noreferrer" className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-stone-900 px-6 text-center text-white">
+                    <span className="text-3xl">↗</span>
+                    <span className="text-sm font-bold">Open {videoSource.label} video</span>
+                    <span className="text-xs text-stone-300">This site does not provide a reliable inline player.</span>
+                  </a>
+                )}
               </div>
+              <a href={videoSource.url} target="_blank" rel="noreferrer" className="block bg-white px-3 py-2 text-center text-[11px] font-semibold text-stone-500">
+                Open original on {videoSource.label}
+              </a>
             </div>
           )}
 
@@ -375,7 +405,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                 <button onClick={searchVideos} disabled={videoLoading || !videoQuery.trim()} className="rounded-xl px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{videoLoading ? '...' : 'Search'}</button>
               </div>
               <div className="flex gap-2">
-                <input value={manualVideoUrl} onChange={e => setManualVideoUrl(e.target.value)} placeholder="Paste YouTube URL" className="min-w-0 flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm" style={{ fontSize: 16 }} />
+                <input value={manualVideoUrl} onChange={e => setManualVideoUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void saveVideo(manualVideoUrl); }} placeholder="YouTube, Instagram, Vimeo, or video URL" className="min-w-0 flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm" style={{ fontSize: 16 }} />
                 <button onClick={() => saveVideo(manualVideoUrl)} disabled={!manualVideoUrl.trim()} className="rounded-xl bg-stone-100 px-3 py-2 text-xs font-bold text-stone-600 disabled:opacity-40">Save</button>
               </div>
               {videoResults.length > 0 && (

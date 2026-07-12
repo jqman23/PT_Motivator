@@ -73,12 +73,13 @@ export default function ExerciseInfoModal({ layout, exerciseMap, typeMeta, onClo
                     {exercises.map(ex => {
                       const typeTheme = getExerciseTypeTheme(ex.cat);
                       const typeDisplay = getExerciseTypeDisplay(ex.cat, typeMeta);
+                      const demoImage = ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || youtubeThumbnailUrl(ex.mainVideoUrl);
                       return (
                       <article key={ex.id} className="bg-white border border-stone-100 rounded-2xl p-3 shadow-sm">
                         <div className="flex items-start gap-3">
-                          {(ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || ex.mainVideoUrl) ? (
+                          {demoImage ? (
                             <img
-                              src={ex.mainImageUrls?.[0] || ex.mainImageUrl || ex.gifUrl || youtubeThumbnailUrl(ex.mainVideoUrl)}
+                              src={demoImage}
                               alt={`${ex.name} demo`}
                               className="w-16 h-16 rounded-xl object-cover bg-stone-50 flex-shrink-0"
                               loading="lazy"

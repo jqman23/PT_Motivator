@@ -50,6 +50,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
   const [showHistory, setShowHistory] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
+  const [mediaExercise, setMediaExercise] = useState(exercise);
   const [typeDraft, setTypeDraft] = useState(normalizeExerciseType(exercise.cat));
   const [showRemoveOptions, setShowRemoveOptions] = useState(false);
   const [showMoveControls, setShowMoveControls] = useState(false);
@@ -177,6 +178,16 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
   useEffect(() => {
     setTypeDraft(normalizeExerciseType(exercise.cat));
   }, [exercise.cat, exercise.id]);
+
+  useEffect(() => {
+    const handleVideoUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ exerciseId?: string; videoUrl?: string }>).detail;
+      if (detail?.exerciseId !== exercise.id) return;
+      setMediaExercise(current => ({ ...current, mainVideoUrl: detail.videoUrl || undefined }));
+    };
+    window.addEventListener('pt-exercise-video-updated', handleVideoUpdated);
+    return () => window.removeEventListener('pt-exercise-video-updated', handleVideoUpdated);
+  }, [exercise.id]);
 
   const moveWithinSection = async (direction: -1 | 1) => {
     if (moveBusy) return;
@@ -581,11 +592,11 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       )}
 
       {showVideo && (
-        <VideoModal exercise={exercise} onClose={() => setShowVideo(false)} />
+        <VideoModal exercise={mediaExercise} onClose={() => setShowVideo(false)} />
       )}
 
       {showQuickInfo && (
-        <ExerciseQuickInfoModal exercise={exercise} onClose={() => setShowQuickInfo(false)} />
+        <ExerciseQuickInfoModal exercise={mediaExercise} onClose={() => setShowQuickInfo(false)} />
       )}
 
       {showHistory && (

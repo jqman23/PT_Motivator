@@ -5,7 +5,9 @@ export function youtubeIdFromUrl(url?: string) {
   if (direct) return direct;
   try {
     const parsed = new URL(raw);
-    if (parsed.hostname.includes('youtu.be')) return parsed.pathname.split('/').filter(Boolean)[0] ?? '';
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'youtu.be') return parsed.pathname.split('/').filter(Boolean)[0] ?? '';
+    if (!['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'].includes(host)) return '';
     if (parsed.searchParams.get('v')) return parsed.searchParams.get('v') ?? '';
     const parts = parsed.pathname.split('/').filter(Boolean);
     const marker = parts.findIndex(part => ['embed', 'shorts', 'live'].includes(part));
@@ -23,4 +25,55 @@ export function youtubeEmbedUrl(url?: string) {
 export function youtubeThumbnailUrl(url?: string) {
   const id = youtubeIdFromUrl(url);
   return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : '';
+}
+
+export type ExerciseVideoSource = {
+  kind: 'youtube' | 'instagram' | 'vimeo' | 'direct' | 'external';
+  url: string;
+  embedUrl?: string;
+  label: string;
+};
+
+function safeHttpUrl(value?: string) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  try {
+    const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const parsed = new URL(candidate);
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function exerciseVideoSource(value?: string): ExerciseVideoSource | null {
+  const url = safeHttpUrl(value);
+  if (!url) return null;
+
+  const youtubeEmbed = youtubeEmbedUrl(url);
+  if (youtubeEmbed) return { kind: 'youtube', url, embedUrl: youtubeEmbed, label: 'YouTube' };
+
+  const parsed = new URL(url);
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  const parts = parsed.pathname.split('/').filter(Boolean);
+
+  if (host === 'instagram.com' && ['p', 'reel', 'tv'].includes(parts[0]) && parts[1]) {
+    return {
+      kind: 'instagram',
+      url,
+      embedUrl: `https://www.instagram.com/${parts[0]}/${parts[1]}/embed/`,
+      label: 'Instagram',
+    };
+  }
+
+  if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+    const id = [...parts].reverse().find(part => /^\d+$/.test(part));
+    if (id) return { kind: 'vimeo', url, embedUrl: `https://player.vimeo.com/video/${id}`, label: 'Vimeo' };
+  }
+
+  if (/\.(?:mp4|webm|mov|m4v)(?:$|[?#])/i.test(url)) {
+    return { kind: 'direct', url, label: 'Video' };
+  }
+
+  return { kind: 'external', url, label: host || 'Video link' };
 }

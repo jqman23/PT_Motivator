@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig, makeCustomExercise } from '@/lib/layout';
+import { exerciseVideoSource } from '@/lib/media';
 
 type ExerciseDbResult = {
   source?: 'exercisedb';
@@ -560,6 +561,11 @@ export default function LibraryModal({
 
   const submitCreate = () => {
     if (!name.trim()) return;
+    const videoSource = mainVideoUrl.trim() ? exerciseVideoSource(mainVideoUrl) : null;
+    if (mainVideoUrl.trim() && !videoSource) {
+      setSourceMessage('Main video must be a valid http or https URL.');
+      return;
+    }
     const ex: Exercise = {
       ...makeCustomExercise({
         name,
@@ -572,7 +578,7 @@ export default function LibraryModal({
         sourceId: importedMeta?.sourceId ?? sourceId,
         gifUrl: importedMeta?.gifUrl ?? gifUrl,
         mainImageUrl: mainImageUrl.trim() || undefined,
-        mainVideoUrl: mainVideoUrl.trim() || undefined,
+        mainVideoUrl: videoSource?.url,
       }),
     };
     onCreateCustom(ex);
@@ -583,7 +589,12 @@ export default function LibraryModal({
 
   const submitEdit = () => {
     if (!editing || !name.trim()) return;
-    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, gifUrl, mainImageUrl: mainImageUrl.trim() || undefined, mainVideoUrl: mainVideoUrl.trim() || undefined });
+    const videoSource = mainVideoUrl.trim() ? exerciseVideoSource(mainVideoUrl) : null;
+    if (mainVideoUrl.trim() && !videoSource) {
+      setSourceMessage('Main video must be a valid http or https URL.');
+      return;
+    }
+    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, gifUrl, mainImageUrl: mainImageUrl.trim() || undefined, mainVideoUrl: videoSource?.url });
     resetForm();
   };
 
@@ -600,7 +611,7 @@ export default function LibraryModal({
       <input value={sets} onChange={e => setSets(e.target.value)} placeholder="Sets / reps (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input value={imageSearch} onChange={e => setImageSearch(e.target.value)} placeholder="Media search terms" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input value={mainImageUrl} onChange={e => setMainImageUrl(e.target.value)} placeholder="Main image URL (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
-      <input value={mainVideoUrl} onChange={e => setMainVideoUrl(e.target.value)} placeholder="Main video URL (optional)" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+      <input value={mainVideoUrl} onChange={e => setMainVideoUrl(e.target.value)} placeholder="YouTube, Instagram, Vimeo, or video URL" className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       {sourceSelect}
       <textarea value={tipsText} onChange={e => setTipsText(e.target.value)} placeholder="Instructions / tips — one per line" rows={4} className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 mb-2 focus:outline-none resize-none" style={{ fontSize: 16, colorScheme: 'light' }} />
       <input

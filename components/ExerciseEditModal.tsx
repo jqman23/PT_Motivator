@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
+import { exerciseVideoSource } from '@/lib/media';
 
 interface Props {
   exercise: Exercise;
@@ -170,6 +171,11 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
       setError('Name is required.');
       return;
     }
+    const videoSource = mainVideoUrl.trim() ? exerciseVideoSource(mainVideoUrl) : null;
+    if (mainVideoUrl.trim() && !videoSource) {
+      setError('Main video must be a valid http or https URL.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -185,6 +191,10 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
         return;
       }
 
+      const orderedMainImages = Array.from(new Set([
+        mainImageUrl.trim(),
+        ...linesToList(mainImageUrls),
+      ].filter(Boolean))).slice(0, 3);
       const nextExercise: Exercise = {
         ...library[index],
         name: cleanName,
@@ -195,9 +205,9 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
         origin,
         sourceId: sourceId.trim() || undefined,
         gifUrl: gifUrl.trim() || undefined,
-        mainImageUrl: mainImageUrl.trim() || undefined,
-        mainImageUrls: linesToList(mainImageUrls).slice(0, 3),
-        mainVideoUrl: mainVideoUrl.trim() || undefined,
+        mainImageUrl: orderedMainImages[0] || undefined,
+        mainImageUrls: orderedMainImages,
+        mainVideoUrl: videoSource?.url,
         imageSearch: imageSearch.trim() || cleanName,
         videoIds: linesToList(videoIds),
         videoTitles: linesToList(videoTitles),
