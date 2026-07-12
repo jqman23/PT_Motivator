@@ -42,11 +42,22 @@ export async function GET(req: NextRequest) {
   const date = searchParams.get('date');
   const exerciseId = searchParams.get('exerciseId');
 
-  if (!validDate(date) || !validExerciseId(exerciseId)) {
-    return NextResponse.json({ error: 'A valid date and exerciseId are required.' }, { status: 400 });
+  if (!validDate(date)) {
+    return NextResponse.json({ error: 'A valid date is required.' }, { status: 400 });
   }
 
   try {
+    if (!exerciseId) {
+      const rows = await sql`
+        SELECT exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
+        FROM exercise_metrics
+        WHERE date = ${date}::date
+      `;
+      return NextResponse.json({ rows });
+    }
+    if (!validExerciseId(exerciseId)) {
+      return NextResponse.json({ error: 'A valid exerciseId is required.' }, { status: 400 });
+    }
     const currentRows = await sql`
       SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
       FROM exercise_metrics

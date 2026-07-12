@@ -8,7 +8,37 @@ type ExerciseImage = {
   mainImageUrls?: string[];
 };
 
+type MetricRow = {
+  exercise_id?: string;
+  sets_count?: number | string | null;
+  reps_count?: number | string | null;
+  duration_seconds?: number | string | null;
+  scope_multiplier?: number | string | null;
+};
+
 let previewCleanup: (() => void) | null = null;
+
+function selectedDateFromPage() {
+  const previousDay = document.querySelector('button[aria-label="Previous day"]');
+  const match = previousDay?.parentElement?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
+  if (match) return match[0];
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function metricLabel(metric: MetricRow | undefined) {
+  if (!metric) return '';
+  const sets = Number(metric.sets_count || 0);
+  const reps = Number(metric.reps_count || 0);
+  const seconds = Number(metric.duration_seconds || 0);
+  const scope = [2, 4].includes(Number(metric.scope_multiplier)) ? Number(metric.scope_multiplier) : 1;
+  if (!sets) return '';
+  if (reps) {
+    const base = `${sets}×${reps} reps`;
+    return scope > 1 ? `${base} ×${scope} (${sets * reps * scope} total)` : base;
+  }
+  return seconds ? `${sets}×${seconds} ${seconds === 1 ? 'sec' : 'secs'}` : '';
+}
 
 function cardIsDone(card: HTMLElement) {
   const grip = card.querySelector<HTMLElement>('[title="Move exercise"]');
@@ -143,6 +173,7 @@ function showImagePreview(imageUrls: string[], exerciseName: string) {
   next.addEventListener('click', () => move(1));
   closeButton.addEventListener('click', close);
   backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+  panel.addEventListener('click', event => { if (event.target === panel) close(); });
   panel.addEventListener('pointerdown', event => { swipeStartX = event.clientX; });
   panel.addEventListener('pointerup', event => {
     if (swipeStartX === null) return;
@@ -230,7 +261,10 @@ function syncPrimaryImage(card: HTMLElement, imageUrls: string[] = []) {
 export default function ExerciseTileMetadataEnhancer() {
   useEffect(() => {
     let imageMap = new Map<string, string[]>();
+    let metricMap = new Map<string, MetricRow>();
     let imageRevision = 0;
+    let loadedMetricDate = '';
+    let metricRequest: Promise<void> | null = null;
     let scanFrame: number | null = null;
 
     const loadImages = async () => {
@@ -261,7 +295,48 @@ export default function ExerciseTileMetadataEnhancer() {
       document.querySelectorAll<HTMLElement>('[data-exercise-card-id]').forEach(card => {
         const exerciseId = card.dataset.exerciseCardId || '';
         syncPrimaryImage(card, imageMap.get(exerciseId));
+        const title = card.querySelector<HTMLElement>('.text-sm.font-semibold > span');
+        if (!title) return;
+        const label = metricLabel(metricMap.get(exerciseId));
+        let badge = title.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
+        if (!label) {
+          badge?.remove();
+          return;
+        }
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.dataset.dailyExerciseMetric = 'true';
+          badge.className = 'ml-1 text-[11px] font-semibold text-stone-500';
+          title.append(badge);
+        }
+        const text = `(${label})`;
+        if (badge.textContent !== text) badge.textContent = text;
       });
+    };
+
+    const loadMetrics = async (force = false) => {
+      const date = selectedDateFromPage();
+      if (!force && loadedMetricDate === date) return;
+      if (metricRequest) return metricRequest;
+      // Mark the date before fetching so a failed request cannot become an
+      // automatic retry loop. A date change or explicit save may retry once.
+      loadedMetricDate = date;
+      metricRequest = (async () => {
+        try {
+          const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(date)}`, { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) return;
+          const rows: MetricRow[] = Array.isArray(data.rows) ? data.rows : [];
+          metricMap = new Map(rows.filter(row => row.exercise_id).map(row => [row.exercise_id!, row]));
+          loadedMetricDate = date;
+          scanCards();
+        } catch {
+          // Keep existing badges and wait for an explicit refresh trigger.
+        } finally {
+          metricRequest = null;
+        }
+      })();
+      return metricRequest;
     };
 
     const onClick = (event: MouseEvent) => {
@@ -295,8 +370,15 @@ export default function ExerciseTileMetadataEnhancer() {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('click', onClick, true);
     window.addEventListener('pt-exercise-images-updated', onImagesUpdated);
+    const onMetricSaved = () => { loadedMetricDate = ''; void loadMetrics(true); };
+    window.addEventListener('pt-exercise-metric-saved', onMetricSaved);
+
+    const dateTimer = window.setInterval(() => {
+      if (selectedDateFromPage() !== loadedMetricDate) void loadMetrics();
+    }, 1000);
 
     void loadImages();
+    void loadMetrics();
     scanCards();
 
     return () => {
@@ -304,6 +386,8 @@ export default function ExerciseTileMetadataEnhancer() {
       if (scanFrame !== null) window.cancelAnimationFrame(scanFrame);
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('pt-exercise-images-updated', onImagesUpdated);
+      window.removeEventListener('pt-exercise-metric-saved', onMetricSaved);
+      window.clearInterval(dateTimer);
       previewCleanup?.();
     };
   }, []);
