@@ -117,10 +117,11 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   Object.assign(img.style, {
     width: '100%',
     height: '100%',
-    objectFit: 'cover',
+    objectFit: 'contain',
     objectPosition: 'center',
     display: 'block',
     opacity: '1',
+    backgroundColor: 'white',
   });
 
   rail.append(img);

@@ -9,10 +9,8 @@ import DoctorNotesReorderEnhancer from "@/components/DoctorNotesReorderEnhancer"
 import HealthSectionJumpEnhancer from "@/components/HealthSectionJumpEnhancer";
 import WeekGoalInputEnhancer from "@/components/WeekGoalInputEnhancer";
 import ExerciseNotePhotoButtonCleanup from "@/components/ExerciseNotePhotoButtonCleanup";
-import ExerciseDoubleTapStabilityGuard from "@/components/ExerciseDoubleTapStabilityGuard";
 import ExerciseGestureEnhancer from "@/components/ExerciseGestureEnhancer";
-import ExerciseMoveHandleCompatibility from "@/components/ExerciseMoveHandleCompatibility";
-import DurationTypeAutofillEnhancer from "@/components/DurationTypeAutofillEnhancer";
+import ExerciseTileMetadataEnhancer from "@/components/ExerciseTileMetadataEnhancer";
 import "./globals.css";
 import "./widget-rescue.css";
 import "./quick-log-polish.css";
@@ -64,10 +62,8 @@ export default function RootLayout({
         <HealthSectionJumpEnhancer />
         <WeekGoalInputEnhancer />
         <ExerciseNotePhotoButtonCleanup />
-        <ExerciseDoubleTapStabilityGuard />
         <ExerciseGestureEnhancer />
-        <ExerciseMoveHandleCompatibility />
-        <DurationTypeAutofillEnhancer />
+        <ExerciseTileMetadataEnhancer />
       </body>
     </html>
   );

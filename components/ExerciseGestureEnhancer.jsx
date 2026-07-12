@@ -2,12 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-const HOLD_MS = 1500;
-const DOUBLE_TAP_MS = 285;
-const MOVE_TOLERANCE = 12;
 const EMPTY_DRAFT = {
   mode: 'reps',
-  kindText: 'Reps',
+  kindText: 'REP',
   sets: '',
   value: '',
   durationUnit: 'sec',
@@ -26,8 +23,14 @@ function selectedDateFromPage() {
 }
 
 function exerciseNameFromCard(card) {
-  const title = card.querySelector('.text-sm.font-semibold');
-  return title?.textContent?.replace('(optional)', '').trim() || 'Exercise';
+  const title = card.querySelector('.text-sm.font-semibold > span');
+  if (!title) return 'Exercise';
+  return Array.from(title.childNodes)
+    .filter(node => !(node instanceof Element && node.dataset.dailyExerciseMetric === 'true'))
+    .map(node => node.textContent || '')
+    .join('')
+    .replace('(optional)', '')
+    .trim() || 'Exercise';
 }
 
 function numberString(value) {
@@ -44,7 +47,7 @@ function modeFromKind(value, fallback = 'reps') {
 }
 
 function kindLabel(mode) {
-  return mode === 'duration' ? 'Duration' : 'Reps';
+  return mode === 'duration' ? 'DUR' : 'REP';
 }
 
 function draftFromMetric(metric) {
@@ -63,16 +66,6 @@ function draftFromMetric(metric) {
       : numberString(metric.reps_count),
     durationUnit: useMinutes ? 'min' : 'sec',
   };
-}
-
-function preventCardAction(event) {
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
-}
-
-function isInteractiveTarget(target) {
-  return target instanceof Element && Boolean(target.closest('button, input, textarea, select, a, [role="button"]'));
 }
 
 function focusAndSelect(ref) {
@@ -98,13 +91,16 @@ export default function ExerciseGestureEnhancer() {
   const kindRef = useRef(null);
 
   useEffect(() => {
-    const cleanups = new Map();
-
-    const openQuickLog = (card, clientX) => {
+    const openQuickLog = event => {
+      const exerciseId = event.detail?.exerciseId;
+      const card = exerciseId
+        ? document.querySelector(`[data-exercise-card-id="${CSS.escape(exerciseId)}"]`)
+        : null;
+      if (!card) return;
       const title = card.querySelector('.text-sm.font-semibold');
       const rect = (title || card).getBoundingClientRect();
       const halfWidth = 113;
-      const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, clientX || rect.left + rect.width / 2));
+      const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, event.detail?.clientX || rect.left + rect.width / 2));
       const placeBelow = rect.top < 130;
       const y = placeBelow ? rect.bottom + 5 : rect.top - 5;
 
@@ -118,146 +114,8 @@ export default function ExerciseGestureEnhancer() {
       });
     };
 
-    const bindCard = card => {
-      if (cleanups.has(card)) return;
-
-      let holdTimer = null;
-      let singleTapTimer = null;
-      let pointerStart = null;
-      let lastTapAt = 0;
-      let lastPointerType = 'touch';
-      let blockNextClick = false;
-
-      const clearHold = () => {
-        if (holdTimer) window.clearTimeout(holdTimer);
-        holdTimer = null;
-      };
-
-      const clearSingleTap = () => {
-        if (singleTapTimer) window.clearTimeout(singleTapTimer);
-        singleTapTimer = null;
-      };
-
-      const onPointerDown = event => {
-        if (isInteractiveTarget(event.target)) return;
-        lastPointerType = event.pointerType || 'touch';
-        if (lastPointerType === 'mouse') return;
-
-        pointerStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, pointerType: lastPointerType };
-        clearHold();
-        holdTimer = window.setTimeout(() => {
-          if (!pointerStart) return;
-          const holdPoint = pointerStart;
-          blockNextClick = true;
-          clearSingleTap();
-          lastTapAt = 0;
-          try {
-            card.dispatchEvent(new PointerEvent('pointercancel', {
-              bubbles: true,
-              pointerId: holdPoint.pointerId,
-              pointerType: holdPoint.pointerType,
-            }));
-          } catch {}
-          try { navigator.vibrate?.(18); } catch {}
-          card.dispatchEvent(new MouseEvent('contextmenu', {
-            bubbles: true,
-            cancelable: true,
-            button: 2,
-            clientX: holdPoint.x,
-            clientY: holdPoint.y,
-          }));
-          pointerStart = null;
-        }, HOLD_MS);
-      };
-
-      const onPointerMove = event => {
-        if (!pointerStart) return;
-        if (
-          Math.abs(event.clientX - pointerStart.x) > MOVE_TOLERANCE ||
-          Math.abs(event.clientY - pointerStart.y) > MOVE_TOLERANCE
-        ) {
-          clearHold();
-          pointerStart = null;
-        }
-      };
-
-      const onPointerEnd = () => {
-        clearHold();
-        pointerStart = null;
-      };
-
-      const onClick = event => {
-        if (card.dataset.exerciseGestureSynthetic === 'true') return;
-        if (isInteractiveTarget(event.target)) return;
-
-        if (blockNextClick) {
-          blockNextClick = false;
-          preventCardAction(event);
-          return;
-        }
-
-        const coarse = lastPointerType !== 'mouse' || window.matchMedia('(hover: none), (pointer: coarse)').matches;
-        if (!coarse) return;
-
-        preventCardAction(event);
-        const now = Date.now();
-        const isDoubleTap = now - lastTapAt <= DOUBLE_TAP_MS;
-
-        if (isDoubleTap) {
-          clearSingleTap();
-          lastTapAt = 0;
-          openQuickLog(card, event.clientX);
-          return;
-        }
-
-        lastTapAt = now;
-        clearSingleTap();
-        singleTapTimer = window.setTimeout(() => {
-          lastTapAt = 0;
-          card.dataset.exerciseGestureSynthetic = 'true';
-          card.click();
-          delete card.dataset.exerciseGestureSynthetic;
-        }, DOUBLE_TAP_MS);
-      };
-
-      const onDoubleClick = event => {
-        if (isInteractiveTarget(event.target)) return;
-        preventCardAction(event);
-        openQuickLog(card, event.clientX);
-      };
-
-      card.addEventListener('pointerdown', onPointerDown, true);
-      card.addEventListener('pointermove', onPointerMove, true);
-      card.addEventListener('pointerup', onPointerEnd, true);
-      card.addEventListener('pointercancel', onPointerEnd, true);
-      card.addEventListener('pointerleave', onPointerEnd, true);
-      card.addEventListener('click', onClick, true);
-      card.addEventListener('dblclick', onDoubleClick, true);
-      card.title = 'Tap to check off. Hold 1.5 seconds for history. Double tap for quick sets and reps or duration.';
-
-      cleanups.set(card, () => {
-        clearHold();
-        clearSingleTap();
-        card.removeEventListener('pointerdown', onPointerDown, true);
-        card.removeEventListener('pointermove', onPointerMove, true);
-        card.removeEventListener('pointerup', onPointerEnd, true);
-        card.removeEventListener('pointercancel', onPointerEnd, true);
-        card.removeEventListener('pointerleave', onPointerEnd, true);
-        card.removeEventListener('click', onClick, true);
-        card.removeEventListener('dblclick', onDoubleClick, true);
-      });
-    };
-
-    const scan = () => document.querySelectorAll('[data-exercise-card-id]').forEach(bindCard);
-    scan();
-    const observer = new MutationObserver(scan);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      observer.disconnect();
-      cleanups.forEach(cleanup => cleanup());
-      cleanups.clear();
-    };
+    window.addEventListener('pt-exercise-quick-log', openQuickLog);
+    return () => window.removeEventListener('pt-exercise-quick-log', openQuickLog);
   }, []);
 
   useEffect(() => {
@@ -376,6 +234,7 @@ export default function ExerciseGestureEnhancer() {
         onClick={() => void saveAndClose()}
       />
       <div
+        data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
           width: 'min(226px, calc(100vw - 16px))',
@@ -451,8 +310,10 @@ export default function ExerciseGestureEnhancer() {
                 value={draft.kindText}
                 onFocus={event => event.currentTarget.select()}
                 onChange={event => {
-                  const kindText = event.target.value;
-                  updateDraft({ kindText, mode: modeFromKind(kindText, draft.mode) });
+                  const typed = event.target.value;
+                  const nextMode = modeFromKind(typed, draft.mode);
+                  const kindText = /^[dr]/i.test(typed) ? kindLabel(nextMode) : typed;
+                  updateDraft({ kindText, mode: nextMode });
                 }}
                 onBlur={() => {
                   const mode = modeFromKind(draft.kindText, draft.mode);
@@ -474,8 +335,8 @@ export default function ExerciseGestureEnhancer() {
               )}
             </div>
             <datalist id="exercise-entry-kind-options">
-              <option value="Reps" />
-              <option value="Duration" />
+              <option value="REP" />
+              <option value="DUR" />
             </datalist>
           </label>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { ExerciseTypeMeta, getExerciseTypeDisplay, getExerciseTypeMark, getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
@@ -25,7 +25,8 @@ interface Props {
 
 const SWIPE_REVEAL = 92;
 const SWIPE_THRESHOLD = 44;
-const HISTORY_HOLD_MS = 2000;
+const HISTORY_HOLD_MS = 1500;
+const DOUBLE_TAP_MS = 300;
 
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
   const res = await fetch(`/api/config?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
@@ -59,6 +60,9 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
   const [swipeX, setSwipeX] = useState(0);
   const [swipeOpen, setSwipeOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapAt = useRef(0);
   const suppressNextClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiping = useRef(false);
@@ -89,12 +93,71 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
     longPressTimer.current = null;
   };
 
+  const clearSingleTap = () => {
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = null;
+  };
+
+  const suppressUpcomingClick = () => {
+    suppressNextClick.current = true;
+    if (suppressClickTimer.current) clearTimeout(suppressClickTimer.current);
+    suppressClickTimer.current = setTimeout(() => {
+      suppressNextClick.current = false;
+      suppressClickTimer.current = null;
+    }, 500);
+  };
+
   const openHistory = (suppressClick = false) => {
     if (swiping.current) return;
-    if (suppressClick) suppressNextClick.current = true;
+    if (suppressClick) {
+      suppressUpcomingClick();
+      clearSingleTap();
+      lastTapAt.current = 0;
+    }
     closeSwipe();
     setShowHistory(true);
   };
+
+  const handleCardClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (suppressNextClick.current) {
+      suppressNextClick.current = false;
+      if (suppressClickTimer.current) clearTimeout(suppressClickTimer.current);
+      suppressClickTimer.current = null;
+      return;
+    }
+    if (swipeOpen) {
+      closeSwipe();
+      return;
+    }
+    if (showMoveControls) {
+      setShowMoveControls(false);
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastTapAt.current <= DOUBLE_TAP_MS) {
+      clearSingleTap();
+      lastTapAt.current = 0;
+      window.dispatchEvent(new CustomEvent('pt-exercise-quick-log', {
+        detail: { exerciseId: exercise.id, clientX: event.clientX },
+      }));
+      return;
+    }
+
+    lastTapAt.current = now;
+    clearSingleTap();
+    singleTapTimer.current = setTimeout(() => {
+      lastTapAt.current = 0;
+      singleTapTimer.current = null;
+      onToggle();
+    }, DOUBLE_TAP_MS);
+  };
+
+  useEffect(() => () => {
+    clearLongPress();
+    clearSingleTap();
+    if (suppressClickTimer.current) clearTimeout(suppressClickTimer.current);
+  }, []);
 
   const stopActionPointer = (e: PointerEvent<HTMLDivElement>) => {
     clearLongPress();
@@ -216,27 +279,14 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
           data-exercise-card-id={exercise.id}
           className={`rounded-2xl border p-3 flex items-center gap-3 transition-all duration-150 cursor-pointer select-none ${cardColor} ${showMoveControls ? 'ring-2 ring-[#7E9B86]/25 shadow-md' : ''}`}
           style={{ transform: `translateX(${swipeX}px)`, touchAction: 'pan-y' }}
-          onClick={() => {
-            if (suppressNextClick.current) {
-              suppressNextClick.current = false;
-              return;
-            }
-            if (swipeOpen) {
-              closeSwipe();
-              return;
-            }
-            if (showMoveControls) {
-              setShowMoveControls(false);
-              return;
-            }
-            onToggle();
-          }}
+          onClick={handleCardClick}
           onContextMenu={(e) => {
             e.preventDefault();
             openHistory(false);
           }}
           onPointerDown={(e) => {
             if (e.pointerType === 'mouse') return;
+            if ((e.target as Element).closest('button, input, textarea, select, a, [role="button"]')) return;
             touchStart.current = { x: e.clientX, y: e.clientY };
             swiping.current = false;
             clearLongPress();
@@ -251,7 +301,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
 
             if (absX > 12 && absX > absY) {
               swiping.current = true;
-              suppressNextClick.current = true;
+              suppressUpcomingClick();
               clearLongPress();
               setShowMoveControls(false);
               const base = swipeOpen ? -SWIPE_REVEAL : 0;
@@ -276,15 +326,18 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
             setSwipeX(swipeOpen ? -SWIPE_REVEAL : 0);
           }}
           onPointerLeave={clearLongPress}
-          title="Tap to check off. Tap the grip on mobile to move up/down. Hold for history. Swipe left on mobile to remove."
+          title="Tap to check off. Double tap for quick log. Hold 1.5 seconds for history. Tap the grip to move."
         >
-          <div
+          <button
+            type="button"
+            aria-label="Move exercise up or down"
             className={`sm:hidden flex-shrink-0 w-7 h-10 rounded-xl flex items-center justify-center transition-all ${showMoveControls ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
             style={{ touchAction: 'manipulation' }}
             title="Move exercise"
             onClick={(e) => {
               e.stopPropagation();
-              suppressNextClick.current = true;
+              clearSingleTap();
+              lastTapAt.current = 0;
               closeSwipe();
               setShowMoveControls(prev => !prev);
             }}
@@ -301,7 +354,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
               <circle cx="3" cy="14" r="1.4" />
               <circle cx="9" cy="14" r="1.4" />
             </svg>
-          </div>
+          </button>
 
           <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-150 ${checkColor}`}>
             {done && (

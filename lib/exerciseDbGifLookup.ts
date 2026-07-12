@@ -97,10 +97,18 @@ function scoreCandidate(original: string, item: ExerciseDbItem) {
 }
 
 async function fetchJson(url: string) {
-  const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json.data ?? json;
+  try {
+    const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
+    if (!res.ok) {
+      console.warn(`ExerciseDB API error: ${res.status} ${res.statusText} for ${new URL(url).pathname}`);
+      return null;
+    }
+    const json = await res.json();
+    return json.data ?? json;
+  } catch (err) {
+    console.warn(`Failed to fetch from ExerciseDB:`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
 }
 
 export function makeGifQueries(input: { name?: string; cue?: string; imageSearch?: string }) {
@@ -156,7 +164,7 @@ export function makeGifQueries(input: { name?: string; cue?: string; imageSearch
 async function searchExerciseDb(query: string) {
   const url = new URL('https://oss.exercisedb.dev/api/v1/exercises/search');
   url.searchParams.set('search', query);
-  url.searchParams.set('threshold', '0.0');
+  url.searchParams.set('threshold', '0.45');
 
   const data = await fetchJson(url.toString());
   return Array.isArray(data) ? data as ExerciseDbItem[] : [];

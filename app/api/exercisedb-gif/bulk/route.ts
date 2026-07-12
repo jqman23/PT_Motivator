@@ -32,6 +32,11 @@ export async function POST(req: NextRequest) {
     } else {
       debug.push({ id: ex.id, name: ex.name, status: 'not_found' });
     }
+
+    // Add 300ms delay between exercises to prevent API overload
+    if (ex !== exercises[exercises.length - 1]) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
   }
 
   return NextResponse.json({
