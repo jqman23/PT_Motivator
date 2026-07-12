@@ -124,6 +124,7 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
   const [healthRows, setHealthRows] = useState<HealthRow[]>([]);
   const [logRows, setLogRows] = useState<Array<{ date: string; exercise_id: string; completed: boolean }>>([]);
   const [loading, setLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
 
   const startDate = reportStartDate;
   const endDate = reportEndDate;
@@ -256,7 +257,7 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
     }
   };
 
-  const exportJson = async () => {
+  const prepareJson = async () => {
     const data = await loadReportData();
     const healthByDate = Object.fromEntries(data.healthRows.map(row => [row.date, row]));
     const notesByDate = new Map<string, HistoricalNoteRow[]>();
@@ -312,7 +313,12 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
       }),
     };
 
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    return JSON.stringify(payload, null, 2);
+  };
+
+  const exportJson = async () => {
+    const json = await prepareJson();
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     const slug = appTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pt-data';
@@ -322,6 +328,31 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const copyJson = async () => {
+    setCopyStatus('');
+    try {
+      const json = await prepareJson();
+      try {
+        await navigator.clipboard.writeText(json);
+      } catch {
+        const textarea = document.createElement('textarea');
+        textarea.value = json;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.append(textarea);
+        textarea.focus();
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw new Error('Clipboard unavailable');
+      }
+      setCopyStatus('JSON copied');
+    } catch {
+      setCopyStatus('Could not copy JSON');
+    }
+    window.setTimeout(() => setCopyStatus(''), 1800);
   };
 
   return (
@@ -356,10 +387,12 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
             </button>)}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); void generatePdf(); }} disabled={loading} className="w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-50" style={{ background: '#7E9B86', touchAction: 'manipulation' }}>{loading ? 'Preparing…' : 'Generate PDF'}</button>
             <button onClick={e => { e.preventDefault(); e.stopPropagation(); void exportJson(); }} disabled={loading} className="w-full rounded-2xl border border-[#cfded3] bg-white py-3 text-sm font-bold text-[#476653] disabled:opacity-50" style={{ touchAction: 'manipulation' }}>{loading ? 'Preparing…' : 'Export JSON'}</button>
+            <button onClick={e => { e.preventDefault(); e.stopPropagation(); void copyJson(); }} disabled={loading} className="w-full rounded-2xl border border-stone-200 bg-stone-100 py-3 text-sm font-bold text-stone-600 disabled:opacity-50" style={{ touchAction: 'manipulation' }}>{loading ? 'Preparing…' : 'Copy JSON'}</button>
           </div>
+          {copyStatus && <p className="text-center text-xs font-semibold text-[#476653]">{copyStatus}</p>}
           <p className="text-[11px] text-stone-400 text-center leading-relaxed">PDF opens a print-ready report. JSON downloads complete structured data for the selected range.</p>
         </div>
       </div>
