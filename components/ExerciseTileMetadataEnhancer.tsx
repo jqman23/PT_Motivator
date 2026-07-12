@@ -265,15 +265,17 @@ export default function ExerciseTileMetadataEnhancer() {
   useEffect(() => {
     let cancelled = false;
     let imageMap = new Map<string, string[]>();
+    let imageRevision = 0;
     let lastDate = selectedDateFromPage();
     const metricRequest = new Map<string, number>();
 
     const loadImages = async () => {
+      const requestRevision = imageRevision;
       try {
         const response = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
         const data = await response.json();
         const library: ExerciseImage[] = Array.isArray(data.value) ? data.value : [];
-        imageMap = new Map(
+        const loadedMap = new Map(
           library
             .map(exercise => [exercise.id || '', Array.from(new Set([
               exercise.mainImageUrl,
@@ -281,9 +283,13 @@ export default function ExerciseTileMetadataEnhancer() {
             ].filter((url): url is string => Boolean(url))))] as const)
             .filter(([id, urls]) => Boolean(id && urls.length)),
         );
+        if (requestRevision !== imageRevision) {
+          imageMap.forEach((urls, exerciseId) => loadedMap.set(exerciseId, urls));
+        }
+        imageMap = loadedMap;
         scanCards(true);
       } catch {
-        imageMap = new Map();
+        if (requestRevision === imageRevision) imageMap = new Map();
       }
     };
 
@@ -347,8 +353,11 @@ export default function ExerciseTileMetadataEnhancer() {
     const onImagesUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ exerciseId?: string; images?: string[] }>).detail;
       if (!detail?.exerciseId || !Array.isArray(detail.images)) return;
+      imageRevision += 1;
       imageMap.set(detail.exerciseId, detail.images);
-      scanCards(false);
+      document
+        .querySelectorAll<HTMLElement>(`[data-exercise-card-id="${CSS.escape(detail.exerciseId)}"]`)
+        .forEach(card => syncPrimaryImage(card, detail.images));
     };
 
     const observer = new MutationObserver(() => scanCards(false));
