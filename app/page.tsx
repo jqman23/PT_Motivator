@@ -327,7 +327,7 @@ export default function Home() {
 
   const loadNotes = useCallback(async (date: string) => {
     try {
-      const res = await fetch(`/api/notes?date=${date}`);
+      const res = await fetch(`/api/notes?date=${date}&includePhotos=false`);
       if (res.ok) {
         const { rows } = await res.json();
         const newNotes: NotesMap = {};

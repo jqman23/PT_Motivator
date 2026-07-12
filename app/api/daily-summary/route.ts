@@ -68,7 +68,7 @@ export async function POST() {
 
     const [logRows, noteRows, healthRows, libraryData, ptSessions] = await Promise.all([
       getLogForRange(yesterday, yesterday),
-      getNotesForDate(yesterday),
+      getNotesForDate(yesterday, false),
       getHealthForDate(yesterday),
       getConfig('exerciseLibrary'),
       getConfig('ptSessions'),

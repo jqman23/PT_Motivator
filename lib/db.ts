@@ -160,7 +160,14 @@ export async function upsertLog(date: string, exerciseId: string, completed: boo
   `;
 }
 
-export async function getNotesForDate(date: string) {
+export async function getNotesForDate(date: string, includePhotos = true) {
+  if (!includePhotos) {
+    return sql`
+      SELECT exercise_id, note
+      FROM exercise_notes
+      WHERE date = ${date}::date
+    `;
+  }
   return sql`
     SELECT exercise_id, note, COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments
     FROM exercise_notes
@@ -170,7 +177,9 @@ export async function getNotesForDate(date: string) {
 
 export async function getHealthForDate(date: string) {
   return sql`
-    SELECT *
+    SELECT id, date, sleep_hours, sleep_quality, energy, mood, pain,
+      sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes,
+      general_notes, treatment_notes, updated_at
     FROM health_log
     WHERE date = ${date}::date
     LIMIT 1

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  canScheduleTimerPushWithQStash,
   configureWebPush,
   getPushSubscriptions,
   getTimerPushEvents,
@@ -16,6 +17,11 @@ export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // QStash delivers each timer at its exact scheduled time. Keep the Vercel
+  // cron as a fallback, but do not wake Neon every minute when QStash is live.
+  if (canScheduleTimerPushWithQStash()) {
+    return NextResponse.json({ ok: true, delegated: 'qstash' });
   }
   if (!configureWebPush()) {
     return NextResponse.json({ error: 'Missing VAPID keys' }, { status: 500 });

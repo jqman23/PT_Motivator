@@ -112,7 +112,7 @@ export default function SmartAddPortal() {
       fetch('/api/config?key=exerciseLibrary').then(r => r.json()).catch(() => ({ value: null })),
       fetch('/api/config?key=customExercises').then(r => r.json()).catch(() => ({ value: null })),
       fetch(`/api/log?start=${targetDate}&end=${targetDate}`).then(r => r.json()).catch(() => ({ rows: [] })),
-      fetch(`/api/notes?date=${targetDate}`).then(r => r.json()).catch(() => ({ rows: [] })),
+      fetch(`/api/notes?date=${targetDate}&includePhotos=false`).then(r => r.json()).catch(() => ({ rows: [] })),
     ]);
     setLayout(Array.isArray(layoutRes.value) && layoutRes.value.length ? layoutRes.value : defaultLayout());
     setLibrary(Array.isArray(libraryRes.value) && libraryRes.value.length ? libraryRes.value : seedLibrary(Array.isArray(customRes.value) ? customRes.value : []));

@@ -17,6 +17,12 @@ type GeneralNotePhoto = {
 };
 
 const NUMERIC_FIELDS = ['sleep_hours', 'sleep_quality', 'energy', 'mood', 'pain'] as const;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function validRange(start: string, end: string) {
+  if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end) || start > end) return false;
+  return (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 <= 400;
+}
 
 function serializeHealthRow(row: Record<string, unknown>) {
   const next = { ...row };
@@ -65,6 +71,7 @@ export async function GET(req: NextRequest) {
 
   try {
     if (start && end) {
+      if (!validRange(start, end)) return NextResponse.json({ error: 'Invalid date range' }, { status: 400 });
       const rows = await sql`
         SELECT id, date, sleep_hours, sleep_quality, energy, mood, pain,
           sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes,
@@ -75,7 +82,7 @@ export async function GET(req: NextRequest) {
       `;
       return NextResponse.json({ rows: rows.map(row => serializeHealthRow(row as Record<string, unknown>)) });
     }
-    if (!date) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
+    if (!date || !DATE_PATTERN.test(date)) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
     const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
     return NextResponse.json({ row: rows[0] ? serializeHealthRow(rows[0] as Record<string, unknown>) : null });
   } catch (err) {
@@ -92,7 +99,7 @@ export async function POST(req: NextRequest) {
       sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
       general_note_photos,
     } = body;
-    if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
+    if (!DATE_PATTERN.test(String(date ?? ''))) return NextResponse.json({ error: 'date required' }, { status: 400 });
 
     const hasSleepHours = hasOwn(body, 'sleep_hours');
     const hasSleepQuality = hasOwn(body, 'sleep_quality');
