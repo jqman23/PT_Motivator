@@ -323,9 +323,6 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                         className="relative block w-full overflow-hidden rounded-lg"
                       >
                         <img src={photo} alt="" className="h-[48px] w-full object-cover" />
-                        <span className="absolute left-1 top-1 rounded-full bg-black/65 px-1.5 py-0.5 text-[9px] font-bold text-white">
-                          {index === 0 ? '1 · Tile' : index + 1}
-                        </span>
                       </button>
                       <div className="mt-1 grid grid-cols-2 gap-1">
                         <button
