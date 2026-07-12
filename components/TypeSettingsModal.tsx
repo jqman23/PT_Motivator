@@ -211,11 +211,7 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
   const [typeQuery, setTypeQuery] = useState('');
   const [emojiQuery, setEmojiQuery] = useState('');
   const [pickerType, setPickerType] = useState<string | null>(null);
-  const [recent, setRecent] = useState<string[]>([]);
-
-  useEffect(() => {
-    setRecent(loadRecentEmojis());
-  }, []);
+  const [recent, setRecent] = useState<string[]>(() => loadRecentEmojis());
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -319,9 +315,9 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
       </div>
 
       {pickerType && (
-        <div className="fixed inset-0 z-[79] flex items-end sm:items-center justify-center bg-black/45 backdrop-blur-[1px]" onClick={() => setPickerType(null)}>
-          <div className="w-full sm:max-w-lg bg-[#F6F1E7] rounded-t-2xl sm:rounded-2xl border-t sm:border border-stone-200 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-stone-200 flex items-start justify-between gap-3">
+        <div className="fixed inset-0 z-[79] flex items-start sm:items-center justify-center bg-black/45 backdrop-blur-[1px]" onClick={() => setPickerType(null)}>
+          <div className="flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden bg-[#F6F1E7] shadow-2xl sm:h-auto sm:max-h-[88dvh] sm:max-w-lg sm:rounded-2xl sm:border sm:border-stone-200" onClick={e => e.stopPropagation()}>
+            <div className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-stone-200 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Emoji picker</p>
                 <h3 className="font-serif text-base font-semibold text-stone-800 truncate">{activeType}</h3>
@@ -329,15 +325,16 @@ export default function TypeSettingsModal({ types, meta, onChange, onClose }: Pr
               <button onClick={() => setPickerType(null)} className="w-8 h-8 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-500 text-xl">×</button>
             </div>
 
-            <div className="p-3">
+            <div className="flex min-h-0 flex-1 flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <input
                 value={emojiQuery}
                 onChange={e => setEmojiQuery(e.target.value)}
                 placeholder="Search emoji"
+                onFocus={e => window.setTimeout(() => e.currentTarget.scrollIntoView({ block: 'start' }), 100)}
                 className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm"
                 style={{ fontSize: 16, colorScheme: 'light' }}
               />
-              <div className="mt-3 space-y-3 max-h-[60dvh] overflow-y-auto pr-1">
+              <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 [-webkit-overflow-scrolling:touch]">
                 {emojiGroups.map(group => (
                   <div key={group.label}>
                     <div className="mb-2 flex items-center justify-between">
