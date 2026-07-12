@@ -80,32 +80,20 @@ function normalizeTranscripts(value: unknown): ResponseTranscript[] {
   return transcripts;
 }
 
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS doctor_notes (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL DEFAULT 'question',
-      title TEXT NOT NULL DEFAULT '',
-      provider TEXT NOT NULL DEFAULT '',
-      reference_text TEXT NOT NULL DEFAULT '',
-      body TEXT NOT NULL DEFAULT '',
-      linked_dates JSONB NOT NULL DEFAULT '[]'::jsonb,
-      photo_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
-      response_transcripts JSONB NOT NULL DEFAULT '[]'::jsonb,
-      pinned BOOLEAN NOT NULL DEFAULT false,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-  await sql`
-    ALTER TABLE doctor_notes
-    ADD COLUMN IF NOT EXISTS response_transcripts JSONB NOT NULL DEFAULT '[]'::jsonb
-  `;
-}
-
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    await ensureTable();
+    const id = cleanText(new URL(req.url).searchParams.get('id'), 100);
+    if (id) {
+      const rows = await sql`
+        SELECT id, kind, title, provider, reference_text, body,
+          COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
+          COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
+          COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,
+          pinned, created_at, updated_at
+        FROM doctor_notes WHERE id = ${id} LIMIT 1
+      `;
+      return NextResponse.json({ row: rows[0] ?? null });
+    }
     const rows = await sql`
       SELECT id, kind, title, provider, reference_text, body,
         COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
@@ -114,6 +102,7 @@ export async function GET() {
         pinned, created_at, updated_at
       FROM doctor_notes
       ORDER BY pinned DESC, updated_at DESC
+      LIMIT 100
     `;
     return NextResponse.json({ rows });
   } catch (err) {
@@ -142,7 +131,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Add a title, note, or photo before saving.' }, { status: 400 });
     }
 
-    await ensureTable();
     await sql`
       INSERT INTO doctor_notes (
         id, kind, title, provider, reference_text, body,
@@ -190,7 +178,6 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
   try {
-    await ensureTable();
     await sql`DELETE FROM doctor_notes WHERE id = ${id}`;
     return NextResponse.json({ ok: true });
   } catch (err) {

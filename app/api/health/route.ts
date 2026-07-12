@@ -57,33 +57,6 @@ function normalizeGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
   return photos;
 }
 
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS health_log (
-      id SERIAL PRIMARY KEY,
-      date DATE NOT NULL UNIQUE,
-      sleep_hours NUMERIC(4,1),
-      sleep_quality NUMERIC(4,1),
-      energy NUMERIC(4,1),
-      mood NUMERIC(4,1),
-      pain NUMERIC(4,1),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS sleep_quality_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS energy_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS mood_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS pain_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS treatment_notes TEXT`;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS general_note_photos JSONB NOT NULL DEFAULT '[]'::jsonb`;
-  await sql`ALTER TABLE health_log ALTER COLUMN sleep_quality TYPE NUMERIC(4,1)`;
-  await sql`ALTER TABLE health_log ALTER COLUMN energy TYPE NUMERIC(4,1)`;
-  await sql`ALTER TABLE health_log ALTER COLUMN mood TYPE NUMERIC(4,1)`;
-  await sql`ALTER TABLE health_log ALTER COLUMN pain TYPE NUMERIC(4,1)`;
-}
-
 export async function GET(req: NextRequest) {
   const params = new URL(req.url).searchParams;
   const date = params.get('date');
@@ -91,9 +64,15 @@ export async function GET(req: NextRequest) {
   const end = params.get('end');
 
   try {
-    await ensureTable();
     if (start && end) {
-      const rows = await sql`SELECT * FROM health_log WHERE date >= ${start}::date AND date <= ${end}::date ORDER BY date`;
+      const rows = await sql`
+        SELECT id, date, sleep_hours, sleep_quality, energy, mood, pain,
+          sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes,
+          general_notes, treatment_notes, updated_at
+        FROM health_log
+        WHERE date >= ${start}::date AND date <= ${end}::date
+        ORDER BY date
+      `;
       return NextResponse.json({ rows: rows.map(row => serializeHealthRow(row as Record<string, unknown>)) });
     }
     if (!date) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
@@ -130,7 +109,6 @@ export async function POST(req: NextRequest) {
     const hasGeneralNotePhotos = hasOwn(body, 'general_note_photos');
     const cleanGeneralNotePhotos = hasGeneralNotePhotos ? normalizeGeneralNotePhotos(general_note_photos) : [];
 
-    await ensureTable();
     await sql`
       INSERT INTO health_log (date, sleep_hours, sleep_quality, energy, mood, pain,
         sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,

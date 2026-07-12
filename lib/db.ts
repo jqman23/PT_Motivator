@@ -99,6 +99,40 @@ export async function initDb() {
   await sql`ALTER TABLE health_log ALTER COLUMN energy TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN mood TYPE NUMERIC(4,1)`;
   await sql`ALTER TABLE health_log ALTER COLUMN pain TYPE NUMERIC(4,1)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS exercise_metrics (
+      id SERIAL PRIMARY KEY,
+      date DATE NOT NULL,
+      exercise_id TEXT NOT NULL,
+      sets_count INTEGER,
+      reps_count INTEGER,
+      duration_seconds INTEGER,
+      weight_value NUMERIC(8,2),
+      weight_unit TEXT NOT NULL DEFAULT 'lb',
+      scope_multiplier INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(date, exercise_id)
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS doctor_notes (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'question',
+      title TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      reference_text TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      linked_dates JSONB NOT NULL DEFAULT '[]'::jsonb,
+      photo_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      response_transcripts JSONB NOT NULL DEFAULT '[]'::jsonb,
+      pinned BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {
@@ -127,7 +161,6 @@ export async function upsertLog(date: string, exerciseId: string, completed: boo
 }
 
 export async function getNotesForDate(date: string) {
-  await ensureExerciseNotesTable();
   return sql`
     SELECT exercise_id, note, COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments
     FROM exercise_notes
@@ -136,18 +169,6 @@ export async function getNotesForDate(date: string) {
 }
 
 export async function getHealthForDate(date: string) {
-  await sql`
-    CREATE TABLE IF NOT EXISTS health_log (
-      id SERIAL PRIMARY KEY,
-      date DATE NOT NULL UNIQUE,
-      sleep_hours NUMERIC(4,1),
-      sleep_quality NUMERIC(4,1),
-      energy NUMERIC(4,1),
-      mood NUMERIC(4,1),
-      pain NUMERIC(4,1),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
   return sql`
     SELECT *
     FROM health_log
@@ -161,7 +182,6 @@ export async function deleteLogForDate(date: string) {
 }
 
 export async function deleteNotesForDate(date: string) {
-  await ensureExerciseNotesTable();
   await sql`DELETE FROM exercise_notes WHERE date = ${date}::date`;
 }
 
@@ -184,7 +204,6 @@ export async function setConfig(key: string, value: unknown) {
 }
 
 export async function getRecentNotes(exerciseId: string, beforeDate: string): Promise<Array<{ note: string }>> {
-  await ensureExerciseNotesTable();
   const rows = await sql`
     SELECT note
     FROM exercise_notes
@@ -200,7 +219,6 @@ export async function getRecentNotes(exerciseId: string, beforeDate: string): Pr
 }
 
 export async function upsertNote(date: string, exerciseId: string, note: string, photoAttachments?: unknown) {
-  await ensureExerciseNotesTable();
 
   if (photoAttachments === undefined) {
     await sql`
@@ -223,7 +241,6 @@ export async function upsertNote(date: string, exerciseId: string, note: string,
 
 export async function renameExerciseId(oldId: string, newId: string) {
   if (!oldId || !newId || oldId === newId) return;
-  await ensureExerciseNotesTable();
 
   await sql`
     INSERT INTO workout_log (date, exercise_id, completed, updated_at)

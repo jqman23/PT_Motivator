@@ -16,22 +16,6 @@ function datesInRange(start: string, end: string): string[] {
   return out;
 }
 
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS health_log (
-      id SERIAL PRIMARY KEY,
-      date DATE NOT NULL UNIQUE,
-      sleep_hours NUMERIC(4,1),
-      sleep_quality NUMERIC(4,1),
-      energy NUMERIC(4,1),
-      mood NUMERIC(4,1),
-      pain NUMERIC(4,1),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
-  await sql`ALTER TABLE health_log ADD COLUMN IF NOT EXISTS treatment_notes TEXT`;
-}
-
 export async function GET(req: NextRequest) {
   const params = new URL(req.url).searchParams;
   const start = params.get('start');
@@ -39,7 +23,6 @@ export async function GET(req: NextRequest) {
   const date = params.get('date');
 
   try {
-    await ensureTable();
     if (start && end) {
       const rows = await sql`
         SELECT date, treatment_notes
@@ -64,7 +47,6 @@ export async function POST(req: NextRequest) {
     const targetDates: string[] = Array.isArray(dates) ? dates : date ? [date] : [];
     if (!targetDates.length) return NextResponse.json({ error: 'date or dates required' }, { status: 400 });
 
-    await ensureTable();
     for (const d of targetDates) {
       await sql`
         INSERT INTO health_log (date, treatment_notes, updated_at)
@@ -88,7 +70,6 @@ export async function DELETE(req: NextRequest) {
   const end = params.get('end');
 
   try {
-    await ensureTable();
     const targetDates = start && end ? datesInRange(start, end) : date ? [date] : [];
     if (!targetDates.length) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
 

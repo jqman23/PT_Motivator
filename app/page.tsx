@@ -270,46 +270,40 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/config?key=layout')
-      .then(r => r.json())
+    fetch('/api/config?keys=layout,exerciseLibrary,customExercises,appTitle,ptSessions,widgetPrefs,exerciseTypeMeta')
+      .then(response => response.json())
       .then(data => {
-        if (data.value && Array.isArray(data.value) && data.value.length > 0) setLayout(data.value as CategoryConfig[]);
+        const values = data.values && typeof data.values === 'object' ? data.values as Record<string, unknown> : {};
+        if (Array.isArray(values.layout) && values.layout.length > 0) setLayout(values.layout as CategoryConfig[]);
         else {
           const def = makeDefaultLayout();
           setLayout(def);
           fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'layout', value: def }) }).catch(console.error);
         }
-      })
-      .catch(() => setLayout(makeDefaultLayout()))
-      .finally(() => setLayoutLoading(false));
-
-    Promise.all([
-      fetch('/api/config?key=exerciseLibrary').then(r => r.json()).catch(() => ({ value: null })),
-      fetch('/api/config?key=customExercises').then(r => r.json()).catch(() => ({ value: null })),
-    ])
-      .then(([libraryData, legacyCustomData]) => {
-        if (Array.isArray(libraryData.value) && libraryData.value.length > 0) { setExerciseLibrary(libraryData.value as Exercise[]); return; }
-        const legacyCustom = Array.isArray(legacyCustomData.value) ? legacyCustomData.value as Exercise[] : [];
-        const seeded = seedExerciseLibrary(legacyCustom);
-        setExerciseLibrary(seeded);
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: seeded }) }).catch(console.error);
-      })
-      .catch(() => setExerciseLibrary(seedExerciseLibrary()));
-
-    fetch('/api/config?key=appTitle').then(r => r.json()).then(data => { if (typeof data.value === 'string' && data.value.trim()) setAppTitle(data.value); }).catch(console.error);
-    fetch('/api/config?key=ptSessions').then(r => r.json()).then(data => {
-      if (!Array.isArray(data.value)) return;
-      setPtSessions(data.value.map((item: string | PTSession) => {
+        if (Array.isArray(values.exerciseLibrary) && values.exerciseLibrary.length > 0) setExerciseLibrary(values.exerciseLibrary as Exercise[]);
+        else {
+          const legacyCustom = Array.isArray(values.customExercises) ? values.customExercises as Exercise[] : [];
+          const seeded = seedExerciseLibrary(legacyCustom);
+          setExerciseLibrary(seeded);
+          fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseLibrary', value: seeded }) }).catch(console.error);
+        }
+        if (typeof values.appTitle === 'string' && values.appTitle.trim()) setAppTitle(values.appTitle);
+        if (Array.isArray(values.ptSessions)) setPtSessions(values.ptSessions.map((item: string | PTSession) => {
         if (typeof item === 'string') return { date: item, kind: 'pt', note: '' };
         return {
           date: item.date,
           kind: item.kind === 'training' ? 'training' : 'pt',
           note: item.note ?? '',
         };
-      }));
-    }).catch(console.error);
-    fetch('/api/config?key=widgetPrefs').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...data.value }); }).catch(console.error);
-    fetch('/api/config?key=exerciseTypeMeta').then(r => r.json()).then(data => { if (data.value && typeof data.value === 'object') setTypeMeta(data.value as ExerciseTypeMeta); }).catch(console.error);
+        }));
+        if (values.widgetPrefs && typeof values.widgetPrefs === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...values.widgetPrefs });
+        if (values.exerciseTypeMeta && typeof values.exerciseTypeMeta === 'object') setTypeMeta(values.exerciseTypeMeta as ExerciseTypeMeta);
+      })
+      .catch(() => {
+        setLayout(makeDefaultLayout());
+        setExerciseLibrary(seedExerciseLibrary());
+      })
+      .finally(() => setLayoutLoading(false));
 
     void requestDailySummary(false);
   }, [requestDailySummary]);

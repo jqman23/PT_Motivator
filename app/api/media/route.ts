@@ -3,22 +3,11 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL!);
 
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS user_config (
-      key TEXT PRIMARY KEY,
-      value JSONB NOT NULL,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
-}
-
 export async function GET(req: NextRequest) {
   const id = new URL(req.url).searchParams.get('id') ?? '';
   if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return new NextResponse('Not found', { status: 404 });
 
   try {
-    await ensureTable();
     const rows = await sql`SELECT value FROM user_config WHERE key = ${`media:${id}`}`;
     const value = rows[0]?.value as { dataUrl?: string } | undefined;
     const dataUrl = value?.dataUrl ?? '';

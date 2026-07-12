@@ -15,28 +15,6 @@ type MetricInput = {
   scopeMultiplier?: unknown;
 };
 
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS exercise_metrics (
-      id SERIAL PRIMARY KEY,
-      date DATE NOT NULL,
-      exercise_id TEXT NOT NULL,
-      sets_count INTEGER,
-      reps_count INTEGER,
-      duration_seconds INTEGER,
-      weight_value NUMERIC(8,2),
-      weight_unit TEXT NOT NULL DEFAULT 'lb',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(date, exercise_id)
-    )
-  `;
-  await sql`
-    ALTER TABLE exercise_metrics
-    ADD COLUMN IF NOT EXISTS scope_multiplier INTEGER NOT NULL DEFAULT 1
-  `;
-}
-
 function validDate(value: unknown): value is string {
   return typeof value === 'string' && DATE_PATTERN.test(value);
 }
@@ -69,7 +47,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await ensureTable();
     const currentRows = await sql`
       SELECT date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
       FROM exercise_metrics
@@ -111,7 +88,6 @@ export async function POST(req: NextRequest) {
   const scopeMultiplier = body.scopeMultiplier === 2 || body.scopeMultiplier === 4 ? body.scopeMultiplier : 1;
 
   try {
-    await ensureTable();
     const rows = await sql`
       INSERT INTO exercise_metrics (
         date, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier, updated_at
@@ -147,7 +123,6 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    await ensureTable();
     await sql`
       DELETE FROM exercise_metrics
       WHERE date = ${date}::date AND exercise_id = ${exerciseId}
