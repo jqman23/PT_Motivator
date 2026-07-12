@@ -66,7 +66,10 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [timerSets, setTimerSets] = useState(exercise.timerPrescription?.sets ?? 2);
   const [timerAmount, setTimerAmount] = useState(exercise.timerPrescription?.amount ?? 60);
   const [timerUnit, setTimerUnit] = useState<'seconds' | 'reps'>(exercise.timerPrescription?.unit ?? 'seconds');
-  const [timerScopeMultiplier, setTimerScopeMultiplier] = useState<1 | 2 | 4>(exercise.timerPrescription?.scopeMultiplier ?? 1);
+  const legacyTimerTargets = exercise.timerPrescription?.scopeMultiplier === 4
+    ? ['right inversion', 'right eversion', 'left inversion', 'left eversion']
+    : exercise.timerPrescription?.scopeMultiplier === 2 ? ['right', 'left'] : [];
+  const [timerTargetsText, setTimerTargetsText] = useState((exercise.timerPrescription?.targets?.length ? exercise.timerPrescription.targets : legacyTimerTargets).join('\n'));
   const [cat, setCat] = useState<Exercise['cat']>(exercise.cat);
   const [optional, setOptional] = useState(!!exercise.optional);
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
@@ -104,7 +107,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
       sets: Math.max(1, Math.round(Number(timerSets) || 1)),
       amount: Math.max(1, Math.round(Number(timerAmount) || 1)),
       unit: timerUnit,
-      scopeMultiplier: timerScopeMultiplier,
+      targets: linesToList(timerTargetsText),
     } : undefined,
     cat,
     optional: optional || undefined,
@@ -118,7 +121,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     videoIds: linesToList(videoIds),
     videoTitles: linesToList(videoTitles),
     tips: linesToList(tipsText),
-  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerScopeMultiplier, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
+  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerTargetsText, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
 
   const proposalRows = useMemo(() => {
     if (!proposal) return [];
@@ -215,7 +218,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
           sets: Math.max(1, Math.round(Number(timerSets) || 1)),
           amount: Math.max(1, Math.round(Number(timerAmount) || 1)),
           unit: timerUnit,
-          scopeMultiplier: timerScopeMultiplier,
+          targets: linesToList(timerTargetsText),
         } : undefined,
         cat,
         optional: optional || undefined,
@@ -377,14 +380,15 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
                         <option value="reps">Reps</option>
                       </select>
                     </label>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                      Targets
-                      <select value={timerScopeMultiplier} onChange={e => setTimerScopeMultiplier(Number(e.target.value) as 1 | 2 | 4)} className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }}>
-                        <option value={1}>×1 single</option>
-                        <option value={2}>×2 right + left</option>
-                        <option value={4}>×4 R/L inversion + eversion</option>
-                      </select>
-                    </label>
+                  </div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                    Named targets, in order
+                    <textarea value={timerTargetsText} onChange={e => setTimerTargetsText(e.target.value)} rows={4} placeholder="Leave blank to perform once&#10;or enter one movement per line" className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none resize-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button type="button" onClick={() => setTimerTargetsText('')} className="rounded-lg bg-white border border-stone-200 py-1.5 text-[11px] font-bold text-stone-500">×1 single</button>
+                    <button type="button" onClick={() => setTimerTargetsText('right\nleft')} className="rounded-lg bg-white border border-stone-200 py-1.5 text-[11px] font-bold text-stone-500">×2 R/L</button>
+                    <button type="button" onClick={() => setTimerTargetsText('right inversion\nright eversion\nleft inversion\nleft eversion')} className="rounded-lg bg-white border border-stone-200 py-1.5 text-[11px] font-bold text-stone-500">×4 inv/ev</button>
                   </div>
                   <p className="text-[11px] leading-snug text-stone-500">The custom workout timer uses these saved values. The same amount applies to every target.</p>
                 </>

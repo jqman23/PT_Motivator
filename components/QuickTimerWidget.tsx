@@ -48,6 +48,7 @@ type CustomWorkoutExercise = {
   unit: WorkoutUnit;
   amount: number;
   sides: WorkoutSides;
+  targets?: string[];
 };
 
 type CustomWorkout = {
@@ -93,9 +94,16 @@ function buildSequence(setCount: number, holdSeconds: 30 | 60): TimerStep[] {
   return steps;
 }
 
-function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; scopeMultiplier: 1 | 2 | 4 } }): CustomWorkoutExercise {
+function legacyTargets(scopeMultiplier?: 1 | 2 | 4) {
+  if (scopeMultiplier === 4) return ['right inversion', 'right eversion', 'left inversion', 'left eversion'];
+  if (scopeMultiplier === 2) return ['right', 'left'];
+  return [];
+}
+
+function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 } }): CustomWorkoutExercise {
   const saved = exercise.timerPrescription;
-  if (saved && [1, 2, 4].includes(saved.scopeMultiplier) && saved.sets > 0 && saved.amount > 0) {
+  if (saved && saved.sets > 0 && saved.amount > 0) {
+    const targets = (saved.targets ?? []).map(target => target.trim()).filter(Boolean);
     return {
       id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       exerciseId: exercise.id,
@@ -106,6 +114,7 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
       unit: saved.unit === 'reps' ? 'reps' : 'seconds',
       amount: Math.max(1, Math.round(saved.amount)),
       sides: saved.scopeMultiplier === 4 ? 'inversion_eversion_both' : saved.scopeMultiplier === 2 ? 'each' : 'both',
+      targets: targets.length ? targets : legacyTargets(saved.scopeMultiplier),
     };
   }
   const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
@@ -143,6 +152,7 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
     unit: hasRepTarget ? 'reps' : 'seconds',
     amount: Number.isFinite(amount) && amount > 0 ? amount : 60,
     sides: hasInversionEversion ? 'inversion_eversion_both' : hasEachSide ? 'each' : 'both',
+    targets: hasInversionEversion ? legacyTargets(4) : hasEachSide ? legacyTargets(2) : [],
   };
 }
 
@@ -163,6 +173,7 @@ function sanitizeWorkout(workout: CustomWorkout): CustomWorkout {
     exercises: (workout.exercises ?? []).filter(exercise => !!exercise.exerciseId).map(exercise => ({
       ...exercise,
       sides: ['both', 'each', 'inversion_eversion_both'].includes(exercise.sides) ? exercise.sides : 'both',
+      targets: Array.isArray(exercise.targets) ? exercise.targets.map(target => String(target).trim()).filter(Boolean) : legacyTargets(exercise.sides === 'inversion_eversion_both' ? 4 : exercise.sides === 'each' ? 2 : 1),
     })),
   };
 }
@@ -174,7 +185,7 @@ function sidePatternLabel(sides: WorkoutSides) {
 }
 
 function workoutSummary(workout: CustomWorkout) {
-  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${sidePatternLabel(ex.sides)}`).join(' · ');
+  return workout.exercises.map(ex => `${ex.name}: ${ex.sets} x ${ex.amount} ${ex.unit === 'seconds' ? 'sec' : 'reps'} ${(ex.targets?.length ? ex.targets.join(', ') : sidePatternLabel(ex.sides))}`).join(' · ');
 }
 
 function categoryAccent(color?: string) {
@@ -188,27 +199,27 @@ function categoryAccent(color?: string) {
 function buildCustomSequence(workout: CustomWorkout): SequenceOption {
   const steps: TimerStep[] = [];
   workout.exercises.forEach((exercise, exerciseIndex) => {
+    const targets = exercise.targets?.map(target => target.trim()).filter(Boolean) ?? [];
     for (let set = 1; set <= Math.max(1, exercise.sets); set += 1) {
       const prefix = `${exercise.name} set ${set}/${exercise.sets}`;
       if (exercise.unit === 'seconds') {
-        if (exercise.sides === 'inversion_eversion_both') {
-          const parts = ['right inversion', 'right eversion', 'left inversion', 'left eversion'];
-          parts.forEach((part, partIndex) => {
-            const isLastPart = partIndex === parts.length - 1;
-            const nextPart = parts[partIndex + 1];
+        if (targets.length) {
+          targets.forEach((part, partIndex) => {
+            const isLastPart = partIndex === targets.length - 1;
+            const nextPart = targets[partIndex + 1];
             steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${part}`, cueAfter: isLastPart ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Switch to ${nextPart}`, kind: 'stretch', label: `${prefix} · ${part} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${part}, ${exercise.amount} seconds` });
             if (!isLastPart) steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to ${nextPart} for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${nextPart}`, kind: 'switch', countdownToStretch: true, label: `Switch to ${nextPart}` });
           });
-        } else if (exercise.sides === 'each') {
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, right leg`, cueAfter: 'Switch to left leg', kind: 'stretch', label: `${prefix} · right leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, right leg, ${exercise.amount} seconds` });
-          steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to left leg for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, kind: 'switch', countdownToStretch: true, label: 'Switch to left leg' });
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, left leg`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · left leg · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, left leg, ${exercise.amount} seconds` });
         } else {
           steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds` });
         }
       } else {
-        const sideText = sidePatternLabel(exercise.sides);
-        steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps ${sideText}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps · ${sideText}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps ${sideText}` });
+        const repTargets = targets.length ? targets : [''];
+        repTargets.forEach((target, targetIndex) => {
+          const targetText = target ? `, ${target}` : '';
+          const isLastTarget = targetIndex === repTargets.length - 1;
+          steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps${targetText}`, cueAfter: isLastTarget ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Next, ${repTargets[targetIndex + 1]}`, kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps${target ? ` · ${target}` : ''}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps${targetText}` });
+        });
       }
       if (set < exercise.sets) {
         steps.push({ seconds: BREAK_SECONDS, cueBefore: `Rest ${BREAK_SECONDS} seconds before ${exercise.name}, set ${set + 1}`, cueAfter: `${exercise.name} set ${set + 1}`, kind: 'break', countdownToStretch: true, label: `Set break · ${BREAK_SECONDS}s` });
@@ -326,7 +337,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; scopeMultiplier: 1 | 2 | 4 } }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 } }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -1531,8 +1542,20 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
                   <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
                   <select value={exercise.unit} onChange={event => updateWorkoutExercise(exercise.id, { unit: event.target.value as WorkoutUnit })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Unit"><option value="seconds">sec</option><option value="reps">reps</option></select>
-                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Targets"><option value="both">×1 single</option><option value="each">×2 R/L</option><option value="inversion_eversion_both">×4 R/L inv+ev</option></select>
+                  <select value={exercise.sides} onChange={event => {
+                    const sides = event.target.value as WorkoutSides;
+                    updateWorkoutExercise(exercise.id, { sides, targets: sides === 'each' ? legacyTargets(2) : sides === 'inversion_eversion_both' ? legacyTargets(4) : [] });
+                  }} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Target preset"><option value="both">×1/custom</option><option value="each">×2 R/L</option><option value="inversion_eversion_both">×4 R/L inv+ev</option></select>
                 </div>
+                <textarea
+                  value={(exercise.targets ?? []).join('\n')}
+                  onChange={event => updateWorkoutExercise(exercise.id, { targets: event.target.value.split('\n').map(target => target.trim()).filter(Boolean), sides: 'both' })}
+                  rows={Math.min(4, Math.max(1, exercise.targets?.length ?? 1))}
+                  placeholder="Named targets, one per line; blank = perform once"
+                  className="w-full resize-none rounded-lg border border-stone-200 px-2 py-1.5 text-xs"
+                  style={{ fontSize: 14, colorScheme: 'light' }}
+                  aria-label="Named targets"
+                />
               </div>
             ))}
           </div>

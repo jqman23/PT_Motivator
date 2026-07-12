@@ -4,7 +4,10 @@ export interface ExerciseTimerPrescription {
   sets: number;
   amount: number;
   unit: 'seconds' | 'reps';
-  scopeMultiplier: 1 | 2 | 4;
+  /** Ordered movement/side names announced by the timer. Empty means one unnamed target. */
+  targets?: string[];
+  /** Legacy preset retained so existing exported data and saved prescriptions keep working. */
+  scopeMultiplier?: 1 | 2 | 4;
 }
 
 export interface Exercise {

@@ -55,10 +55,12 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     const amount = Math.round(Number(item.amount));
     const unit = asString(item.unit);
     const scopeMultiplier = Number(item.scopeMultiplier);
+    const targets = importedList(item.targets);
     if (!Number.isFinite(sets) || sets < 1 || !Number.isFinite(amount) || amount < 1) return undefined;
     if (unit !== 'seconds' && unit !== 'reps') return undefined;
-    if (scopeMultiplier !== 1 && scopeMultiplier !== 2 && scopeMultiplier !== 4) return undefined;
-    return { sets, amount, unit, scopeMultiplier };
+    const validScope = scopeMultiplier === 1 || scopeMultiplier === 2 || scopeMultiplier === 4 ? scopeMultiplier : undefined;
+    if (!targets?.length && item.scopeMultiplier !== undefined && !validScope) return undefined;
+    return { sets, amount, unit, targets: targets ?? [], scopeMultiplier: validScope };
   };
   const uniqueCategoryId = (name: string, used: Set<string>) => {
     const slug = normalizeName(name).replace(/\s+/g, '-').slice(0, 28) || 'category';
@@ -605,17 +607,20 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                         <input
                           type="checkbox"
                           checked={!!e.timerPrescription}
-                          onChange={x => patch(e.id, { timerPrescription: x.target.checked ? (e.timerPrescription ?? { sets: 2, amount: 60, unit: 'seconds', scopeMultiplier: 1 }) : undefined })}
+                          onChange={x => patch(e.id, { timerPrescription: x.target.checked ? (e.timerPrescription ?? { sets: 2, amount: 60, unit: 'seconds', targets: [] }) : undefined })}
                         />
                         timerPrescription
                       </label>
                       {e.timerPrescription && (
+                        <>
                         <div className="grid grid-cols-2 gap-1">
                           <input aria-label="Timer sets" title="timerPrescription.sets" type="number" min="1" value={e.timerPrescription.sets} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,sets:Math.max(1,Number(x.target.value)||1)}})} className="w-full border rounded-lg p-1" />
                           <input aria-label="Timer amount" title="timerPrescription.amount" type="number" min="1" value={e.timerPrescription.amount} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,amount:Math.max(1,Number(x.target.value)||1)}})} className="w-full border rounded-lg p-1" />
                           <select aria-label="Timer unit" title="timerPrescription.unit" value={e.timerPrescription.unit} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,unit:x.target.value as 'seconds'|'reps'}})} className="w-full border rounded-lg p-1 bg-white"><option value="seconds">seconds</option><option value="reps">reps</option></select>
-                          <select aria-label="Timer targets" title="timerPrescription.scopeMultiplier" value={e.timerPrescription.scopeMultiplier} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,scopeMultiplier:Number(x.target.value) as 1|2|4}})} className="w-full border rounded-lg p-1 bg-white"><option value={1}>×1</option><option value={2}>×2 R/L</option><option value={4}>×4 R/L inv+ev</option></select>
+                          <select aria-label="Legacy timer target preset" title="timerPrescription.scopeMultiplier (legacy)" value={e.timerPrescription.scopeMultiplier ?? ''} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,scopeMultiplier:x.target.value ? Number(x.target.value) as 1|2|4 : undefined}})} className="w-full border rounded-lg p-1 bg-white"><option value="">named</option><option value={1}>legacy ×1</option><option value={2}>legacy ×2</option><option value={4}>legacy ×4</option></select>
                         </div>
+                        <textarea aria-label="Timer named targets" title="timerPrescription.targets" value={list(e.timerPrescription.targets)} onChange={x=>patch(e.id,{timerPrescription:{...e.timerPrescription!,targets:x.target.value.split('\n').map(v=>v.trim()).filter(Boolean),scopeMultiplier:undefined}})} rows={4} className="w-full border rounded-lg p-1 resize-none" placeholder="targets, one per line; blank = once" />
+                        </>
                       )}
                     </div>
                   </td>
