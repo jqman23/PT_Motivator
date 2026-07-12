@@ -267,7 +267,9 @@ export default function ExerciseTileMetadataEnhancer() {
     let imageMap = new Map<string, string[]>();
     let imageRevision = 0;
     let lastDate = selectedDateFromPage();
-    const metricRequest = new Map<string, number>();
+    const metricCache = new Map<string, string>();
+    const metricRequests = new Set<string>();
+    let scanFrame: number | null = null;
 
     const loadImages = async () => {
       const requestRevision = imageRevision;
@@ -301,19 +303,10 @@ export default function ExerciseTileMetadataEnhancer() {
       const title = card.querySelector<HTMLElement>('.text-sm.font-semibold > span');
       if (!title) return;
 
-      let badge = title.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
-      if (!force && badge?.dataset.metricKey === key) return;
-
-      const requestId = (metricRequest.get(exerciseId) || 0) + 1;
-      metricRequest.set(exerciseId, requestId);
-
-      try {
-        const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(date)}&exerciseId=${encodeURIComponent(exerciseId)}`, { cache: 'no-store' });
-        const data = await response.json();
-        if (!response.ok || cancelled || metricRequest.get(exerciseId) !== requestId) return;
-        const label = metricLabel(data.current);
-
-        badge = title.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
+      const showMetric = (label: string) => {
+        const currentTitle = card.querySelector<HTMLElement>('.text-sm.font-semibold > span');
+        if (!currentTitle) return;
+        let badge = currentTitle.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
         if (!label) {
           badge?.remove();
           return;
@@ -322,12 +315,34 @@ export default function ExerciseTileMetadataEnhancer() {
           badge = document.createElement('span');
           badge.dataset.dailyExerciseMetric = 'true';
           badge.className = 'ml-1 text-[11px] font-semibold text-stone-500';
-          title.append(badge);
+          currentTitle.append(badge);
         }
         badge.dataset.metricKey = key;
         badge.textContent = `(${label})`;
+      };
+
+      if (force) metricCache.delete(key);
+      const cachedLabel = metricCache.get(key);
+      if (cachedLabel !== undefined) {
+        showMetric(cachedLabel);
+        return;
+      }
+      if (metricRequests.has(key)) return;
+      metricRequests.add(key);
+
+      try {
+        const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(date)}&exerciseId=${encodeURIComponent(exerciseId)}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || cancelled) return;
+        const label = metricLabel(data.current);
+        metricCache.set(key, label);
+        showMetric(label);
       } catch {
-        // Keep the tile usable if metric loading fails.
+        // Avoid turning a transient failure into a tight retry loop. Explicit
+        // refreshes and date changes can still retry the request later.
+        metricCache.set(key, '');
+      } finally {
+        metricRequests.delete(key);
       }
     };
 
@@ -360,7 +375,14 @@ export default function ExerciseTileMetadataEnhancer() {
         .forEach(card => syncPrimaryImage(card, detail.images));
     };
 
-    const observer = new MutationObserver(() => scanCards(false));
+    const scheduleScan = () => {
+      if (scanFrame !== null) return;
+      scanFrame = window.requestAnimationFrame(() => {
+        scanFrame = null;
+        scanCards(false);
+      });
+    };
+    const observer = new MutationObserver(scheduleScan);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('click', onClick, true);
     window.addEventListener('pt-exercise-metric-saved', onMetricSaved);
@@ -371,8 +393,6 @@ export default function ExerciseTileMetadataEnhancer() {
       if (nextDate !== lastDate) {
         lastDate = nextDate;
         scanCards(true);
-      } else {
-        scanCards(false);
       }
     }, 800);
 
@@ -382,6 +402,7 @@ export default function ExerciseTileMetadataEnhancer() {
     return () => {
       cancelled = true;
       observer.disconnect();
+      if (scanFrame !== null) window.cancelAnimationFrame(scanFrame);
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('pt-exercise-metric-saved', onMetricSaved);
       window.removeEventListener('pt-exercise-images-updated', onImagesUpdated);
