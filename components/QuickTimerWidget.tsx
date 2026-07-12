@@ -93,7 +93,21 @@ function buildSequence(setCount: number, holdSeconds: 30 | 60): TimerStep[] {
   return steps;
 }
 
-function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string }): CustomWorkoutExercise {
+function parseExercisePrescription(exercise: { id: string; name: string; sets?: string; cue?: string; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; scopeMultiplier: 1 | 2 | 4 } }): CustomWorkoutExercise {
+  const saved = exercise.timerPrescription;
+  if (saved && [1, 2, 4].includes(saved.scopeMultiplier) && saved.sets > 0 && saved.amount > 0) {
+    return {
+      id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      exerciseId: exercise.id,
+      name: exercise.name,
+      categoryName: exercise.categoryName,
+      categoryColor: exercise.categoryColor,
+      sets: Math.max(1, Math.round(saved.sets)),
+      unit: saved.unit === 'reps' ? 'reps' : 'seconds',
+      amount: Math.max(1, Math.round(saved.amount)),
+      sides: saved.scopeMultiplier === 4 ? 'inversion_eversion_both' : saved.scopeMultiplier === 2 ? 'each' : 'both',
+    };
+  }
   const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
     .toLowerCase()
     .replace(/[–—]/g, '-')
@@ -156,7 +170,7 @@ function sanitizeWorkout(workout: CustomWorkout): CustomWorkout {
 function sidePatternLabel(sides: WorkoutSides) {
   if (sides === 'each') return 'right then left';
   if (sides === 'inversion_eversion_both') return 'right inversion, right eversion, left inversion, left eversion';
-  return 'both';
+  return 'single target';
 }
 
 function workoutSummary(workout: CustomWorkout) {
@@ -312,7 +326,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; scopeMultiplier: 1 | 2 | 4 } }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -1517,7 +1531,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   <input value={exercise.sets} onChange={event => updateWorkoutExercise(exercise.id, { sets: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Sets" />
                   <input value={exercise.amount} onChange={event => updateWorkoutExercise(exercise.id, { amount: Number(event.target.value) })} type="number" min="1" className="rounded-lg border border-stone-200 px-2 py-1 text-sm font-semibold" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Amount" />
                   <select value={exercise.unit} onChange={event => updateWorkoutExercise(exercise.id, { unit: event.target.value as WorkoutUnit })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Unit"><option value="seconds">sec</option><option value="reps">reps</option></select>
-                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Pattern"><option value="both">both</option><option value="each">R/L</option><option value="inversion_eversion_both">R/L inv+ev</option></select>
+                  <select value={exercise.sides} onChange={event => updateWorkoutExercise(exercise.id, { sides: event.target.value as WorkoutSides })} className="rounded-lg border border-stone-200 bg-white px-1 py-1 text-xs font-semibold" style={{ colorScheme: 'light' }} aria-label="Targets"><option value="both">×1 single</option><option value="each">×2 R/L</option><option value="inversion_eversion_both">×4 R/L inv+ev</option></select>
                 </div>
               </div>
             ))}

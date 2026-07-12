@@ -1,5 +1,12 @@
 export type Category = string;
 
+export interface ExerciseTimerPrescription {
+  sets: number;
+  amount: number;
+  unit: 'seconds' | 'reps';
+  scopeMultiplier: 1 | 2 | 4;
+}
+
 export interface Exercise {
   id: string;
   cat: Category;
@@ -17,6 +24,7 @@ export interface Exercise {
   mainImageUrl?: string;
   mainImageUrls?: string[];
   mainVideoUrl?: string;
+  timerPrescription?: ExerciseTimerPrescription;
 }
 
 // Video IDs sourced from AskDoctorJo (Doctor Jo Donatelli, DPT) — she explicitly

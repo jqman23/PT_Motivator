@@ -62,6 +62,11 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [name, setName] = useState(exercise.name);
   const [cue, setCue] = useState(exercise.cue ?? '');
   const [sets, setSets] = useState(exercise.sets ?? '');
+  const [timerDefaultsEnabled, setTimerDefaultsEnabled] = useState(!!exercise.timerPrescription);
+  const [timerSets, setTimerSets] = useState(exercise.timerPrescription?.sets ?? 2);
+  const [timerAmount, setTimerAmount] = useState(exercise.timerPrescription?.amount ?? 60);
+  const [timerUnit, setTimerUnit] = useState<'seconds' | 'reps'>(exercise.timerPrescription?.unit ?? 'seconds');
+  const [timerScopeMultiplier, setTimerScopeMultiplier] = useState<1 | 2 | 4>(exercise.timerPrescription?.scopeMultiplier ?? 1);
   const [cat, setCat] = useState<Exercise['cat']>(exercise.cat);
   const [optional, setOptional] = useState(!!exercise.optional);
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
@@ -95,6 +100,12 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     name,
     cue,
     sets: sets.trim() || undefined,
+    timerPrescription: timerDefaultsEnabled ? {
+      sets: Math.max(1, Math.round(Number(timerSets) || 1)),
+      amount: Math.max(1, Math.round(Number(timerAmount) || 1)),
+      unit: timerUnit,
+      scopeMultiplier: timerScopeMultiplier,
+    } : undefined,
     cat,
     optional: optional || undefined,
     origin,
@@ -107,7 +118,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     videoIds: linesToList(videoIds),
     videoTitles: linesToList(videoTitles),
     tips: linesToList(tipsText),
-  }), [exercise, name, cue, sets, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
+  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerScopeMultiplier, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
 
   const proposalRows = useMemo(() => {
     if (!proposal) return [];
@@ -200,6 +211,12 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
         name: cleanName,
         cue: cue.trim(),
         sets: sets.trim() || undefined,
+        timerPrescription: timerDefaultsEnabled ? {
+          sets: Math.max(1, Math.round(Number(timerSets) || 1)),
+          amount: Math.max(1, Math.round(Number(timerAmount) || 1)),
+          unit: timerUnit,
+          scopeMultiplier: timerScopeMultiplier,
+        } : undefined,
         cat,
         optional: optional || undefined,
         origin,
@@ -336,6 +353,43 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Sets / reps</label>
             <input value={sets} onChange={e => setSets(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+
+            <div className="rounded-xl border border-[#D7E2D9] bg-[#F8FBF8] p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-bold text-[#476653]">
+                <input type="checkbox" checked={timerDefaultsEnabled} onChange={e => setTimerDefaultsEnabled(e.target.checked)} />
+                Use structured timer defaults
+              </label>
+              {timerDefaultsEnabled && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                      Sets
+                      <input type="number" min="1" step="1" value={timerSets} onChange={e => setTimerSets(Number(e.target.value))} className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+                    </label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                      Amount
+                      <input type="number" min="1" step="1" value={timerAmount} onChange={e => setTimerAmount(Number(e.target.value))} className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
+                    </label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                      Unit
+                      <select value={timerUnit} onChange={e => setTimerUnit(e.target.value as 'seconds' | 'reps')} className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }}>
+                        <option value="seconds">Seconds</option>
+                        <option value="reps">Reps</option>
+                      </select>
+                    </label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                      Targets
+                      <select value={timerScopeMultiplier} onChange={e => setTimerScopeMultiplier(Number(e.target.value) as 1 | 2 | 4)} className="mt-1 w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }}>
+                        <option value={1}>×1 single</option>
+                        <option value={2}>×2 right + left</option>
+                        <option value={4}>×4 R/L inversion + eversion</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p className="text-[11px] leading-snug text-stone-500">The custom workout timer uses these saved values. The same amount applies to every target.</p>
+                </>
+              )}
+            </div>
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Type</label>
             <input
