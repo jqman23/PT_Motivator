@@ -233,7 +233,7 @@ export default function ExerciseGestureEnhancer() {
         aria-label="Save and close quick exercise log"
         onClick={() => void saveAndClose()}
       />
-      <div
+      <form
         data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
@@ -244,6 +244,10 @@ export default function ExerciseGestureEnhancer() {
         }}
         onClick={event => event.stopPropagation()}
         onPointerDown={event => event.stopPropagation()}
+        onSubmit={event => {
+          event.preventDefault();
+          void saveAndClose();
+        }}
       >
         <div className="flex items-center gap-1.5">
           <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-stone-700">{active.exerciseName}</p>
@@ -270,6 +274,7 @@ export default function ExerciseGestureEnhancer() {
               autoFocus
               type="text"
               inputMode="numeric"
+              enterKeyHint="done"
               value={draft.sets}
               onChange={event => {
                 const next = event.target.value.replace(/\D/g, '').slice(0, 1);
@@ -288,6 +293,7 @@ export default function ExerciseGestureEnhancer() {
               ref={valueRef}
               type="text"
               inputMode="numeric"
+              enterKeyHint="done"
               value={draft.value}
               onChange={event => {
                 const next = event.target.value.replace(/\D/g, '').slice(0, 3);
@@ -306,6 +312,7 @@ export default function ExerciseGestureEnhancer() {
               <input
                 ref={kindRef}
                 type="text"
+                enterKeyHint="done"
                 list="exercise-entry-kind-options"
                 value={draft.kindText}
                 onFocus={event => event.currentTarget.select()}
@@ -342,7 +349,7 @@ export default function ExerciseGestureEnhancer() {
         </div>
 
         {error && <p className="mt-1 truncate text-[9px] text-red-500">{error}</p>}
-      </div>
+      </form>
     </>
   );
 }
