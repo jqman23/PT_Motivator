@@ -84,11 +84,11 @@ function showImagePreview(imageUrl: string, exerciseName: string) {
   document.body.append(backdrop);
 }
 
-function syncPrimaryImage(card: HTMLElement, imageUrl?: string, animateIn = false) {
+function syncPrimaryImage(card: HTMLElement, imageUrl?: string) {
   const existing = card.querySelector<HTMLButtonElement>('[data-exercise-thumbnail="true"]');
   const actionArea = card.lastElementChild as HTMLElement | null;
   const actionsExpanded = actionArea?.dataset.actionsExpanded === 'true';
-  const shouldShow = Boolean(imageUrl && !cardIsDone(card) && !actionsExpanded);
+  const shouldShow = Boolean(imageUrl && !cardIsDone(card));
 
   if (!shouldShow) {
     existing?.remove();
@@ -96,6 +96,7 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string, animateIn = fals
   }
 
   if (existing) {
+    existing.style.display = actionsExpanded ? 'none' : '';
     const img = existing.querySelector('img');
     if (img && img.getAttribute('src') !== imageUrl) img.setAttribute('src', imageUrl!);
     return;
@@ -107,18 +108,16 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string, animateIn = fals
   thumbnail.dataset.exerciseThumbnail = 'true';
   thumbnail.setAttribute('aria-label', `Enlarge image for ${exerciseName}`);
   Object.assign(thumbnail.style, {
-    width: animateIn ? '0' : '56px',
+    width: '56px',
     height: '56px',
-    flex: animateIn ? '0 0 0' : '0 0 56px',
+    flex: '0 0 56px',
     padding: '2px',
     border: '1px solid #e7e5e4',
     borderRadius: '12px',
     overflow: 'hidden',
     background: 'white',
     touchAction: 'manipulation',
-    opacity: animateIn ? '0' : '1',
-    transform: animateIn ? 'scale(.86)' : 'scale(1)',
-    transition: 'width 160ms ease, flex-basis 160ms ease, opacity 130ms ease, transform 160ms ease',
+    display: actionsExpanded ? 'none' : '',
   });
 
   const img = document.createElement('img');
@@ -147,12 +146,6 @@ function syncPrimaryImage(card: HTMLElement, imageUrl?: string, animateIn = fals
   else if (actionArea) card.insertBefore(thumbnail, actionArea);
   else card.append(thumbnail);
 
-  if (animateIn) window.requestAnimationFrame(() => {
-    thumbnail.style.width = '56px';
-    thumbnail.style.flexBasis = '56px';
-    thumbnail.style.opacity = '1';
-    thumbnail.style.transform = 'scale(1)';
-  });
 }
 
 export default function ExerciseTileMetadataEnhancer() {
@@ -235,29 +228,11 @@ export default function ExerciseTileMetadataEnhancer() {
       if (card) window.setTimeout(() => syncPrimaryImage(card, imageMap.get(card.dataset.exerciseCardId || '')), 50);
     };
     const onMetricSaved = () => scanCards(true);
-    const onActionsToggle = (event: Event) => {
-      const detail = (event as CustomEvent<{ card?: HTMLElement; expanded?: boolean }>).detail;
-      const card = detail?.card;
-      if (!card) return;
-      const exerciseId = card.dataset.exerciseCardId || '';
-      const thumbnail = card.querySelector<HTMLElement>('[data-exercise-thumbnail="true"]');
-      if (detail.expanded) {
-        if (!thumbnail) return;
-        thumbnail.style.width = '0';
-        thumbnail.style.flexBasis = '0';
-        thumbnail.style.opacity = '0';
-        thumbnail.style.transform = 'scale(.86)';
-        window.setTimeout(() => thumbnail.remove(), 165);
-      } else {
-        syncPrimaryImage(card, imageMap.get(exerciseId), true);
-      }
-    };
 
     const observer = new MutationObserver(() => scanCards(false));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('click', onClick, true);
     window.addEventListener('pt-exercise-metric-saved', onMetricSaved);
-    window.addEventListener('pt-exercise-actions-toggle', onActionsToggle);
 
     const dateTimer = window.setInterval(() => {
       const nextDate = selectedDateFromPage();
@@ -277,7 +252,6 @@ export default function ExerciseTileMetadataEnhancer() {
       observer.disconnect();
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('pt-exercise-metric-saved', onMetricSaved);
-      window.removeEventListener('pt-exercise-actions-toggle', onActionsToggle);
       window.clearInterval(dateTimer);
       document.querySelector('[data-exercise-image-preview="true"]')?.remove();
     };
