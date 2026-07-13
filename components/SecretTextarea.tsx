@@ -48,8 +48,11 @@ function convertSecretTriggers(blocks: SecretNoteBlock[]) {
     const lineStart = match.index + match[1].length;
     const before = block.text.slice(0, lineStart);
     const after = match[2] ?? '';
+    const trailingGap = before.match(/\n+$/)?.[0] ?? '';
+    const leadingText = trailingGap ? before.slice(0, -trailingGap.length) : before;
     return [
-      ...(before ? [{ type: 'text' as const, text: before }] : []),
+      ...(leadingText ? [{ type: 'text' as const, text: leadingText }] : []),
+      ...(trailingGap ? [{ type: 'text' as const, text: trailingGap }] : []),
       { type: 'secret' as const, locked: false, text: after },
     ];
   });
@@ -58,6 +61,10 @@ function convertSecretTriggers(blocks: SecretNoteBlock[]) {
 
 function textRows(text: string) {
   return Math.max(1, text.split('\n').length);
+}
+
+function isNewlineSpacer(text: string) {
+  return !!text && /^[\n]+$/.test(text);
 }
 
 export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onFocus, onBlur }: Props) {
@@ -283,6 +290,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               />
             )}
           </div>
+        ) : isNewlineSpacer(block.text) ? (
+          <div
+            key={index}
+            aria-hidden="true"
+            className="block w-full border-0 bg-transparent p-0"
+            style={{ minHeight: `${textRows(block.text) * 1.55}rem` }}
+          />
         ) : (
           <textarea
             key={index}
