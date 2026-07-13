@@ -1075,6 +1075,22 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setShowWorkoutBuilder(true);
   };
 
+  const switchWorkoutDraft = (id: string) => {
+    const savedDraft = customWorkouts.find(workout => workout.id === workoutDraft.id);
+    const hasUnsavedChanges = savedDraft
+      ? JSON.stringify(workoutDraft) !== JSON.stringify(savedDraft)
+      : workoutDraft.name !== 'Custom workout' || workoutDraft.exercises.length > 0;
+    if (hasUnsavedChanges && !window.confirm('Discard unsaved workout changes and switch?')) return;
+    if (id === '__new__') {
+      setWorkoutDraft(makeDefaultWorkout());
+      return;
+    }
+    const next = customWorkouts.find(workout => workout.id === id);
+    if (!next) return;
+    setSelectedWorkoutId(next.id);
+    setWorkoutDraft(next);
+  };
+
   const deleteWorkout = (id: string) => {
     const next = customWorkouts.filter(workout => workout.id !== id);
     const fallback = next[0] ?? makeDefaultWorkout();
@@ -1471,6 +1487,18 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
         <div className="overflow-y-auto p-4 space-y-4">
           <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-stone-400">
+              Editing workout
+              <select
+                value={editingExistingWorkout ? workoutDraft.id : '__new__'}
+                onChange={event => switchWorkoutDraft(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 focus:outline-none"
+                style={{ fontSize: 16, colorScheme: 'light' }}
+              >
+                <option value="__new__">＋ New workout</option>
+                {customWorkouts.map(workout => <option key={workout.id} value={workout.id}>{workout.name}</option>)}
+              </select>
+            </label>
             <input value={workoutDraft.name} onChange={event => setWorkoutDraft(prev => ({ ...prev, name: event.target.value }))} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-700 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} aria-label="Workout name" />
             <div className="rounded-xl px-3 py-2" style={{ background: '#E4ECE6', color: '#476653' }}>
               <p className="text-[10px] font-bold uppercase tracking-widest">Estimated timer total</p>
