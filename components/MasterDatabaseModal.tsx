@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Exercise, ExerciseProgramMeta, ExerciseTimerPrescription, getExerciseProgramDisplay } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
+import { EMOJI_GROUPS, loadRecentEmojis, saveRecentEmoji } from '@/components/TypeSettingsModal';
 
 type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
 
@@ -32,6 +33,9 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameStatus, setRenameStatus] = useState('');
   const [programMetaDraft, setProgramMetaDraft] = useState<ExerciseProgramMeta>(programMeta);
+  const [emojiPickerProgram, setEmojiPickerProgram] = useState<string | null>(null);
+  const [emojiQuery, setEmojiQuery] = useState('');
+  const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
 
   const filtered = useMemo(
     () => draft.filter(e => !q || JSON.stringify(e).toLowerCase().includes(q.toLowerCase())),
@@ -90,6 +94,22 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
   const currentCat = (id: string) => layout.find(c => c.exerciseIds.includes(id))?.id ?? '';
   const typeOptions = useMemo(() => Array.from(new Set(draft.map(e => e.cat).filter(Boolean))).sort(), [draft]);
   const programOptions = useMemo(() => Array.from(new Set(draft.flatMap(e => e.programs ?? []).filter(Boolean))).sort((a, b) => getExerciseProgramDisplay(a).label.localeCompare(getExerciseProgramDisplay(b).label)), [draft]);
+  const emojiGroups = useMemo(() => {
+    const query = emojiQuery.trim().toLowerCase();
+    return EMOJI_GROUPS.map(group => ({
+      ...group,
+      items: group.label === 'Recent'
+        ? recentEmojis.map(emoji => ({ emoji, keywords: [emoji] }))
+        : group.items.filter(item => !query || item.emoji.includes(query) || item.keywords.some(keyword => keyword.toLowerCase().includes(query))),
+    })).filter(group => group.items.length > 0 || group.label === 'Recent');
+  }, [emojiQuery, recentEmojis]);
+  const chooseProgramEmoji = (program: string, emoji: string) => {
+    saveRecentEmoji(emoji);
+    setRecentEmojis(loadRecentEmojis());
+    setProgramMetaDraft(current => ({ ...current, [program]: { ...current[program], emoji } }));
+    setEmojiPickerProgram(null);
+    setEmojiQuery('');
+  };
   const buttonBase = 'w-full rounded-xl py-2 text-xs font-semibold border transition-colors disabled:opacity-50';
   const buttonPrimary = `${buttonBase} text-white border-transparent bg-[#7E9B86]`;
   const buttonSecondary = `${buttonBase} bg-white border-stone-200 text-stone-600 hover:bg-stone-50`;
@@ -600,12 +620,15 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
                 const display = getExerciseProgramDisplay(program, programMetaDraft);
                 return (
                   <label key={program} className="flex items-center gap-2">
-                    <input
-                      value={programMetaDraft[program]?.emoji ?? display.icon}
-                      onChange={event => setProgramMetaDraft(current => ({ ...current, [program]: { ...current[program], emoji: event.target.value } }))}
-                      className="w-12 rounded-lg border border-stone-200 px-2 py-1 text-center text-base"
-                      aria-label={`${display.label} emoji`}
-                    />
+                    <button
+                      type="button"
+                      onClick={() => { setEmojiPickerProgram(program); setEmojiQuery(''); }}
+                      className="flex h-10 w-12 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 text-xl hover:bg-stone-100"
+                      aria-label={`Pick emoji for ${display.label}`}
+                      title="Pick emoji"
+                    >
+                      {display.icon}
+                    </button>
                     <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-stone-600">{display.label}</span>
                   </label>
                 );
@@ -755,6 +778,39 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
           </div>
         </div>
       </div>
+      {emojiPickerProgram && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 p-6 backdrop-blur-[1px]" onPointerDown={() => setEmojiPickerProgram(null)}>
+          <div className="flex max-h-[86dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-stone-200 bg-[#F6F1E7] shadow-2xl" onPointerDown={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-stone-200 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Program emoji</p>
+                <h3 className="truncate font-serif text-base font-semibold text-stone-800">{getExerciseProgramDisplay(emojiPickerProgram, programMetaDraft).label}</h3>
+              </div>
+              <button type="button" onClick={() => setEmojiPickerProgram(null)} className="flex h-8 w-8 items-center justify-center rounded-full text-xl text-stone-500 hover:bg-stone-200">×</button>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col p-3">
+              <input value={emojiQuery} onChange={event => setEmojiQuery(event.target.value)} placeholder="Search emoji" className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm" style={{ fontSize: 16, colorScheme: 'light' }} autoFocus />
+              <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                {emojiGroups.map(group => (
+                  <div key={group.label}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">{group.label}</p>
+                      {group.label === 'Recent' && (
+                        <button type="button" onClick={() => chooseProgramEmoji(emojiPickerProgram, '')} className="text-[10px] font-semibold text-stone-400 hover:text-stone-600">Use default</button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-10 gap-1.5">
+                      {group.items.map(item => (
+                        <button key={`${group.label}-${item.emoji}`} type="button" onClick={() => chooseProgramEmoji(emojiPickerProgram, item.emoji)} className="flex h-11 items-center justify-center rounded-xl border border-stone-100 bg-white text-xl hover:bg-stone-50" title={item.keywords.join(', ')}>{item.emoji}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
