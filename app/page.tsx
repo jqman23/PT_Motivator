@@ -191,6 +191,7 @@ export default function Home() {
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const exerciseFilterRef = useRef<HTMLDivElement>(null);
   const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressUndoRef = useRef(false);
@@ -219,6 +220,16 @@ export default function Home() {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
+
+  useEffect(() => {
+    if (!showTypeFilterMenu) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (exerciseFilterRef.current?.contains(event.target as Node)) return;
+      setShowTypeFilterMenu(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress, true);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePress, true);
+  }, [showTypeFilterMenu]);
 
   useEffect(() => {
     try {
@@ -637,7 +648,7 @@ export default function Home() {
         <div className="sticky top-[2.65rem] z-[60] -mt-4 mb-4 flex justify-center py-1 sm:relative sm:top-auto sm:mt-2 sm:mb-6 sm:py-0">
           <div className="flex max-w-full items-center gap-1.5 overflow-visible rounded-full bg-white/75 p-1.5 shadow-sm ring-1 ring-stone-200/70 backdrop-blur">
             {!isToday && <button onClick={() => changeDate(today)} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>Today</button>}
-            <div className="relative flex shrink-0 items-center gap-1.5">
+            <div ref={exerciseFilterRef} className="relative flex shrink-0 items-center gap-1.5">
               <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
               <button
                 onClick={() => { void undoLastAction(); }}
@@ -660,13 +671,6 @@ export default function Home() {
                 {exerciseFilterActive ? `Filter (${exerciseFilterCount})` : 'Filter'}
               </button>
               {showTypeFilterMenu && (
-                <>
-                  <button
-                    type="button"
-                    className="fixed inset-0 z-[61] cursor-default bg-transparent"
-                    onClick={() => setShowTypeFilterMenu(false)}
-                    aria-label="Close exercise filter"
-                  />
                   <div className="fixed left-4 right-4 top-[6rem] z-[62] rounded-2xl border border-stone-100 bg-white p-2 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
                     <div className="flex items-center justify-between gap-2 px-1 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter exercises</p>
@@ -730,7 +734,6 @@ export default function Home() {
                       ))}
                     </div>
                   </div>
-                </>
               )}
             </div>
             {widgetPrefs.doctorNotes !== false && (
