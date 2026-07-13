@@ -337,7 +337,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 } }>;
+  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; mainImageUrl?: string; mainImageUrls?: string[]; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 } }>;
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -1483,18 +1483,22 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {group.items.map(exercise => {
                       const selected = workoutDraft.exercises.some(item => item.exerciseId === exercise.id);
+                      const primaryImage = exercise.mainImageUrls?.[0] || exercise.mainImageUrl;
                       return (
                         <button
                           key={exercise.id}
                           onClick={event => { event.stopPropagation(); addSavedExerciseToWorkout(exercise.id); }}
-                          className="text-left rounded-xl border px-3 py-2 transition-colors"
+                          className="flex items-center gap-2.5 text-left rounded-xl border px-2.5 py-2 transition-colors"
                           style={{ borderColor: selected ? categoryAccent(group.color) : '#e7e5e4', background: selected ? `${categoryAccent(group.color)}12` : '#fff' }}
                         >
-                          <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-800 leading-snug">
-                            <span className="min-w-0 truncate">{exercise.name}</span>
-                            {selected && <span className="text-[10px] font-bold uppercase tracking-wide flex-shrink-0" style={{ color: categoryAccent(group.color) }}>Selected</span>}
+                          {primaryImage && <img src={primaryImage} alt="" className="h-12 w-12 flex-shrink-0 rounded-lg border border-stone-100 bg-white object-contain" loading="lazy" />}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-800 leading-snug">
+                              <span className="min-w-0 truncate">{exercise.name}</span>
+                              {selected && <span className="text-[10px] font-bold uppercase tracking-wide flex-shrink-0" style={{ color: categoryAccent(group.color) }}>Selected</span>}
+                            </span>
+                            <span className="block text-[11px] text-stone-400 truncate">{exercise.sets || exercise.cue || 'Defaults to 2 x 60 sec'}</span>
                           </span>
-                          <span className="block text-[11px] text-stone-400 truncate">{exercise.sets || exercise.cue || 'Defaults to 2 x 60 sec'}</span>
                         </button>
                       );
                     })}
