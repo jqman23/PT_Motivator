@@ -37,6 +37,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const secretRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const editorRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const resizeDraggedRef = useRef(false);
   const canResize = /\bresize-y\b/.test(className);
   const compactInputBase = 'min-w-[5rem] max-w-full flex-1 border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none';
 
@@ -135,12 +136,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!editor) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    resizeDraggedRef.current = false;
     resizeRef.current = { startY: event.clientY, startHeight: editor.getBoundingClientRect().height };
   };
 
   const moveResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     const active = resizeRef.current;
     if (!active) return;
+    if (Math.abs(event.clientY - active.startY) > 4) resizeDraggedRef.current = true;
     const next = Math.max(64, Math.min(640, active.startHeight + event.clientY - active.startY));
     setHeightPx(next);
   };
@@ -150,6 +153,19 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {}
+  };
+
+  const toggleResize = () => {
+    if (resizeDraggedRef.current) {
+      resizeDraggedRef.current = false;
+      return;
+    }
+    const currentHeight = editorRef.current?.getBoundingClientRect().height ?? 0;
+    if (heightPx) {
+      setHeightPx(null);
+      return;
+    }
+    setHeightPx(Math.max(180, Math.min(360, Math.round(currentHeight * 1.9))));
   };
 
   return (
@@ -248,9 +264,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           onPointerMove={moveResize}
           onPointerUp={endResize}
           onPointerCancel={endResize}
+          onClick={toggleResize}
           className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500"
-          aria-label="Resize note"
-          title="Drag to resize note"
+          aria-label={heightPx ? 'Shrink note' : 'Expand note'}
+          title={heightPx ? 'Shrink note' : 'Expand note'}
         >
           <span className="mb-1 mr-1 block h-3 w-3 border-b-2 border-r-2 border-current" />
         </button>
