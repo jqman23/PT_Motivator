@@ -68,14 +68,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [blocks, setBlocks] = useState(() => normalizedBlocks(value));
   const [unlockingIndex, setUnlockingIndex] = useState<number | null>(null);
   const [unlockCode, setUnlockCode] = useState('');
-  const [heightPx, setHeightPx] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const focusedRef = useRef(false);
   const pendingSecretIndex = useRef<number | null>(null);
-  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const resizeDraggedRef = useRef(false);
   const canResize = /\bresize-y\b/.test(className);
   const serialized = useMemo(() => serializeSecretNote(blocks), [blocks]);
+  const expandedHeight = rows >= 3 ? 240 : 200;
 
   useEffect(() => {
     if (focusedRef.current || value === serialized) return;
@@ -220,35 +219,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     patchSecret(Number(secret.dataset.secretIndex), { locked: true });
   };
 
-  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    resizeDraggedRef.current = false;
-    resizeRef.current = { startY: event.clientY, startHeight: editor.getBoundingClientRect().height };
-  };
-
-  const moveResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const active = resizeRef.current;
-    if (!active) return;
-    if (Math.abs(event.clientY - active.startY) > 4) resizeDraggedRef.current = true;
-    setHeightPx(Math.max(64, Math.min(640, active.startHeight + event.clientY - active.startY)));
-  };
-
-  const endResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    resizeRef.current = null;
-    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-  };
-
-  const toggleResize = () => {
-    if (resizeDraggedRef.current) {
-      resizeDraggedRef.current = false;
-      return;
-    }
-    if (heightPx) setHeightPx(null);
-    else setHeightPx(Math.max(180, Math.min(360, Math.round((editorRef.current?.getBoundingClientRect().height ?? 96) * 1.9))));
-  };
+  const toggleResize = () => setExpanded(value => !value);
 
   return (
     <div
@@ -258,8 +229,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       role="textbox"
       aria-multiline="true"
       data-placeholder={placeholder}
-      className={`${className} secret-note-editor relative overflow-auto leading-relaxed empty:before:text-stone-300 empty:before:content-[attr(data-placeholder)] ${canResize ? 'pr-7' : ''}`}
-      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height, whiteSpace: 'pre-wrap' }}
+      className={`${className} secret-note-editor relative overflow-auto resize-none leading-relaxed empty:before:text-stone-300 empty:before:content-[attr(data-placeholder)] ${canResize ? 'pr-7' : ''}`}
+      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: canResize && expanded ? expandedHeight : style?.height, whiteSpace: 'pre-wrap' }}
       onInput={handleInput}
       onKeyDown={handleKeyDown}
       onFocus={event => {
@@ -303,9 +274,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               <input
                 value={unlockCode}
                 onChange={event => updateUnlockCode(index, event.target.value)}
+                type="password"
                 inputMode="numeric"
                 autoFocus
-                placeholder="9334"
+                placeholder=""
                 className="h-5 w-14 rounded-full border border-stone-200 bg-white px-2 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 aria-label="Secret unlock code"
@@ -319,14 +291,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         <button
           type="button"
           contentEditable={false}
-          onPointerDown={startResize}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
           onClick={toggleResize}
           className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500"
-          aria-label={heightPx ? 'Shrink note' : 'Expand note'}
-          title={heightPx ? 'Shrink note' : 'Expand note'}
+          aria-label={expanded ? 'Shrink note' : 'Expand note'}
+          title={expanded ? 'Shrink note' : 'Expand note'}
         >
           <span className="mb-1 mr-1 block h-3 w-3 border-b-2 border-r-2 border-current" />
         </button>
