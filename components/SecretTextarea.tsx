@@ -34,10 +34,11 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [unlockCode, setUnlockCode] = useState('');
   const [heightPx, setHeightPx] = useState<number | null>(null);
   const pendingSecretIndex = useRef<number | null>(null);
-  const secretRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+  const secretRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const editorRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const canResize = /\bresize-y\b/.test(className);
+  const compactInputBase = 'min-w-[8rem] flex-1 border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none';
 
   useEffect(() => {
     const index = pendingSecretIndex.current;
@@ -78,7 +79,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     patchBlock(index, { text: nextText });
   };
 
-  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     event.preventDefault();
     patchBlock(index, { locked: true });
@@ -143,16 +144,15 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   return (
     <div
       ref={editorRef}
-      className={`${className} secret-note-editor relative overflow-auto ${canResize ? 'pr-7' : ''}`}
+      className={`${className} secret-note-editor relative overflow-auto leading-relaxed ${canResize ? 'pr-7' : ''}`}
       style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height }}
     >
       {blocks.map((block, index) => block.type === 'secret' ? (
-        <div key={index} className="my-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div key={index} className="inline-flex w-full flex-wrap items-center gap-1.5 align-baseline">
             <button
               type="button"
               onClick={() => toggleSecret(index, block)}
-              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide transition-colors"
+              className="inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[10px] font-bold uppercase tracking-wide transition-colors"
               style={{
                 background: block.locked ? '#1F2F46' : '#E4ECE6',
                 borderColor: block.locked ? '#162233' : '#cfded3',
@@ -162,21 +162,20 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               title={block.locked ? 'Unlock secret note' : 'Lock secret note'}
             >
               <LockIcon locked={block.locked} />
-              Secret
+              secret
             </button>
             <button
               type="button"
               onClick={() => removeBlock(index)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-stone-100 text-sm font-bold leading-none text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-500"
               style={{ touchAction: 'manipulation' }}
               aria-label="Remove secret note"
               title="Remove secret note"
             >
               x
             </button>
-          </div>
           {block.locked && unlockingIndex === index && (
-            <div className="mt-1.5 flex items-center gap-2">
+            <span className="inline-flex min-w-[9.5rem] flex-1 items-center gap-1.5">
               <input
                 value={unlockCode}
                 onChange={event => setUnlockCode(event.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -188,34 +187,31 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 }}
                 inputMode="numeric"
                 autoFocus
-                placeholder="Code"
-                className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-2 text-sm font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
+                placeholder="9334"
+                className="h-6 w-16 rounded-full border border-stone-200 bg-white px-2 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 aria-label="Secret unlock code"
               />
               <button
                 type="button"
                 onClick={() => submitUnlock(index)}
-                className="rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                className="h-6 rounded-full px-2.5 text-[10px] font-bold text-white disabled:opacity-40"
                 style={{ background: '#7E9B86', touchAction: 'manipulation' }}
                 disabled={unlockCode.length !== 4}
               >
                 Unlock
               </button>
-            </div>
+            </span>
           )}
           {!block.locked && (
-            <textarea
+            <input
               ref={node => { secretRefs.current[index] = node; }}
               value={block.text}
               onChange={event => patchBlock(index, { text: event.target.value })}
               onKeyDown={event => handleSecretKeyDown(index, event)}
               placeholder="Private note..."
-              rows={Math.max(1, rows)}
-              className="mt-1.5 block w-full resize-none border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none"
+              className={compactInputBase}
               style={textAreaStyle}
-              onFocus={onFocus}
-              onBlur={onBlur}
             />
           )}
         </div>
