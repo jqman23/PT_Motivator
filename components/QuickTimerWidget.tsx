@@ -49,6 +49,20 @@ type CustomWorkoutExercise = {
   amount: number;
   sides: WorkoutSides;
   targets?: string[];
+  usesExerciseDefaults?: boolean;
+};
+
+type TimerExerciseSource = {
+  id: string;
+  name: string;
+  sets?: string;
+  cue?: string;
+  tips?: string[];
+  categoryName?: string;
+  categoryColor?: string;
+  mainImageUrl?: string;
+  mainImageUrls?: string[];
+  timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 };
 };
 
 type CustomWorkout = {
@@ -115,6 +129,7 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
       amount: Math.max(1, Math.round(saved.amount)),
       sides: saved.scopeMultiplier === 4 ? 'inversion_eversion_both' : saved.scopeMultiplier === 2 ? 'each' : 'both',
       targets: targets.length ? targets : legacyTargets(saved.scopeMultiplier),
+      usesExerciseDefaults: true,
     };
   }
   const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`
@@ -153,6 +168,35 @@ function parseExercisePrescription(exercise: { id: string; name: string; sets?: 
     amount: Number.isFinite(amount) && amount > 0 ? amount : 60,
     sides: hasInversionEversion ? 'inversion_eversion_both' : hasEachSide ? 'each' : 'both',
     targets: hasInversionEversion ? legacyTargets(4) : hasEachSide ? legacyTargets(2) : [],
+    usesExerciseDefaults: true,
+  };
+}
+
+function refreshWorkoutExerciseDefaults(workout: CustomWorkout, availableExercises: TimerExerciseSource[]): CustomWorkout {
+  const byId = new Map(availableExercises.map(exercise => [exercise.id, exercise]));
+  return {
+    ...workout,
+    exercises: workout.exercises.map(item => {
+      if (item.usesExerciseDefaults === false || !item.exerciseId) return item;
+      const source = byId.get(item.exerciseId);
+      const prescription = source?.timerPrescription;
+      if (!source || !prescription || prescription.sets < 1 || prescription.amount < 1) return item;
+      const targets = (prescription.targets ?? []).map(target => target.trim()).filter(Boolean);
+      const unit: WorkoutUnit = prescription.unit === 'reps' ? 'reps' : 'seconds';
+      const sides: WorkoutSides = prescription.scopeMultiplier === 4 ? 'inversion_eversion_both' : prescription.scopeMultiplier === 2 ? 'each' : 'both';
+      return {
+        ...item,
+        name: source.name,
+        categoryName: source.categoryName,
+        categoryColor: source.categoryColor,
+        sets: Math.max(1, Math.round(prescription.sets)),
+        amount: Math.max(1, Math.round(prescription.amount)),
+        unit,
+        sides,
+        targets: targets.length ? targets : legacyTargets(prescription.scopeMultiplier),
+        usesExerciseDefaults: true,
+      };
+    }),
   };
 }
 
@@ -337,7 +381,7 @@ function getFriendlyVoice() {
 }
 
 interface QuickTimerWidgetProps {
-  exercises?: Array<{ id: string; name: string; sets?: string; cue?: string; tips?: string[]; categoryName?: string; categoryColor?: string; mainImageUrl?: string; mainImageUrls?: string[]; timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 } }>;
+  exercises?: TimerExerciseSource[];
   onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
   onOpenNote?: (exerciseId: string) => void;
 }
@@ -962,9 +1006,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   };
 
   const updateWorkoutExercise = (id: string, patch: Partial<CustomWorkoutExercise>) => {
+    const changesPrescription = ['sets', 'amount', 'unit', 'sides', 'targets'].some(key => key in patch);
     setWorkoutDraft(prev => ({
       ...prev,
-      exercises: prev.exercises.map(ex => ex.id === id ? { ...ex, ...patch } : ex),
+      exercises: prev.exercises.map(ex => ex.id === id ? { ...ex, ...patch, ...(changesPrescription ? { usesExerciseDefaults: false } : {}) } : ex),
     }));
   };
 
@@ -1059,7 +1104,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     const next = customWorkouts.find(workout => workout.id === id);
     if (!next) return;
     setSelectedWorkoutId(id);
-    setWorkoutDraft(next);
+    setWorkoutDraft(refreshWorkoutExerciseDefaults(next, exercises ?? []));
   };
 
   const newWorkout = () => {
@@ -1071,14 +1116,15 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const editSelectedWorkout = () => {
     const selected = customWorkouts.find(workout => workout.id === selectedWorkoutId);
     if (!selected) return;
-    setWorkoutDraft(selected);
+    setWorkoutDraft(refreshWorkoutExerciseDefaults(selected, exercises ?? []));
     setShowWorkoutBuilder(true);
   };
 
   const switchWorkoutDraft = (id: string) => {
     const savedDraft = customWorkouts.find(workout => workout.id === workoutDraft.id);
+    const currentBaseline = savedDraft ? refreshWorkoutExerciseDefaults(savedDraft, exercises ?? []) : null;
     const hasUnsavedChanges = savedDraft
-      ? JSON.stringify(workoutDraft) !== JSON.stringify(savedDraft)
+      ? JSON.stringify(workoutDraft) !== JSON.stringify(currentBaseline)
       : workoutDraft.name !== 'Custom workout' || workoutDraft.exercises.length > 0;
     if (hasUnsavedChanges && !window.confirm('Discard unsaved workout changes and switch?')) return;
     if (id === '__new__') {
@@ -1088,7 +1134,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     const next = customWorkouts.find(workout => workout.id === id);
     if (!next) return;
     setSelectedWorkoutId(next.id);
-    setWorkoutDraft(next);
+    setWorkoutDraft(refreshWorkoutExerciseDefaults(next, exercises ?? []));
   };
 
   const deleteWorkout = (id: string) => {
@@ -1100,8 +1146,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const startCustomWorkout = async () => {
     const workout = customWorkouts.find(item => item.id === selectedWorkoutId) ?? workoutDraft;
-    if (!workout.exercises.some(exercise => exercise.exerciseId)) return;
-    const option = buildCustomSequence(workout);
+    const refreshedWorkout = refreshWorkoutExerciseDefaults(workout, exercises ?? []);
+    if (!refreshedWorkout.exercises.some(exercise => exercise.exerciseId)) return;
+    const option = buildCustomSequence(refreshedWorkout);
     if (option.steps.length === 0) return;
     await startSequencePreset(option);
   };
