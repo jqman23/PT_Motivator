@@ -60,6 +60,8 @@ type TimerExerciseSource = {
   tips?: string[];
   categoryName?: string;
   categoryColor?: string;
+  typeLetters?: string;
+  typeEmoji?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
   timerPrescription?: { sets: number; amount: number; unit: WorkoutUnit; targets?: string[]; scopeMultiplier?: 1 | 2 | 4 };
@@ -411,6 +413,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [showSelectedExercisesOnly, setShowSelectedExercisesOnly] = useState(false);
   const [workoutImagePreview, setWorkoutImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [reorderText, setReorderText] = useState('');
+  const [workoutJsonText, setWorkoutJsonText] = useState('');
+  const [showWorkoutJsonTools, setShowWorkoutJsonTools] = useState(false);
 
   const [logExerciseId, setLogExerciseId] = useState('');
   const [logNoteText, setLogNoteText] = useState('');
@@ -497,8 +501,13 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       endAt: endAtRef.current,
       ...patch,
     };
-    localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state));
-    window.dispatchEvent(new CustomEvent('pt-timer-state-updated', { detail: { force: forceNotificationSync } }));
+    try {
+      localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(state));
+      window.dispatchEvent(new CustomEvent('pt-timer-state-updated', { detail: { force: forceNotificationSync } }));
+    } catch {
+      // Timer persistence must never be able to crash the live interface.
+      localStorage.removeItem(TIMER_STORAGE_KEY);
+    }
   };
 
   const unlockAudio = async () => {
@@ -726,7 +735,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     completedWorkStepsRef.current = [];
     setElapsed(0);
-    persistTimer({ mode: 'stopwatch', running: false, done: false, elapsed: 0, sequenceActive: false, endAt: null, cue: '' }, true);
+    try { localStorage.removeItem(TIMER_STORAGE_KEY); } catch { /* no-op */ }
   };
 
   const startCountdown = async () => {
@@ -765,7 +774,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     runningRef.current = true;
     setRunning(true);
-    persistTimer({ mode: 'stopwatch', running: true, done: false, sequenceActive: false, endAt: null }, true);
+    try { localStorage.removeItem(TIMER_STORAGE_KEY); } catch { /* no-op */ }
   };
 
   const startSequencePreset = async (option: SequenceOption) => {
@@ -789,7 +798,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setDuration(LEAD_IN_SECONDS);
     setRemaining(LEAD_IN_SECONDS);
     setCue(`${option.label} ready`);
-    setWorkoutModeOpen(true);
+    setWorkoutModeOpen(Boolean(option.workout));
     persistTimer({ mode: 'timer', running: false, done: false, duration: LEAD_IN_SECONDS, remaining: LEAD_IN_SECONDS, sequenceActive: true, sequenceIndex: -1, sequenceKey: option.key, endAt: null, cue: `${option.label} ready` }, true);
   };
 
@@ -986,7 +995,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     setCue('');
     setMode(next);
     modeRef.current = next;
-    persistTimer({ mode: next, running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, cue: '' }, true);
+    if (next === 'stopwatch') {
+      try { localStorage.removeItem(TIMER_STORAGE_KEY); } catch { /* no-op */ }
+    } else {
+      persistTimer({ mode: next, running: false, done: false, sequenceActive: false, sequenceIndex: 0, endAt: null, cue: '' }, true);
+    }
   };
 
   const pauseTimer = () => {
@@ -994,7 +1007,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     stopTimer();
     endAtRef.current = null;
     setRemaining(pausedRemaining);
-    persistTimer({ running: false, endAt: null, remaining: pausedRemaining }, true);
+    if (mode === 'timer') persistTimer({ running: false, endAt: null, remaining: pausedRemaining }, true);
   };
 
   const persistWorkouts = async (next: CustomWorkout[], selectedId = selectedWorkoutId) => {
@@ -1069,6 +1082,93 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  };
+
+  const currentWorkoutJson = () => JSON.stringify({
+    format: 'pt-motivator-workout',
+    version: 1,
+    workout: {
+      name: workoutDraft.name,
+      breakSeconds: workoutDraft.breakSeconds,
+      exercises: workoutDraft.exercises.map(exercise => ({
+        exerciseId: exercise.exerciseId,
+        name: exercise.name,
+        sets: exercise.sets,
+        amount: exercise.amount,
+        unit: exercise.unit,
+        targets: exercise.targets ?? [],
+        useExerciseDefaults: exercise.usesExerciseDefaults !== false,
+      })),
+    },
+  }, null, 2);
+
+  const downloadCurrentWorkoutJson = () => {
+    const blob = new Blob([currentWorkoutJson()], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeName = (workoutDraft.name || 'workout').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workout';
+    link.href = url;
+    link.download = `${safeName}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const copyCurrentWorkoutJson = async () => {
+    const text = currentWorkoutJson();
+    setWorkoutJsonText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // The populated text area remains available for manual copy.
+    }
+  };
+
+  const importWorkoutJsonToDraft = () => {
+    try {
+      const parsed = JSON.parse(workoutJsonText) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected a workout JSON object.');
+      const root = parsed as Record<string, unknown>;
+      const rawWorkout = root.workout && typeof root.workout === 'object' && !Array.isArray(root.workout) ? root.workout as Record<string, unknown> : root;
+      if (!Array.isArray(rawWorkout.exercises)) throw new Error('Missing workout.exercises array.');
+      const imported: CustomWorkoutExercise[] = [];
+      const missingIds: string[] = [];
+      rawWorkout.exercises.forEach((value, index) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+        const item = value as Record<string, unknown>;
+        const exerciseId = String(item.exerciseId ?? item.id ?? '').trim();
+        const source = exercises?.find(exercise => exercise.id === exerciseId);
+        if (!source) {
+          if (exerciseId) missingIds.push(exerciseId);
+          return;
+        }
+        const defaults = parseExercisePrescription(source);
+        const useDefaults = item.useExerciseDefaults !== false;
+        const unit: WorkoutUnit = item.unit === 'reps' ? 'reps' : item.unit === 'seconds' ? 'seconds' : defaults.unit;
+        const targets = Array.isArray(item.targets) ? item.targets.map(String).map(target => target.trim()).filter(Boolean) : defaults.targets ?? [];
+        imported.push({
+          ...defaults,
+          id: `item-${Date.now()}-${index}`,
+          sets: useDefaults ? defaults.sets : Math.max(1, Math.round(Number(item.sets) || defaults.sets)),
+          amount: useDefaults ? defaults.amount : Math.max(1, Math.round(Number(item.amount) || defaults.amount)),
+          unit: useDefaults ? defaults.unit : unit,
+          targets: useDefaults ? defaults.targets : targets,
+          sides: useDefaults ? defaults.sides : 'both',
+          usesExerciseDefaults: useDefaults,
+        });
+      });
+      if (!imported.length) throw new Error('No matching exercise IDs were found in the current exercise list.');
+      setWorkoutDraft(prev => ({
+        ...prev,
+        name: typeof rawWorkout.name === 'string' && rawWorkout.name.trim() ? rawWorkout.name.trim() : prev.name,
+        breakSeconds: Number.isFinite(Number(rawWorkout.breakSeconds)) ? Math.max(0, Math.round(Number(rawWorkout.breakSeconds))) : prev.breakSeconds,
+        exercises: imported,
+      }));
+      alert(`Imported ${imported.length} exercise${imported.length === 1 ? '' : 's'} into the draft.${missingIds.length ? `\nSkipped missing IDs: ${missingIds.join(', ')}` : ''}\n\nReview, then save explicitly.`);
+    } catch (error) {
+      alert(`Could not import workout JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const addSavedExerciseToWorkout = (exerciseId: string) => {
@@ -1599,6 +1699,28 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
             </div>
           </div>
 
+          <div className="rounded-2xl border border-stone-200 bg-white p-3">
+            <button type="button" onClick={() => setShowWorkoutJsonTools(value => !value)} className="flex w-full items-center justify-between gap-3 text-left">
+              <span>
+                <span className="block text-[10px] font-bold uppercase tracking-widest text-stone-400">Workout JSON</span>
+                <span className="mt-0.5 block text-xs font-semibold text-stone-500">Export, copy, or import this workout draft</span>
+              </span>
+              <span className="text-lg text-stone-400">{showWorkoutJsonTools ? '−' : '+'}</span>
+            </button>
+            {showWorkoutJsonTools && (
+              <div className="mt-3 space-y-2 border-t border-stone-100 pt-3">
+                <textarea value={workoutJsonText} onChange={event => setWorkoutJsonText(event.target.value)} rows={8} placeholder="Export the current workout or paste workout JSON here…" className="w-full resize-y rounded-xl border border-stone-200 bg-stone-50 p-2 font-mono text-[11px] leading-snug focus:outline-none" style={{ fontSize: 13, colorScheme: 'light' }} />
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <button type="button" onClick={() => setWorkoutJsonText(currentWorkoutJson())} className="rounded-xl bg-stone-100 px-2 py-2 text-xs font-bold text-stone-600">Export</button>
+                  <button type="button" onClick={() => void copyCurrentWorkoutJson()} className="rounded-xl bg-[#E4ECE6] px-2 py-2 text-xs font-bold text-[#476653]">Copy</button>
+                  <button type="button" onClick={downloadCurrentWorkoutJson} className="rounded-xl bg-[#1F2F46] px-2 py-2 text-xs font-bold text-white">Download</button>
+                  <button type="button" onClick={importWorkoutJsonToDraft} disabled={!workoutJsonText.trim()} className="rounded-xl bg-[#D9A94B] px-2 py-2 text-xs font-bold text-white disabled:opacity-40">Import draft</button>
+                </div>
+                <p className="text-[11px] leading-snug text-stone-400">Import replaces only the open draft. Review it, then use the normal save button.</p>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white rounded-2xl border border-stone-100 p-3">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Current exercises</p>
@@ -1633,7 +1755,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-800 leading-snug">
                               <span className="min-w-0 truncate">{exercise.name}</span>
-                              {selected && <span className="text-[10px] font-bold uppercase tracking-wide flex-shrink-0" style={{ color: categoryAccent(group.color) }}>Selected</span>}
+                              <span className="flex flex-shrink-0 items-center gap-1.5">
+                                {exercise.typeLetters && <span className="rounded px-1 py-0.5 text-[9px] font-black uppercase tracking-wider" style={{ color: categoryAccent(group.color), background: `${categoryAccent(group.color)}15` }}>{exercise.typeEmoji && <span className="mr-0.5">{exercise.typeEmoji}</span>}{exercise.typeLetters}</span>}
+                                {selected && <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: categoryAccent(group.color) }}>Selected</span>}
+                              </span>
                             </span>
                             <span className="block text-[11px] text-stone-400 truncate">{exercise.cue || 'Tap to add'}</span>
                           </span>
@@ -1677,7 +1802,13 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-stone-800 truncate">{exercise.name}</p>
-                    {exercise.categoryName && <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: categoryAccent(exercise.categoryColor) }}>{exercise.categoryName}</p>}
+                    <div className="flex items-center gap-1.5">
+                      {exercise.categoryName && <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: categoryAccent(exercise.categoryColor) }}>{exercise.categoryName}</p>}
+                      {(() => {
+                        const source = exercises?.find(item => item.id === exercise.exerciseId);
+                        return source?.typeLetters ? <span className="text-[9px] font-black uppercase tracking-wider text-stone-400">{source.typeEmoji && <span className="mr-0.5">{source.typeEmoji}</span>}{source.typeLetters}</span> : null;
+                      })()}
+                    </div>
                   </div>
                   <button onClick={event => { event.stopPropagation(); setWorkoutDraft(prev => ({ ...prev, exercises: prev.exercises.filter(item => item.id !== exercise.id) })); }} className="w-8 rounded-lg text-sm font-bold" style={{ background: '#f5f5f4', color: '#a8a29e' }}>×</button>
                 </div>

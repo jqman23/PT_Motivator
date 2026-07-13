@@ -21,7 +21,7 @@ import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
 import TypeSettingsModal from '@/components/TypeSettingsModal';
 import DoctorNotesWidget from '@/components/DoctorNotesWidget';
-import { ExerciseTypeMeta, normalizeExerciseType } from '@/lib/exerciseTypes';
+import { ExerciseTypeMeta, getExerciseTypeDisplay, normalizeExerciseType } from '@/lib/exerciseTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -211,9 +211,14 @@ export default function Home() {
   const typeFilterActive = typeFilter.length > 0;
   const layoutExercises = useMemo(() =>
     layout.flatMap(cat => cat.exerciseIds
-      .map(id => exerciseMap[id] ? { ...exerciseMap[id], categoryName: cat.name, categoryColor: cat.color } : null)
-      .filter((ex): ex is Exercise & { categoryName: string; categoryColor: string } => Boolean(ex))),
-    [layout, exerciseMap]
+      .map(id => {
+        const exercise = exerciseMap[id];
+        if (!exercise) return null;
+        const typeDisplay = getExerciseTypeDisplay(exercise.cat, typeMeta);
+        return { ...exercise, categoryName: cat.name, categoryColor: cat.color, typeLetters: typeDisplay.letters, typeEmoji: typeDisplay.emoji };
+      })
+      .filter((ex): ex is Exercise & { categoryName: string; categoryColor: string; typeLetters: string; typeEmoji: string } => Boolean(ex))),
+    [layout, exerciseMap, typeMeta]
   );
   const notesRef = useRef<NotesMap>({});
   useEffect(() => { notesRef.current = notes; }, [notes]);
