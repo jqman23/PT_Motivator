@@ -107,11 +107,21 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     commit(next.length ? next : [{ type: 'text', text: '' }]);
   };
 
+  const textAreaStyle: React.CSSProperties = {
+    color: 'inherit',
+    fontSize: 'inherit',
+    fontFamily: 'inherit',
+    colorScheme: style?.colorScheme,
+  };
+
   return (
-    <div className="secret-note-editor space-y-2">
+    <div
+      className={`${className} secret-note-editor overflow-auto`}
+      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem` }}
+    >
       {blocks.map((block, index) => block.type === 'secret' ? (
-        <div key={index} className="rounded-xl border border-stone-200 bg-white/70 p-2 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
+        <div key={index} className="my-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => toggleSecret(index, block)}
@@ -130,7 +140,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             <button
               type="button"
               onClick={() => removeBlock(index)}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-stone-100 text-sm font-bold leading-none text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-stone-100 text-sm font-bold leading-none text-stone-400 hover:bg-stone-200 hover:text-stone-600"
               style={{ touchAction: 'manipulation' }}
               aria-label="Remove secret note"
               title="Remove secret note"
@@ -139,7 +149,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             </button>
           </div>
           {block.locked && unlockingIndex === index && (
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-1.5 flex items-center gap-2">
               <input
                 value={unlockCode}
                 onChange={event => setUnlockCode(event.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -175,8 +185,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               onKeyDown={event => handleSecretKeyDown(index, event)}
               placeholder="Private note..."
               rows={Math.max(1, rows)}
-              className={`${className} mt-2`}
-              style={style}
+              className="mt-1.5 block w-full resize-none border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none"
+              style={textAreaStyle}
               onFocus={onFocus}
               onBlur={onBlur}
             />
@@ -190,8 +200,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           onChange={event => handleTextChange(index, event)}
           placeholder={blocks.length === 1 ? placeholder : undefined}
           rows={rows}
-          className={className}
-          style={style}
+          className="block w-full resize-none border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none"
+          style={textAreaStyle}
           onFocus={onFocus}
           onBlur={onBlur}
         />
