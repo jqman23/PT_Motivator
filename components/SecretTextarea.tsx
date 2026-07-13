@@ -70,10 +70,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [unlockCode, setUnlockCode] = useState('');
   const [expanded, setExpanded] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const focusedRef = useRef(false);
   const pendingSecretIndex = useRef<number | null>(null);
   const canResize = /\bresize-y\b/.test(className);
   const serialized = useMemo(() => serializeSecretNote(blocks), [blocks]);
+  const hasSecretBlock = blocks.some(block => block.type === 'secret');
+  const plainText = useMemo(() => blocks.map(block => block.type === 'text' ? block.text : '').join(''), [blocks]);
   const expandedHeight = rows >= 3 ? 240 : 200;
 
   useEffect(() => {
@@ -82,8 +85,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   }, [serialized, value]);
 
   useEffect(() => {
-    if (autoFocus) editorRef.current?.focus();
-  }, [autoFocus]);
+    if (!autoFocus) return;
+    if (hasSecretBlock) editorRef.current?.focus();
+    else textareaRef.current?.focus();
+  }, [autoFocus, hasSecretBlock]);
 
   useLayoutEffect(() => {
     const index = pendingSecretIndex.current;
@@ -140,7 +145,21 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       commit(converted.blocks);
       return;
     }
+    setBlocks(current);
     onChange(serializeSecretNote(current));
+  };
+
+  const handlePlainChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = event.target.value;
+    const current: SecretNoteBlock[] = [{ type: 'text', text }];
+    const converted = convertSecretTriggers(current);
+    if (converted.changed) {
+      pendingSecretIndex.current = converted.blocks.findIndex(block => block.type === 'secret' && !block.locked);
+      commit(converted.blocks);
+      return;
+    }
+    setBlocks(current);
+    onChange(text);
   };
 
   const patchSecret = (index: number, patch: Partial<Extract<SecretNoteBlock, { type: 'secret' }>>) => {
@@ -220,6 +239,47 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   };
 
   const toggleResize = () => setExpanded(value => !value);
+  const textareaHeight = canResize && expanded ? expandedHeight : style?.height;
+
+  if (!hasSecretBlock) {
+    const textarea = (
+      <textarea
+        ref={textareaRef}
+        value={plainText}
+        onChange={handlePlainChange}
+        placeholder={placeholder}
+        rows={rows}
+        className={`${className} ${canResize ? 'resize-none pr-7' : ''}`}
+        style={{ ...style, height: textareaHeight }}
+        autoFocus={autoFocus}
+        onFocus={event => {
+          focusedRef.current = true;
+          onFocus?.(event);
+        }}
+        onBlur={event => {
+          focusedRef.current = false;
+          onBlur?.(event);
+        }}
+      />
+    );
+
+    if (!canResize) return textarea;
+
+    return (
+      <div className="relative">
+        {textarea}
+        <button
+          type="button"
+          onClick={toggleResize}
+          className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500"
+          aria-label={expanded ? 'Shrink note' : 'Expand note'}
+          title={expanded ? 'Shrink note' : 'Expand note'}
+        >
+          <span className="mb-1 mr-1 block h-3 w-3 border-b-2 border-r-2 border-current" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
