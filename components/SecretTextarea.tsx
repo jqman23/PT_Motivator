@@ -15,6 +15,8 @@ type Props = {
   onBlur?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
 };
 
+const SECRET_CURSOR_ANCHOR = '\u200b';
+
 function LockIcon({ locked }: { locked: boolean }) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -94,15 +96,16 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     const index = pendingSecretIndex.current;
     if (index === null) return;
     pendingSecretIndex.current = null;
-    const target = editorRef.current?.querySelector<HTMLElement>(`[data-secret-index="${index}"] [data-secret-content="true"]`);
+    const editor = editorRef.current;
+    const target = editor?.querySelector<HTMLElement>(`[data-secret-index="${index}"] [data-secret-content="true"]`);
     if (!target) return;
     const selection = window.getSelection();
     const range = document.createRange();
+    editor?.focus();
     range.selectNodeContents(target);
     range.collapse(false);
     selection?.removeAllRanges();
     selection?.addRange(range);
-    target.focus();
   }, [blocks]);
 
   const readBlocks = () => {
@@ -122,7 +125,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           locked: node.dataset.locked === 'true',
           text: node.dataset.locked === 'true'
             ? node.dataset.secretText ?? ''
-            : node.querySelector<HTMLElement>('[data-secret-content="true"]')?.textContent ?? '',
+            : (node.querySelector<HTMLElement>('[data-secret-content="true"]')?.textContent ?? '').replaceAll(SECRET_CURSOR_ANCHOR, ''),
         });
         return;
       }
@@ -222,6 +225,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.key === 'Backspace' || event.key === 'Delete') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) {
+        event.preventDefault();
+        setUnlockingIndex(null);
+        setUnlockCode('');
+        commit([{ type: 'text', text: '' }]);
+        return;
+      }
       const index = adjacentSecretIndex(event.key === 'Backspace' ? -1 : 1);
       if (index >= 0) {
         event.preventDefault();
@@ -344,7 +355,11 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               />
             </span>
           )}
-          {!block.locked && <span data-secret-content="true" className="min-w-[1ch] outline-none">{block.text}</span>}
+          {!block.locked && (
+            <span data-secret-content="true" className="min-w-[1ch] outline-none">
+              {block.text || SECRET_CURSOR_ANCHOR}
+            </span>
+          )}
         </span>
       ) : block.text)}
       {canResize && (
