@@ -312,55 +312,73 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
       let draftUpdated = 0;
       let draftAdded = 0;
+      let draftUnchanged = 0;
+      let draftSkipped = 0;
       let categoryUpdated = 0;
       let categoryAdded = 0;
+      let categoryUnchanged = 0;
+      const exerciseChanges: string[] = [];
 
-      setDraft(prev => {
-        const usedIds = new Set(prev.map(ex => ex.id));
-        const next = [...prev];
+      const usedIds = new Set(draft.map(ex => ex.id));
+      const nextDraft = [...draft];
 
-        rawItems.forEach(raw => {
-          const incoming = normalizeImportedExercise(raw);
-          if (!incoming) return;
+      rawItems.forEach(raw => {
+        const incoming = normalizeImportedExercise(raw);
+        if (!incoming) {
+          draftSkipped += 1;
+          return;
+        }
 
-          const sourceId = incoming.sourceId;
-          const incomingName = normalizeName(incoming.name);
-          let index = incoming.id ? next.findIndex(ex => ex.id === incoming.id) : -1;
-          if (index < 0 && sourceId) index = next.findIndex(ex => ex.sourceId === sourceId);
-          if (index < 0 && incomingName) index = next.findIndex(ex => normalizeName(ex.name) === incomingName);
+        const sourceId = incoming.sourceId;
+        const incomingName = normalizeName(incoming.name);
+        let index = incoming.id ? nextDraft.findIndex(ex => ex.id === incoming.id) : -1;
+        if (index < 0 && sourceId) index = nextDraft.findIndex(ex => ex.sourceId === sourceId);
+        if (index < 0 && incomingName) index = nextDraft.findIndex(ex => normalizeName(ex.name) === incomingName);
 
-          if (index >= 0) {
-            const { id: _ignoredId, ...patch } = incoming;
-            next[index] = { ...next[index], ...patch, id: next[index].id };
+        if (index >= 0) {
+          const current = nextDraft[index];
+          const incomingPatch = Object.fromEntries(Object.entries(incoming).filter(([key]) => key !== 'id')) as Partial<Exercise>;
+          const changedFields = Object.keys(incomingPatch).filter(key =>
+            JSON.stringify((current as unknown as Record<string, unknown>)[key]) !== JSON.stringify((incomingPatch as Record<string, unknown>)[key])
+          );
+          if (changedFields.length) {
+            nextDraft[index] = { ...current, ...incomingPatch, id: current.id };
             draftUpdated += 1;
+            exerciseChanges.push(`${current.name} (${current.id}): ${changedFields.join(', ')}`);
           } else {
-            if (!incoming.name) return;
-            const id = incoming.id && !usedIds.has(incoming.id) ? incoming.id : uniqueExerciseId(incoming.name, usedIds);
-            usedIds.add(id);
-            next.push({
-              id,
-              cat: incoming.cat ?? 'mobility',
-              name: incoming.name,
-              cue: incoming.cue ?? '',
-              sets: incoming.sets,
-              videoIds: incoming.videoIds ?? [],
-              videoTitles: incoming.videoTitles ?? [],
-              imageSearch: incoming.imageSearch ?? incoming.name,
-              tips: incoming.tips ?? [],
-              optional: incoming.optional,
-              origin: incoming.origin ?? 'patient_added',
-              sourceId: incoming.sourceId,
-              gifUrl: incoming.gifUrl,
-              mainImageUrl: incoming.mainImageUrl,
-              mainImageUrls: incoming.mainImageUrls,
-              mainVideoUrl: incoming.mainVideoUrl,
-              timerPrescription: incoming.timerPrescription,
-            });
-            draftAdded += 1;
+            draftUnchanged += 1;
           }
-        });
-        return next;
+        } else {
+          if (!incoming.name) {
+            draftSkipped += 1;
+            return;
+          }
+          const id = incoming.id && !usedIds.has(incoming.id) ? incoming.id : uniqueExerciseId(incoming.name, usedIds);
+          usedIds.add(id);
+          nextDraft.push({
+            id,
+            cat: incoming.cat ?? 'mobility',
+            name: incoming.name,
+            cue: incoming.cue ?? '',
+            sets: incoming.sets,
+            videoIds: incoming.videoIds ?? [],
+            videoTitles: incoming.videoTitles ?? [],
+            imageSearch: incoming.imageSearch ?? incoming.name,
+            tips: incoming.tips ?? [],
+            optional: incoming.optional,
+            origin: incoming.origin ?? 'patient_added',
+            sourceId: incoming.sourceId,
+            gifUrl: incoming.gifUrl,
+            mainImageUrl: incoming.mainImageUrl,
+            mainImageUrls: incoming.mainImageUrls,
+            mainVideoUrl: incoming.mainVideoUrl,
+            timerPrescription: incoming.timerPrescription,
+          });
+          draftAdded += 1;
+          exerciseChanges.push(`${incoming.name} (${id}): added`);
+        }
       });
+      setDraft(nextDraft);
 
       if (rawLayout.length) {
         const usedIds = new Set(layout.map(cat => cat.id));
@@ -377,7 +395,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
           if (index >= 0) {
             const current = nextLayout[index];
-            nextLayout[index] = {
+            const merged = {
               ...current,
               ...incoming,
               id: current.id,
@@ -385,7 +403,11 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               color: incoming.color ?? current.color,
               exerciseIds: Array.from(new Set([...(current.exerciseIds ?? []), ...incomingExerciseIds])),
             };
-            categoryUpdated += 1;
+            if (JSON.stringify(merged) === JSON.stringify(current)) categoryUnchanged += 1;
+            else {
+              nextLayout[index] = merged;
+              categoryUpdated += 1;
+            }
           } else {
             const id = incoming.id && !usedIds.has(incoming.id)
               ? incoming.id
@@ -404,10 +426,15 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         onLayoutChange(nextLayout);
       }
 
-      const messages: string[] = [];
-      if (rawItems.length) messages.push(`exercises updated ${draftUpdated}, added ${draftAdded}`);
-      if (rawLayout.length) messages.push(`categories updated ${categoryUpdated}, added ${categoryAdded}`);
-      window.setTimeout(() => alert(`Merged JSON into draft: ${messages.join('; ')}. Click Save database to commit.`), 0);
+      const messages = ['JSON merged into draft.'];
+      if (rawItems.length) messages.push(`Exercises — updated: ${draftUpdated}, added: ${draftAdded}, unchanged: ${draftUnchanged}, skipped: ${draftSkipped}.`);
+      if (exerciseChanges.length) {
+        messages.push('', 'Changes:', ...exerciseChanges.slice(0, 12).map(change => `• ${change}`));
+        if (exerciseChanges.length > 12) messages.push(`• …and ${exerciseChanges.length - 12} more`);
+      }
+      if (rawLayout.length) messages.push('', `Categories — updated: ${categoryUpdated}, added: ${categoryAdded}, unchanged: ${categoryUnchanged}.`);
+      messages.push('', 'Review the draft, then click Save database to commit.');
+      alert(messages.join('\n'));
     } catch (err) {
       alert(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
