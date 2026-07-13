@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SECRET_UNLOCK_CODE, SecretNoteBlock, parseSecretNote, serializeSecretNote } from '@/lib/secretNotes';
 
 type Props = {
@@ -24,134 +24,192 @@ function LockIcon({ locked }: { locked: boolean }) {
   );
 }
 
-function normalizeBlocks(blocks: SecretNoteBlock[]) {
-  return blocks.length ? blocks : [{ type: 'text', text: '' } satisfies SecretNoteBlock];
+function normalizedBlocks(value: string): SecretNoteBlock[] {
+  const blocks = parseSecretNote(value);
+  return blocks.length ? blocks : [{ type: 'text', text: '' }];
+}
+
+function mergeText(blocks: SecretNoteBlock[]) {
+  return blocks.reduce<SecretNoteBlock[]>((next, block) => {
+    const prev = next.at(-1);
+    if (block.type === 'text' && prev?.type === 'text') prev.text += block.text;
+    else next.push({ ...block } as SecretNoteBlock);
+    return next;
+  }, []);
+}
+
+function convertSecretTriggers(blocks: SecretNoteBlock[]) {
+  let changed = false;
+  const next = blocks.flatMap(block => {
+    if (block.type !== 'text') return [block];
+    const match = block.text.match(/(^|\n)\/secret\s([^\n]*)$/);
+    if (!match || match.index === undefined) return [block];
+    changed = true;
+    const lineStart = match.index + match[1].length;
+    const before = block.text.slice(0, lineStart);
+    const after = match[2] ?? '';
+    return [
+      ...(before ? [{ type: 'text' as const, text: before }] : []),
+      { type: 'secret' as const, locked: false, text: after },
+    ];
+  });
+  return { changed, blocks: mergeText(next.length ? next : [{ type: 'text', text: '' }]) };
+}
+
+function textFromNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (!(node instanceof HTMLElement)) return '';
+  if (node.dataset.secret === 'true') return '';
+  if (node.tagName === 'BR') return '\n';
+  return Array.from(node.childNodes).map(textFromNode).join('');
 }
 
 export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onFocus, onBlur }: Props) {
-  const blocks = useMemo(() => normalizeBlocks(parseSecretNote(value)), [value]);
+  const [blocks, setBlocks] = useState(() => normalizedBlocks(value));
   const [unlockingIndex, setUnlockingIndex] = useState<number | null>(null);
   const [unlockCode, setUnlockCode] = useState('');
   const [heightPx, setHeightPx] = useState<number | null>(null);
-  const pendingSecretIndex = useRef<number | null>(null);
-  const secretRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const focusedRef = useRef(false);
+  const pendingSecretIndex = useRef<number | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const resizeDraggedRef = useRef(false);
   const canResize = /\bresize-y\b/.test(className);
-  const compactInputBase = 'inline-block h-[1.35em] min-w-[5rem] max-w-full flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 align-middle text-inherit placeholder-stone-300 focus:outline-none';
+  const serialized = useMemo(() => serializeSecretNote(blocks), [blocks]);
+
+  useEffect(() => {
+    if (focusedRef.current || value === serialized) return;
+    setBlocks(normalizedBlocks(value));
+  }, [serialized, value]);
+
+  useEffect(() => {
+    if (autoFocus) editorRef.current?.focus();
+  }, [autoFocus]);
 
   useLayoutEffect(() => {
     const index = pendingSecretIndex.current;
     if (index === null) return;
     pendingSecretIndex.current = null;
-    secretRefs.current[index]?.focus();
+    const target = editorRef.current?.querySelector<HTMLElement>(`[data-secret-index="${index}"] [data-secret-content="true"]`);
+    if (!target) return;
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    target.focus();
   }, [blocks]);
 
-  const commit = (next: SecretNoteBlock[]) => onChange(serializeSecretNote(next));
-
-  const patchBlock = (index: number, patch: Partial<SecretNoteBlock>) => {
-    commit(blocks.map((block, i) => i === index ? ({ ...block, ...patch } as SecretNoteBlock) : block));
+  const readBlocks = () => {
+    const root = editorRef.current;
+    if (!root) return blocks;
+    const next: SecretNoteBlock[] = [];
+    const appendText = (text: string) => {
+      if (!text) return;
+      const prev = next.at(-1);
+      if (prev?.type === 'text') prev.text += text;
+      else next.push({ type: 'text', text });
+    };
+    root.childNodes.forEach(node => {
+      if (node instanceof HTMLElement && node.dataset.secret === 'true') {
+        next.push({
+          type: 'secret',
+          locked: node.dataset.locked === 'true',
+          text: node.dataset.locked === 'true'
+            ? node.dataset.secretText ?? ''
+            : node.querySelector<HTMLElement>('[data-secret-content="true"]')?.textContent ?? '',
+        });
+        return;
+      }
+      appendText(textFromNode(node));
+    });
+    return mergeText(next.length ? next : [{ type: 'text', text: '' }]);
   };
 
-  const convertSecretLine = (index: number, text: string, selectionStart: number) => {
-    const lineStart = text.lastIndexOf('\n', Math.max(0, selectionStart - 1)) + 1;
-    const lineEndIndex = text.indexOf('\n', selectionStart);
-    const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
-    const line = text.slice(lineStart, lineEnd);
-    const trigger = line.match(/^\/secret\s(.*)$/);
-    if (!trigger) return false;
-
-    const before = text.slice(0, lineStart);
-    const after = text.slice(lineEnd);
-    const secretIndex = index + (before ? 1 : 0);
-    pendingSecretIndex.current = secretIndex;
-    const replacement: SecretNoteBlock[] = [];
-    if (before) replacement.push({ type: 'text', text: before });
-    replacement.push({ type: 'secret', locked: false, text: trigger[1] ?? '' });
-    if (after) replacement.push({ type: 'text', text: after });
-    commit(blocks.flatMap((block, i) => i === index ? replacement : [block]));
-    return true;
+  const commit = (next: SecretNoteBlock[]) => {
+    const clean = mergeText(next.length ? next : [{ type: 'text', text: '' }]);
+    setBlocks(clean);
+    onChange(serializeSecretNote(clean));
   };
 
-  const handleTextChange = (index: number, event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const nextText = event.target.value;
-    if (convertSecretLine(index, nextText, event.target.selectionStart ?? nextText.length)) return;
-    patchBlock(index, { text: nextText });
-  };
-
-  const handleTextKeyDown = (index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Backspace' || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
-    const target = event.currentTarget;
-    if ((target.selectionStart ?? 0) !== 0 || (target.selectionEnd ?? 0) !== 0) return;
-    if (blocks[index - 1]?.type !== 'secret') return;
-    event.preventDefault();
-    removeBlock(index - 1);
-  };
-
-  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      patchBlock(index, { locked: true });
+  const handleInput = () => {
+    const current = readBlocks();
+    const converted = convertSecretTriggers(current);
+    if (converted.changed) {
+      pendingSecretIndex.current = converted.blocks.findIndex(block => block.type === 'secret' && !block.locked);
+      commit(converted.blocks);
       return;
     }
-    if (event.key !== 'Backspace') return;
-    const target = event.currentTarget;
-    if (target.value || (target.selectionStart ?? 0) !== 0 || (target.selectionEnd ?? 0) !== 0) return;
-    event.preventDefault();
-    removeBlock(index);
+    onChange(serializeSecretNote(current));
   };
 
-  const handlePillKeyDown = (index: number, event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'Backspace' && event.key !== 'Delete') return;
-    event.preventDefault();
-    removeBlock(index);
+  const patchSecret = (index: number, patch: Partial<Extract<SecretNoteBlock, { type: 'secret' }>>) => {
+    const current = readBlocks();
+    commit(current.map((block, i) => i === index && block.type === 'secret' ? { ...block, ...patch } : block));
+  };
+
+  const removeBlock = (index: number) => {
+    const current = readBlocks();
+    setUnlockingIndex(null);
+    setUnlockCode('');
+    commit(current.filter((_, i) => i !== index));
   };
 
   const toggleSecret = (index: number, block: Extract<SecretNoteBlock, { type: 'secret' }>) => {
     if (!block.locked) {
-      setUnlockingIndex(null);
-      setUnlockCode('');
-      patchBlock(index, { locked: true });
+      patchSecret(index, { locked: true });
       return;
     }
     setUnlockingIndex(index);
     setUnlockCode('');
   };
 
-  const submitUnlock = (index: number) => {
-    if (unlockCode === SECRET_UNLOCK_CODE) {
-      pendingSecretIndex.current = index;
-      setUnlockingIndex(null);
-      setUnlockCode('');
-      patchBlock(index, { locked: false });
-    }
-  };
-
-  const updateUnlockCode = (index: number, value: string) => {
-    const next = value.replace(/\D/g, '').slice(0, 4);
-    setUnlockCode(next);
-    if (next === SECRET_UNLOCK_CODE) {
-      pendingSecretIndex.current = index;
-      setUnlockingIndex(null);
-      setUnlockCode('');
-      patchBlock(index, { locked: false });
-    }
-  };
-
-  const removeBlock = (index: number) => {
-    const next = blocks.filter((_, i) => i !== index);
+  const unlock = (index: number) => {
+    pendingSecretIndex.current = index;
     setUnlockingIndex(null);
     setUnlockCode('');
-    commit(next.length ? next : [{ type: 'text', text: '' }]);
+    patchSecret(index, { locked: false });
   };
 
-  const textAreaStyle: React.CSSProperties = {
-    color: 'inherit',
-    fontSize: 'inherit',
-    fontFamily: 'inherit',
-    colorScheme: style?.colorScheme,
+  const updateUnlockCode = (index: number, raw: string) => {
+    const next = raw.replace(/\D/g, '').slice(0, 4);
+    setUnlockCode(next);
+    if (next === SECRET_UNLOCK_CODE) unlock(index);
+  };
+
+  const adjacentSecretIndex = (direction: -1 | 1) => {
+    const selection = window.getSelection();
+    if (!selection?.isCollapsed || !editorRef.current) return -1;
+    let node: Node | null = selection.anchorNode;
+    let offset = selection.anchorOffset;
+    if (node?.nodeType === Node.TEXT_NODE && direction === -1 && offset > 0) return -1;
+    if (node?.nodeType === Node.TEXT_NODE && direction === 1 && offset < (node.textContent ?? '').length) return -1;
+    if (node !== editorRef.current) {
+      while (node?.parentNode && node.parentNode !== editorRef.current) node = node.parentNode;
+      if (!node?.parentNode) return -1;
+      offset = Array.from(editorRef.current.childNodes).indexOf(node as ChildNode) + (direction === 1 ? 1 : 0);
+    }
+    const target = editorRef.current.childNodes[offset + (direction === -1 ? -1 : 0)];
+    return target instanceof HTMLElement && target.dataset.secret === 'true' ? Number(target.dataset.secretIndex) : -1;
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.key === 'Backspace' || event.key === 'Delete') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      const index = adjacentSecretIndex(event.key === 'Backspace' ? -1 : 1);
+      if (index >= 0) {
+        event.preventDefault();
+        removeBlock(index);
+      }
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    const selection = window.getSelection();
+    const container = selection?.anchorNode instanceof HTMLElement ? selection.anchorNode : selection?.anchorNode?.parentElement;
+    const secret = container?.closest<HTMLElement>('[data-secret="true"]');
+    if (!secret || secret.dataset.locked === 'true') return;
+    event.preventDefault();
+    patchSecret(Number(secret.dataset.secretIndex), { locked: true });
   };
 
   const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -167,15 +225,12 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     const active = resizeRef.current;
     if (!active) return;
     if (Math.abs(event.clientY - active.startY) > 4) resizeDraggedRef.current = true;
-    const next = Math.max(64, Math.min(640, active.startHeight + event.clientY - active.startY));
-    setHeightPx(next);
+    setHeightPx(Math.max(64, Math.min(640, active.startHeight + event.clientY - active.startY)));
   };
 
   const endResize = (event: React.PointerEvent<HTMLButtonElement>) => {
     resizeRef.current = null;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {}
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
   };
 
   const toggleResize = () => {
@@ -183,50 +238,63 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       resizeDraggedRef.current = false;
       return;
     }
-    const currentHeight = editorRef.current?.getBoundingClientRect().height ?? 0;
-    if (heightPx) {
-      setHeightPx(null);
-      return;
-    }
-    setHeightPx(Math.max(180, Math.min(360, Math.round(currentHeight * 1.9))));
+    if (heightPx) setHeightPx(null);
+    else setHeightPx(Math.max(180, Math.min(360, Math.round((editorRef.current?.getBoundingClientRect().height ?? 96) * 1.9))));
   };
 
   return (
     <div
       ref={editorRef}
-      className={`${className} secret-note-editor relative overflow-auto leading-relaxed ${canResize ? 'pr-7' : ''}`}
-      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height }}
+      contentEditable
+      suppressContentEditableWarning
+      role="textbox"
+      aria-multiline="true"
+      data-placeholder={placeholder}
+      className={`${className} secret-note-editor relative overflow-auto leading-relaxed empty:before:text-stone-300 empty:before:content-[attr(data-placeholder)] ${canResize ? 'pr-7' : ''}`}
+      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height, whiteSpace: 'pre-wrap' }}
+      onInput={handleInput}
+      onKeyDown={handleKeyDown}
+      onFocus={event => {
+        focusedRef.current = true;
+        onFocus?.(event as unknown as React.FocusEvent<HTMLTextAreaElement>);
+      }}
+      onBlur={event => {
+        focusedRef.current = false;
+        const latest = readBlocks();
+        setBlocks(latest);
+        onChange(serializeSecretNote(latest));
+        onBlur?.(event as unknown as React.FocusEvent<HTMLTextAreaElement>);
+      }}
     >
       {blocks.map((block, index) => block.type === 'secret' ? (
-        <span key={index} className="inline-flex max-w-full items-baseline gap-1 align-baseline">
-            <button
-              type="button"
-              onClick={() => toggleSecret(index, block)}
-              onKeyDown={event => handlePillKeyDown(index, event)}
-              className="inline-flex h-4 items-center gap-0.5 rounded-full border px-1.5 text-[8px] font-bold uppercase tracking-wide transition-colors"
-              style={{
-                background: block.locked ? '#1F2F46' : '#E4ECE6',
-                borderColor: block.locked ? '#162233' : '#cfded3',
-                color: block.locked ? '#ffffff' : '#476653',
-                touchAction: 'manipulation',
-                lineHeight: 1,
-              }}
-              title={block.locked ? 'Unlock secret note' : 'Lock secret note'}
-            >
-              <LockIcon locked={block.locked} />
-              secret
-            </button>
+        <span key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} data-secret-text={block.text} className="inline-flex max-w-full items-baseline gap-1 align-baseline">
+          <span
+            role="button"
+            tabIndex={0}
+            contentEditable={false}
+            onClick={() => toggleSecret(index, block)}
+            onKeyDown={event => {
+              if (event.key === 'Backspace' || event.key === 'Delete') {
+                event.preventDefault();
+                removeBlock(index);
+              }
+            }}
+            className="inline-flex h-4 items-center gap-0.5 rounded-full border px-1.5 text-[8px] font-bold uppercase tracking-wide"
+            style={{
+              background: block.locked ? '#1F2F46' : '#E4ECE6',
+              borderColor: block.locked ? '#162233' : '#cfded3',
+              color: block.locked ? '#ffffff' : '#476653',
+              lineHeight: 1,
+            }}
+          >
+            <LockIcon locked={block.locked} />
+            secret
+          </span>
           {block.locked && unlockingIndex === index && (
-            <span className="inline-flex min-w-[7rem] items-center gap-1">
+            <span contentEditable={false} className="inline-flex items-center gap-1">
               <input
                 value={unlockCode}
                 onChange={event => updateUnlockCode(index, event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    submitUnlock(index);
-                  }
-                }}
                 inputMode="numeric"
                 autoFocus
                 placeholder="9334"
@@ -234,48 +302,15 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 aria-label="Secret unlock code"
               />
-              <button
-                type="button"
-                onClick={() => submitUnlock(index)}
-                className="h-5 rounded-full px-2 text-[9px] font-bold text-white disabled:opacity-40"
-                style={{ background: '#7E9B86', touchAction: 'manipulation' }}
-                disabled={unlockCode.length !== 4}
-              >
-                Unlock
-              </button>
             </span>
           )}
-          {!block.locked && (
-            <textarea
-              ref={node => { secretRefs.current[index] = node; }}
-              value={block.text}
-              onChange={event => patchBlock(index, { text: event.target.value })}
-              onKeyDown={event => handleSecretKeyDown(index, event)}
-              placeholder="Private note..."
-              rows={1}
-              className={compactInputBase}
-              style={textAreaStyle}
-            />
-          )}
+          {!block.locked && <span data-secret-content="true" className="min-w-[1ch] outline-none">{block.text}</span>}
         </span>
-      ) : (
-        <textarea
-          key={index}
-          autoFocus={autoFocus && index === 0}
-          value={block.text}
-          onChange={event => handleTextChange(index, event)}
-          onKeyDown={event => handleTextKeyDown(index, event)}
-          placeholder={blocks.length === 1 ? placeholder : undefined}
-          rows={rows}
-          className="block w-full resize-none border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none"
-          style={textAreaStyle}
-          onFocus={onFocus}
-          onBlur={onBlur}
-        />
-      ))}
+      ) : block.text)}
       {canResize && (
         <button
           type="button"
+          contentEditable={false}
           onPointerDown={startResize}
           onPointerMove={moveResize}
           onPointerUp={endResize}
