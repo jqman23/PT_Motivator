@@ -32,8 +32,12 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const blocks = useMemo(() => normalizeBlocks(parseSecretNote(value)), [value]);
   const [unlockingIndex, setUnlockingIndex] = useState<number | null>(null);
   const [unlockCode, setUnlockCode] = useState('');
+  const [heightPx, setHeightPx] = useState<number | null>(null);
   const pendingSecretIndex = useRef<number | null>(null);
   const secretRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const canResize = /\bresize-y\b/.test(className);
 
   useEffect(() => {
     const index = pendingSecretIndex.current;
@@ -114,10 +118,33 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     colorScheme: style?.colorScheme,
   };
 
+  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeRef.current = { startY: event.clientY, startHeight: editor.getBoundingClientRect().height };
+  };
+
+  const moveResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const active = resizeRef.current;
+    if (!active) return;
+    const next = Math.max(64, Math.min(640, active.startHeight + event.clientY - active.startY));
+    setHeightPx(next);
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    resizeRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {}
+  };
+
   return (
     <div
-      className={`${className} secret-note-editor overflow-auto`}
-      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem` }}
+      ref={editorRef}
+      className={`${className} secret-note-editor relative overflow-auto ${canResize ? 'pr-7' : ''}`}
+      style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height }}
     >
       {blocks.map((block, index) => block.type === 'secret' ? (
         <div key={index} className="my-1.5">
@@ -206,6 +233,20 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           onBlur={onBlur}
         />
       ))}
+      {canResize && (
+        <button
+          type="button"
+          onPointerDown={startResize}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+          className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500"
+          aria-label="Resize note"
+          title="Drag to resize note"
+        >
+          <span className="mb-1 mr-1 block h-3 w-3 border-b-2 border-r-2 border-current" />
+        </button>
+      )}
     </div>
   );
 }
