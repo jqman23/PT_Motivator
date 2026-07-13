@@ -27,6 +27,12 @@ type TimerStep = {
   workNote?: string;
   manual?: boolean;
   countdownToStretch?: boolean;
+  workoutItemId?: string;
+  workoutSet?: number;
+  workoutTargetIndex?: number;
+  workoutTargetCount?: number;
+  workoutUnit?: WorkoutUnit;
+  workoutAmount?: number;
 };
 
 type SequenceOption = {
@@ -246,6 +252,15 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
   const steps: TimerStep[] = [];
   workout.exercises.forEach((exercise, exerciseIndex) => {
     const targets = exercise.targets?.map(target => target.trim()).filter(Boolean) ?? [];
+    const targetCount = Math.max(1, targets.length);
+    const metricFields = (set: number, targetIndex: number) => ({
+      workoutItemId: exercise.id,
+      workoutSet: set,
+      workoutTargetIndex: targetIndex,
+      workoutTargetCount: targetCount,
+      workoutUnit: exercise.unit,
+      workoutAmount: exercise.amount,
+    });
     for (let set = 1; set <= Math.max(1, exercise.sets); set += 1) {
       const prefix = `${exercise.name} set ${set}/${exercise.sets}`;
       if (exercise.unit === 'seconds') {
@@ -253,18 +268,18 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
           targets.forEach((part, partIndex) => {
             const isLastPart = partIndex === targets.length - 1;
             const nextPart = targets[partIndex + 1];
-            steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${part}`, cueAfter: isLastPart ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Switch to ${nextPart}`, kind: 'stretch', label: `${prefix} · ${part} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${part}, ${exercise.amount} seconds` });
+            steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${part}`, cueAfter: isLastPart ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Switch to ${nextPart}`, kind: 'stretch', label: `${prefix} · ${part} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${part}, ${exercise.amount} seconds`, ...metricFields(set, partIndex) });
             if (!isLastPart) steps.push({ seconds: SWITCH_SECONDS, cueBefore: `Switch to ${nextPart} for ${exercise.name}, set ${set}`, cueAfter: `Start ${exercise.name}, set ${set} of ${exercise.sets}, ${nextPart}`, kind: 'switch', countdownToStretch: true, label: `Switch to ${nextPart}` });
           });
         } else {
-          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds` });
+          steps.push({ seconds: exercise.amount, cueBefore: `Start ${exercise.name}, set ${set} of ${exercise.sets}`, cueAfter: set === exercise.sets ? `${exercise.name} done` : 'Set break', kind: 'stretch', label: `${prefix} · ${exercise.amount}s`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} seconds`, ...metricFields(set, 0) });
         }
       } else {
         const repTargets = targets.length ? targets : [''];
         repTargets.forEach((target, targetIndex) => {
           const targetText = target ? `, ${target}` : '';
           const isLastTarget = targetIndex === repTargets.length - 1;
-          steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps${targetText}`, cueAfter: isLastTarget ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Next, ${repTargets[targetIndex + 1]}`, kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps${target ? ` · ${target}` : ''}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps${targetText}` });
+          steps.push({ seconds: 0, cueBefore: `Do ${exercise.name}, set ${set} of ${exercise.sets}, ${exercise.amount} reps${targetText}`, cueAfter: isLastTarget ? (set === exercise.sets ? `${exercise.name} done` : 'Set break') : `Next, ${repTargets[targetIndex + 1]}`, kind: 'reps', manual: true, label: `${prefix} · ${exercise.amount} reps${target ? ` · ${target}` : ''}`, exerciseId: exercise.exerciseId, exerciseName: exercise.name, workNote: `set ${set}/${exercise.sets}, ${exercise.amount} reps${targetText}`, ...metricFields(set, targetIndex) });
         });
       }
       if (set < exercise.sets) {
@@ -277,6 +292,55 @@ function buildCustomSequence(workout: CustomWorkout): SequenceOption {
     }
   });
   return { key: `custom-${workout.id}`, label: workout.name.trim() || 'Custom workout', steps, workout };
+}
+
+type WorkoutMetric = {
+  exerciseId: string;
+  sets: number;
+  reps: number | null;
+  durationSeconds: number | null;
+  scopeMultiplier: 1 | 2 | 4;
+};
+
+function metricsFromCompletedSteps(workout: CustomWorkout, completedSteps: TimerStep[]): { metrics: WorkoutMetric[]; error?: string } {
+  const byExercise = new Map<string, WorkoutMetric>();
+
+  for (const item of workout.exercises) {
+    if (!item.exerciseId) continue;
+    const itemSteps = completedSteps.filter(step => step.workoutItemId === item.id && step.exerciseId === item.exerciseId);
+    const completedTargetsBySet = new Map<number, Set<number>>();
+    for (const step of itemSteps) {
+      if (!step.workoutSet || step.workoutTargetIndex === undefined) continue;
+      const targets = completedTargetsBySet.get(step.workoutSet) ?? new Set<number>();
+      targets.add(step.workoutTargetIndex);
+      completedTargetsBySet.set(step.workoutSet, targets);
+    }
+    const expectedTargets = Math.max(1, item.targets?.filter(target => target.trim()).length || 1);
+    const completedSets = Array.from(completedTargetsBySet.values()).filter(targets => targets.size >= expectedTargets).length;
+    if (!completedSets) continue;
+    const scopeMultiplier = (expectedTargets === 4 ? 4 : expectedTargets === 2 ? 2 : 1) as 1 | 2 | 4;
+    const next: WorkoutMetric = {
+      exerciseId: item.exerciseId,
+      sets: completedSets,
+      reps: item.unit === 'reps' ? item.amount : null,
+      durationSeconds: item.unit === 'seconds' ? item.amount : null,
+      scopeMultiplier,
+    };
+    const existing = byExercise.get(item.exerciseId);
+    if (!existing) {
+      byExercise.set(item.exerciseId, next);
+      continue;
+    }
+    const compatible = existing.reps === next.reps
+      && existing.durationSeconds === next.durationSeconds
+      && existing.scopeMultiplier === next.scopeMultiplier;
+    if (!compatible) {
+      return { metrics: [], error: `${item.name} appears more than once with different metrics. Make those workout entries match before saving.` };
+    }
+    existing.sets += next.sets;
+  }
+
+  return { metrics: Array.from(byExercise.values()) };
 }
 
 function workoutDurationSummary(workout: CustomWorkout) {
@@ -398,6 +462,7 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
   const [logError, setLogError] = useState('');
   const [workoutMetricsSaved, setWorkoutMetricsSaved] = useState(false);
   const [workoutMetricsSaving, setWorkoutMetricsSaving] = useState(false);
+  const [workoutMetricsStatus, setWorkoutMetricsStatus] = useState('');
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const bellOnRef = useRef(bellOn);
@@ -413,6 +478,8 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
   const sequenceKeyRef = useRef<SequenceKey | null>(null);
   const lastCountdownSecondRef = useRef<number | null>(null);
   const completedWorkStepsRef = useRef<TimerStep[]>([]);
+  const workoutMetricsSavePromiseRef = useRef<Promise<boolean> | null>(null);
+  const workoutMetricOperationIdRef = useRef('');
 
   useEffect(() => { bellOnRef.current = bellOn; }, [bellOn]);
 
@@ -452,6 +519,7 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
     if (!done) {
       setLogSaved(false);
       setWorkoutMetricsSaved(false);
+      setWorkoutMetricsStatus('');
       setLogExerciseId('');
       setLogError('');
     }
@@ -576,7 +644,10 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message }, true);
     // Structured exercise metrics own sets/reps/duration now. Completing a
     // workout must not write those values into free-form notes.
-    if (completedWorkout) setLogSaved(false);
+    if (completedWorkout) {
+      setLogSaved(false);
+      void handleSaveWorkoutMetrics();
+    }
   };
 
   const resolveSequenceAt = (now: number): SequenceResolution => {
@@ -753,6 +824,10 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
     endAtRef.current = null;
     lastCountdownSecondRef.current = null;
     completedWorkStepsRef.current = [];
+    workoutMetricsSavePromiseRef.current = null;
+    workoutMetricOperationIdRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
     activeSequenceRef.current = option.steps;
     activeSequenceOptionRef.current = option;
     setActiveSequenceOption(option);
@@ -853,56 +928,73 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
     }
   };
 
-  const handleSaveWorkoutMetrics = async () => {
+  function handleSaveWorkoutMetrics(): Promise<boolean> {
+    if (workoutMetricsSavePromiseRef.current) return workoutMetricsSavePromiseRef.current;
     const workout = activeSequenceOptionRef.current.workout;
-    if (!workout || workoutMetricsSaving) return;
+    if (!workout) return Promise.resolve(false);
     const completedSteps = completedWorkStepsRef.current;
     const fallbackDate = new Date().toLocaleDateString('en-CA');
     const date = metricDate || fallbackDate;
-    const metrics = workout.exercises.flatMap(exercise => {
-      if (!exercise.exerciseId) return [];
-      const targetCount = exercise.targets?.length || 1;
-      const scopeMultiplier = exercise.sides === 'inversion_eversion_both' || targetCount === 4 ? 4 : exercise.sides === 'each' || targetCount === 2 ? 2 : 1;
-      const completedParts = completedSteps.filter(step => (
-        step.exerciseId === exercise.exerciseId
-        && (exercise.unit === 'reps' ? step.kind === 'reps' : step.kind === 'stretch')
-        && (exercise.unit === 'reps' || step.seconds === exercise.amount)
-      )).length;
-      const sets = Math.floor(completedParts / scopeMultiplier);
-      if (sets < 1) return [];
-      return [{
-        exerciseId: exercise.exerciseId,
-        sets,
-        reps: exercise.unit === 'reps' ? exercise.amount : null,
-        durationSeconds: exercise.unit === 'seconds' ? exercise.amount : null,
-        scopeMultiplier,
-      }];
-    });
+    const { metrics, error: metricError } = metricsFromCompletedSteps(workout, completedSteps);
+    if (metricError) {
+      setLogError(metricError);
+      return Promise.resolve(false);
+    }
     if (!metrics.length) {
-      setLogError('No completed exercise sets to apply.');
-      return;
+      setWorkoutMetricsSaved(true);
+      setWorkoutMetricsStatus('No completed sets to save; skipped steps were not counted.');
+      setLogError('');
+      return Promise.resolve(true);
     }
 
     setWorkoutMetricsSaving(true);
     setLogError('');
-    try {
-      await Promise.all(metrics.map(async metric => {
+    if (!workoutMetricOperationIdRef.current) {
+      workoutMetricOperationIdRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    }
+    const savePromise = (async () => {
+      try {
         const response = await fetch('/api/exercise-metrics', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date, ...metric, add: true }),
+          body: JSON.stringify({
+            date,
+            metrics,
+            operationId: workoutMetricOperationIdRef.current,
+          }),
         });
         const data = await response.json().catch(() => ({})) as { error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not save workout metrics.');
+        metrics.forEach(metric => {
         window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', { detail: { exerciseId: metric.exerciseId, date } }));
         window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId: metric.exerciseId } }));
-      }));
-      setWorkoutMetricsSaved(true);
-    } catch (error) {
-      setLogError(error instanceof Error ? error.message : 'Could not save workout metrics.');
-    } finally {
-      setWorkoutMetricsSaving(false);
-    }
+        });
+        setWorkoutMetricsSaved(true);
+        const totalSets = metrics.reduce((total, metric) => total + metric.sets, 0);
+        setWorkoutMetricsStatus(`${totalSets} completed ${totalSets === 1 ? 'set' : 'sets'} saved; skipped steps were not counted.`);
+        return true;
+      } catch (error) {
+        setLogError(error instanceof Error ? error.message : 'Could not save workout metrics.');
+        return false;
+      } finally {
+        setWorkoutMetricsSaving(false);
+      }
+    })();
+    workoutMetricsSavePromiseRef.current = savePromise;
+    void savePromise.then(saved => {
+      if (!saved) workoutMetricsSavePromiseRef.current = null;
+    });
+    return savePromise;
+  }
+
+  const repeatWorkout = async () => {
+    const option = activeSequenceOptionRef.current;
+    if (!option.workout) return;
+    const saved = workoutMetricsSaved || await handleSaveWorkoutMetrics();
+    if (!saved) return;
+    await startSequencePreset(option);
   };
 
   const restoreStoredTimer = () => {
@@ -1472,11 +1564,14 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
       {showWorkoutLogSection && (
         <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
           {workoutMetricsSaved ? (
-            <p className="text-center text-xs font-bold text-[#476653]">✓ Workout metrics added</p>
+            <div className="space-y-2">
+              <p className="text-center text-xs font-bold text-[#476653]">✓ {workoutMetricsStatus || 'Completed sets saved automatically'}</p>
+              <button onClick={() => void repeatWorkout()} className="w-full rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: '#D9A94B' }}>Do workout again</button>
+            </div>
           ) : (
             <>
-              <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-stone-400">Add completed sets to today</p>
-              <button onClick={() => void handleSaveWorkoutMetrics()} disabled={workoutMetricsSaving} className="w-full rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{workoutMetricsSaving ? 'Adding…' : 'Apply workout metrics'}</button>
+              <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-stone-400">{workoutMetricsSaving ? 'Saving completed sets automatically…' : 'Automatic save needs attention'}</p>
+              {!workoutMetricsSaving && <button onClick={() => void handleSaveWorkoutMetrics()} className="w-full rounded-lg px-3 py-2 text-xs font-bold text-white" style={{ background: '#7E9B86' }}>Retry metric save</button>}
               {logError && <p className="mt-1.5 text-[11px] font-semibold text-red-600">{logError}</p>}
             </>
           )}
@@ -1484,7 +1579,7 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
       )}
 
       <div className="flex gap-2">
-        <button onClick={event => { event.stopPropagation(); if (running) pauseTimer(); else start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : currentStep?.manual ? 'Next' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
+        <button onClick={event => { event.stopPropagation(); if (running) pauseTimer(); else if (done && activeSequence.workout) void repeatWorkout(); else start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : currentStep?.manual ? 'Next' : done && activeSequence.workout ? 'Do workout again' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
         {sequenceActive && sequenceIndex >= 0 && !done && <button onClick={event => { event.stopPropagation(); skipSegment(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 10px', background: '#fef3c7', color: '#92400e' }}>Skip</button>}
         <button onClick={event => { event.stopPropagation(); reset(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 12px', background: '#f5f5f4', color: '#78716c' }}>Reset</button>
       </div>
@@ -1561,8 +1656,8 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
               )}
 
               <div className="mt-5 grid grid-cols-3 gap-2">
-                <button onClick={() => { if (running) pauseTimer(); else start(); }} className="col-span-2 rounded-2xl py-4 text-base font-black text-white shadow-lg" style={{ background: running ? 'rgb(255 255 255 / 0.14)' : '#D9A94B' }}>
-                  {running ? 'Pause' : currentWorkoutStep?.manual ? 'Done, next' : done && mode === 'timer' ? 'Restart' : 'Start'}
+                <button onClick={() => { if (running) pauseTimer(); else if (done && activeSequence.workout) void repeatWorkout(); else start(); }} className="col-span-2 rounded-2xl py-4 text-base font-black text-white shadow-lg" style={{ background: running ? 'rgb(255 255 255 / 0.14)' : '#D9A94B' }}>
+                  {running ? 'Pause' : currentWorkoutStep?.manual ? 'Done, next' : done && activeSequence.workout ? 'Do workout again' : done && mode === 'timer' ? 'Restart' : 'Start'}
                 </button>
                 <button onClick={() => reset()} className="rounded-2xl bg-white/10 py-4 text-sm font-bold text-white/75">Reset</button>
                 {sequenceActive && sequenceIndex >= 0 && !done && (
@@ -1619,11 +1714,14 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
               )}
               {showWorkoutLogSection && (
                 <div className="rounded-3xl bg-white p-4 text-stone-800">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Add completed sets to today</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Automatic workout metrics</p>
                   {workoutMetricsSaved ? (
-                    <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Workout metrics added.</p>
+                    <div className="mt-2 space-y-2">
+                      <p className="rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">{workoutMetricsStatus || 'Completed sets saved. Skipped steps were not counted.'}</p>
+                      <button onClick={() => void repeatWorkout()} className="w-full rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>Do workout again</button>
+                    </div>
                   ) : (
-                    <button onClick={() => void handleSaveWorkoutMetrics()} disabled={workoutMetricsSaving} className="mt-2 w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{workoutMetricsSaving ? 'Adding…' : 'Apply workout metrics'}</button>
+                    <button onClick={() => void handleSaveWorkoutMetrics()} disabled={workoutMetricsSaving} className="mt-2 w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{workoutMetricsSaving ? 'Saving completed sets…' : 'Retry metric save'}</button>
                   )}
                   {logError && <p className="mt-2 text-xs font-semibold text-red-600">{logError}</p>}
                 </div>

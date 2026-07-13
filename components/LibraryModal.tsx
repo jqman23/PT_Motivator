@@ -9,7 +9,6 @@ type ExerciseDbResult = {
   source?: 'exercisedb';
   exerciseId: string;
   name: string;
-  gifUrl?: string;
   targetMuscles?: string[];
   bodyParts?: string[];
   equipments?: string[];
@@ -155,7 +154,6 @@ function exerciseFromJson(item: JsonExerciseInput, index: number): ParsedJsonExe
     tips,
     origin,
     sourceId: asString(item.sourceId ?? item.externalId) || 'json-import',
-    gifUrl: asString(item.gifUrl) || undefined,
     mainImageUrl: asString(item.mainImageUrl ?? item.imageUrl ?? item.photoUrl) || undefined,
     mainImageUrls: asStringArray(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls).slice(0, 3),
     mainVideoUrl: asString(item.mainVideoUrl ?? item.videoUrl ?? item.youtubeUrl) || undefined,
@@ -238,7 +236,6 @@ export default function LibraryModal({
   const [tipsText, setTipsText] = useState('');
   const [imageSearch, setImageSearch] = useState('');
   const [sourceId, setSourceId] = useState<string | undefined>();
-  const [gifUrl, setGifUrl] = useState<string | undefined>();
   const [mainImageUrl, setMainImageUrl] = useState('');
   const [mainVideoUrl, setMainVideoUrl] = useState('');
 
@@ -248,7 +245,7 @@ export default function LibraryModal({
   const [sourceImporting, setSourceImporting] = useState<string | null>(null);
   const [sourceMessage, setSourceMessage] = useState('');
   const [bulkMessage, setBulkMessage] = useState('');
-  const [importedMeta, setImportedMeta] = useState<{ source?: 'exercisedb' | 'api_ninjas'; sourceId?: string; gifUrl?: string } | null>(null);
+  const [importedMeta, setImportedMeta] = useState<{ source?: 'exercisedb' | 'api_ninjas'; sourceId?: string } | null>(null);
 
   const targetCat = addToCatId ? layout.find(c => c.id === addToCatId) : null;
   const tips = tipsText.split('\n').map(t => t.trim()).filter(Boolean);
@@ -297,7 +294,6 @@ export default function LibraryModal({
     setTipsText('');
     setImageSearch('');
     setSourceId(undefined);
-    setGifUrl(undefined);
     setMainImageUrl('');
     setMainVideoUrl('');
     setSourceQuery('');
@@ -446,7 +442,6 @@ export default function LibraryModal({
     setTipsText((ex.tips ?? []).join('\n'));
     setImageSearch(ex.imageSearch ?? ex.name);
     setSourceId(ex.sourceId);
-    setGifUrl(ex.gifUrl);
     setMainImageUrl(ex.mainImageUrl ?? '');
     setMainVideoUrl(ex.mainVideoUrl ?? '');
     clearSourceResults();
@@ -517,7 +512,6 @@ export default function LibraryModal({
       setOrigin('api_ninjas');
       setImportedMeta({ source: 'api_ninjas', sourceId: result.name });
       setSourceId(result.name);
-      setGifUrl(undefined);
       setSourceResults([]);
       setSourceQuery('');
       setSourceMessage('Imported source metadata. Review fields, then create.');
@@ -546,9 +540,8 @@ export default function LibraryModal({
       setTipsText(exercise.instructions?.join('\n') ?? '');
       setCat(inferType(exercise));
       setOrigin('exercisedb');
-      setImportedMeta({ source: 'exercisedb', sourceId: exercise.exerciseId, gifUrl: exercise.gifUrl });
+      setImportedMeta({ source: 'exercisedb', sourceId: exercise.exerciseId });
       setSourceId(exercise.exerciseId);
-      setGifUrl(exercise.gifUrl);
       setSourceResults([]);
       setSourceQuery('');
       setSourceMessage('Imported source metadata. Review fields, then create.');
@@ -576,7 +569,6 @@ export default function LibraryModal({
         tips,
         origin: importedMeta?.source ?? origin,
         sourceId: importedMeta?.sourceId ?? sourceId,
-        gifUrl: importedMeta?.gifUrl ?? gifUrl,
         mainImageUrl: mainImageUrl.trim() || undefined,
         mainVideoUrl: videoSource?.url,
       }),
@@ -594,7 +586,7 @@ export default function LibraryModal({
       setSourceMessage('Main video must be a valid http or https URL.');
       return;
     }
-    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, gifUrl, mainImageUrl: mainImageUrl.trim() || undefined, mainVideoUrl: videoSource?.url });
+    onUpdateCustom({ ...editing, name: name.trim(), cue: cue.trim(), sets: sets.trim() || undefined, cat, origin, imageSearch: imageSearch.trim() || name.trim(), tips, sourceId, mainImageUrl: mainImageUrl.trim() || undefined, mainVideoUrl: videoSource?.url });
     resetForm();
   };
 

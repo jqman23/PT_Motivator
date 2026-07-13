@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getLogForRange, getNotesForDate, getHealthForDate, getConfig, setConfig } from '@/lib/db';
+import { getLogForRange, getNotesForDate, getHealthForDate, getConfigs, setConfigs } from '@/lib/db';
 import { callGroqChat, getGroqModelChain } from '@/lib/groq';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
 const DEFAULT_MODEL = getGroqModelChain('summary')[0];
 const NO_ACTIVITY_SUMMARY = 'Nothing was logged yesterday, so there is no daily recap to show yet.';
 const UNAVAILABLE_SUMMARY = 'Sunshine could not generate the daily recap right now. Please try again shortly.';
+const SUMMARY_PROMPT_VERSION = 'analytical-v1';
 
 function offsetDateStr(base: string, days: number): string {
   const d = new Date(base + 'T12:00:00');
@@ -36,12 +37,12 @@ export async function POST() {
 
     // Reuse only a real cached recap. Older code could cache a null result for the whole day,
     // which made every later tap on the sun button appear to do nothing.
-    const [cachedDate, cachedText] = await Promise.all([
-      getConfig('dailySummaryDate') as Promise<string | null>,
-      getConfig('dailySummaryText') as Promise<string | null>,
-    ]);
+    const cached = await getConfigs(['dailySummaryDate', 'dailySummaryText', 'dailySummaryVersion']);
+    const cachedDate = typeof cached.dailySummaryDate === 'string' ? cached.dailySummaryDate : null;
+    const cachedText = typeof cached.dailySummaryText === 'string' ? cached.dailySummaryText : null;
+    const cachedVersion = typeof cached.dailySummaryVersion === 'string' ? cached.dailySummaryVersion : null;
     const usableCachedText = typeof cachedText === 'string' ? cachedText.trim() : '';
-    if (cachedDate === today && usableCachedText) {
+    if (cachedDate === today && cachedVersion === SUMMARY_PROMPT_VERSION && usableCachedText) {
       return NextResponse.json({
         summary: usableCachedText,
         date: yesterday,
@@ -66,13 +67,14 @@ export async function POST() {
       }, { status: 503 });
     }
 
-    const [logRows, noteRows, healthRows, libraryData, ptSessions] = await Promise.all([
+    const [logRows, noteRows, healthRows, sourceConfigs] = await Promise.all([
       getLogForRange(yesterday, yesterday),
       getNotesForDate(yesterday, false),
       getHealthForDate(yesterday),
-      getConfig('exerciseLibrary'),
-      getConfig('ptSessions'),
+      getConfigs(['exerciseLibrary', 'ptSessions']),
     ]);
+    const libraryData = sourceConfigs.exerciseLibrary;
+    const ptSessions = sourceConfigs.ptSessions;
 
     const completedIds = (logRows as Array<{ exercise_id: string; completed: boolean }>)
       .filter(r => r.completed)
@@ -119,7 +121,7 @@ export async function POST() {
       messages: [
         {
           role: 'system',
-          content: 'Write exactly 1-2 sentences summarizing what happened yesterday. Tone: sharp, grounded, and specific — like a PT note written by someone who understands the pattern, not a motivational poster. Call out the meaningful detail: what was done, what stands out, and any signal from the session/health notes. If there was a PT or training session, mention it only if it changes the read. No clichés. No filler openers like "Yesterday you" or "Great job".',
+          content: 'Write exactly 2 concise sentences about yesterday for someone actively managing a PT journey. First, summarize the most meaningful activity and symptom, health, or session detail. Second, add one cautious analytical nudge grounded only in the supplied data: connect details that may be related, identify a possible pattern worth watching, or pose a brief reflective question. Use calibrated language such as "may", "could", or "worth watching" and clearly distinguish inference from fact. Never diagnose, prescribe, imply causation, or invent a trend from one day. Tone: sharp, specific, and thoughtful—not a motivational poster. No clichés or filler openers like "Yesterday you" or "Great job".',
         },
         { role: 'user', content: userText },
       ],
@@ -130,10 +132,11 @@ export async function POST() {
     const summary = String(data?.choices?.[0]?.message?.content ?? '').trim();
     if (!summary) throw new Error('Groq returned an empty daily summary');
 
-    await Promise.all([
-      setConfig('dailySummaryDate', today),
-      setConfig('dailySummaryText', summary),
-    ]);
+    await setConfigs({
+      dailySummaryDate: today,
+      dailySummaryText: summary,
+      dailySummaryVersion: SUMMARY_PROMPT_VERSION,
+    });
     return NextResponse.json({
       summary,
       date: yesterday,

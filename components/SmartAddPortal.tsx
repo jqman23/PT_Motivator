@@ -166,7 +166,6 @@ export default function SmartAddPortal() {
           tips: aiTips.length ? aiTips : ['AI added — review form and dosage with your PT.'],
           origin: item.origin ?? 'patient_added',
           sourceId: item.sourceId ?? (item.origin === 'patient_added' ? undefined : 'ai-added'),
-          gifUrl: item.gifUrl,
           mainImageUrl: item.mainImageUrl,
           mainImageUrls: item.mainImageUrls,
           mainVideoUrl: item.mainVideoUrl,

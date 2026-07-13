@@ -26,7 +26,6 @@ type ExerciseDbResult = {
   source?: 'exercisedb';
   exerciseId: string;
   name: string;
-  gifUrl?: string;
   targetMuscles?: string[];
   bodyParts?: string[];
   equipments?: string[];
@@ -145,7 +144,6 @@ function normalizeExerciseDbMatch(item: ExerciseDbResult): SmartDbMatch {
     name: toTitleCase(item.name),
     cue: [target, equipment].filter(Boolean).join(' · '),
     tips: item.instructions?.slice(0, 5),
-    gifUrl: item.gifUrl,
     label: 'ExerciseDB',
   };
 }
@@ -297,7 +295,6 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         reason: String(item.reason ?? '').trim(),
         origin: item.origin,
         sourceId: item.sourceId,
-        gifUrl: item.gifUrl,
         mainImageUrl: item.mainImageUrl,
         mainImageUrls: item.mainImageUrls,
         mainVideoUrl: item.mainVideoUrl,

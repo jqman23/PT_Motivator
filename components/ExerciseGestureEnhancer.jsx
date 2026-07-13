@@ -270,7 +270,7 @@ export default function ExerciseGestureEnhancer() {
         data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
-          width: 'min(250px, calc(100vw - 16px))',
+          width: 'min(340px, calc(100vw - 16px))',
           left: active.mobile ? '50%' : active.x,
           top: active.mobile ? 'max(4.5rem, env(safe-area-inset-top))' : active.y,
           transform: active.mobile ? 'translateX(-50%)' : active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
@@ -299,7 +299,7 @@ export default function ExerciseGestureEnhancer() {
           </button>
         </div>
 
-        <div className="mt-1.5 grid grid-cols-[46px_58px_1fr] gap-1">
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <label className="rounded-lg bg-white px-1.5 py-1">
             <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Sets</span>
             <input
@@ -339,7 +339,7 @@ export default function ExerciseGestureEnhancer() {
             />
           </label>
 
-          <label className="min-w-0 rounded-lg bg-white px-1.5 py-1">
+          <label className="col-span-2 min-w-0 rounded-lg bg-white px-2 py-1.5">
             <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Type</span>
             <div className="flex items-center gap-1">
               <input
@@ -360,7 +360,7 @@ export default function ExerciseGestureEnhancer() {
                   setDraft(previous => ({ ...previous, mode, kindText: kindLabel(mode) }));
                 }}
                 placeholder="Reps"
-                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-stone-700 outline-none"
+                className="min-w-[4.5rem] flex-1 bg-transparent text-sm font-semibold text-stone-700 outline-none"
                 style={{ fontSize: 16 }}
               />
               {draft.mode === 'duration' && (

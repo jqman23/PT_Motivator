@@ -55,7 +55,7 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
   const videoSource = exerciseVideoSource(localExercise.mainVideoUrl);
   const photos = primaryPhotos(localExercise);
   const [activePhoto, setActivePhoto] = useState(0);
-  const imageUrl = photos[activePhoto] || localExercise.gifUrl || youtubeThumbnailUrl(localExercise.mainVideoUrl);
+  const imageUrl = photos[activePhoto] || youtubeThumbnailUrl(localExercise.mainVideoUrl);
   const hasPrimaryImage = photos.length > 0;
   const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
   const hasPrimaryVideo = !!videoSource;

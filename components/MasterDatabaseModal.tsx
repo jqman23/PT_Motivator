@@ -5,7 +5,7 @@ import { Exercise, ExerciseProgramMeta, ExerciseTimerPrescription, getExercisePr
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,120}$/;
 
@@ -26,8 +26,6 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
   const [catId, setCatId] = useState(layout[0]?.id ?? '');
   const [json, setJson] = useState('');
   const [saved, setSaved] = useState(false);
-  const [gifLoading, setGifLoading] = useState(false);
-  const [gifStatus, setGifStatus] = useState('');
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameStatus, setRenameStatus] = useState('');
@@ -248,7 +246,7 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
     if (name) out.name = name;
     if (id) out.id = id;
 
-    const stringFields: Array<keyof Exercise> = ['cue', 'sets', 'imageSearch', 'gifUrl', 'mainImageUrl', 'mainVideoUrl', 'sourceId'];
+    const stringFields: Array<keyof Exercise> = ['cue', 'sets', 'imageSearch', 'mainImageUrl', 'mainVideoUrl', 'sourceId'];
     stringFields.forEach(fieldName => {
       const value = asString(fieldName === 'sourceId' ? (item.sourceId ?? item.externalId) : item[fieldName]);
       if (value) (out as Record<string, unknown>)[fieldName] = value;
@@ -385,7 +383,6 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
             origin: incoming.origin ?? 'patient_added',
             programs: incoming.programs,
             sourceId: incoming.sourceId,
-            gifUrl: incoming.gifUrl,
             mainImageUrl: incoming.mainImageUrl,
             mainImageUrls: incoming.mainImageUrls,
             mainVideoUrl: incoming.mainVideoUrl,
@@ -476,94 +473,13 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
     setTimeout(() => setSaved(false), 1500);
   };
 
-  const makeQueries = (ex: Exercise) => {
-    const base = [
-      ex.name,
-      `${ex.name} ${ex.cue}`,
-      ex.imageSearch,
-      ex.cue,
-    ].filter(Boolean);
-
-    return Array.from(new Set(base.map(v => String(v).trim()).filter(v => v.length > 1)));
-  };
-
-  const isBrokenGif = (url?: string) =>
-    !url ||
-    url.includes('/api/exercisedb-image/') ||
-    url.includes('v2.exercisedb.io/image/') ||
-    url.includes('exercisedb-image');
-
-  const fillGifs = async () => {
-    setGifLoading(true);
-    setGifStatus('Starting selected GIF autofill…');
-
-    try {
-      const selectedIds = Object.keys(selected).filter(id => selected[id]);
-      const selectedRows = draft
-        .filter(e => selectedIds.includes(e.id))
-        .map(e => ({
-          id: e.id,
-          name: e.name,
-          cue: e.cue,
-          imageSearch: e.imageSearch,
-        }));
-
-      if (!selectedRows.length) {
-        alert('Select/check the rows you want to fill first.');
-        setGifStatus('No selected rows.');
-        return;
-      }
-
-      const res = await fetch('/api/exercisedb-gif/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ exercises: selectedRows }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        setGifStatus('GIF autofill failed.');
-        alert(`GIF autofill failed: ${data?.error ?? res.status}`);
-        return;
-      }
-
-      const updates = data.updates ?? {};
-      const filled = Number(data.filled ?? 0);
-      const checked = Number(data.checked ?? selectedRows.length);
-
-      setDraft(prev => prev.map(row =>
-        updates[row.id]
-          ? { ...row, gifUrl: updates[row.id], origin: row.origin ?? 'exercisedb' }
-          : row
-      ));
-
-      const debugLines = Array.isArray(data.debug)
-        ? data.debug.slice(0, 15).map((item: unknown) => {
-            const d = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-            return `${String(d.status ?? '')}: ${String(d.name ?? d.id ?? '')}${d.match ? ` → ${String(d.match)}` : ''}${d.score !== undefined ? ` (${String(d.score)})` : ''}`;
-          }
-          ).join('\n')
-        : '';
-
-      setGifStatus(`Done: filled ${filled} of ${checked} selected rows. Click Save database.`);
-      alert(`GIF autofill done: filled ${filled} of ${checked} selected rows. Click Save database.\n\n${debugLines}`);
-    } catch (err) {
-      setGifStatus('GIF autofill failed.');
-      alert(`GIF autofill failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setGifLoading(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-5" onPointerDown={onClose}>
       <div className="bg-[#F6F1E7] w-full sm:max-w-6xl rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] flex flex-col" onPointerDown={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-stone-200 flex justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-[#F6F1E7] p-4">
           <div>
             <h2 className="font-serif text-xl font-semibold text-stone-800">Master database</h2>
-            <p className="text-xs text-stone-500">Bulk edit every exercise field. Desktop only.</p>
+            <p className="text-xs text-stone-500">{draft.length} exercises · {filtered.length} visible · desktop editor</p>
           </div>
           <button onPointerDown={onClose} className="w-9 h-9 rounded-full hover:bg-stone-200 text-xl text-stone-500">×</button>
         </div>
@@ -573,8 +489,14 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
         </div>
 
         <div className="hidden sm:flex min-h-0 flex-1">
-          <aside className="w-72 border-r border-stone-200 p-4 overflow-y-auto space-y-3">
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anything…" className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm" />
+          <aside className="w-80 flex-shrink-0 space-y-3 overflow-y-auto border-r border-stone-200 bg-white/35 p-4">
+            <div className="sticky top-0 z-10 -mx-1 bg-[#F6F1E7]/95 px-1 pb-2 backdrop-blur">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Find exercises</label>
+              <div className="mt-1 flex gap-2">
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, ID, cue, program…" className="min-h-11 min-w-0 flex-1 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#7E9B86]" />
+                {q && <button onClick={() => setQ('')} className="min-h-11 rounded-xl border border-stone-200 bg-white px-3 text-xs font-bold text-stone-500">Clear</button>}
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setSelected(Object.fromEntries(filtered.map(e => [e.id,true])))} className={buttonSecondary}>Select visible</button>
@@ -582,12 +504,11 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
             </div>
 
             <p className="text-xs text-stone-400">Bulk target: {target.length} ({ids.length ? 'selected' : 'visible'})</p>
-            <p className="text-xs text-stone-400">GIF target: {ids.length} selected rows</p>
             {renameStatus && <p className="text-[11px] text-stone-500 leading-snug">{renameStatus}</p>}
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
-                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','programs','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
+                {['name','cue','sets','imageSearch','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','programs','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className={buttonPrimary}>Apply bulk value</button>
@@ -628,24 +549,19 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
               </div>
             </div>
 
-            <button onClick={fillGifs} disabled={gifLoading} className={buttonSecondary}>
-              {gifLoading ? 'Finding GIFs…' : 'Overwrite selected GIFs from ExerciseDB'}
-            </button>
-            {gifStatus && <p className="text-[11px] text-stone-500 leading-snug">{gifStatus}</p>}
-
             <button onClick={deleteTarget} className={buttonDanger}>Delete target exercises</button>
             <button onClick={save} className={buttonWarm}>{saved ? 'Saved' : 'Save database'}</button>
           </aside>
 
-          <div className="flex-1 overflow-auto p-4">
+          <div className="min-w-0 flex-1 overflow-auto p-4">
             <table className="w-full min-w-[1880px] border-separate border-spacing-y-2 text-xs">
-              <thead>
-                <tr className="text-left text-stone-400 uppercase tracking-widest">
-                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Timer prescription</th><th>Type</th><th>Category</th><th>Opt</th><th>Programs</th><th>Origin / source</th><th>Main media</th><th>Search / GIF</th><th>Video IDs / titles</th><th>Tips</th>
+              <thead className="sticky top-0 z-10 bg-[#F6F1E7] shadow-[0_1px_0_#e7e5e4]">
+                <tr className="text-left text-stone-500 uppercase tracking-widest">
+                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Timer prescription</th><th>Type</th><th>Category</th><th>Opt</th><th>Programs</th><th>Origin / source</th><th>Main media</th><th>Media search</th><th>Video IDs / titles</th><th>Tips</th>
                 </tr>
               </thead>
               <tbody>{filtered.map(e => (
-                <tr key={e.id} className="bg-white align-top shadow-sm">
+                <tr key={e.id} className={`align-top shadow-sm transition-colors ${selected[e.id] ? 'bg-[#F0F6F1] ring-1 ring-[#7E9B86]/30' : 'bg-white hover:bg-stone-50'}`}>
                   <td className="p-2 rounded-l-xl"><input type="checkbox" checked={!!selected[e.id]} onChange={x => setSelected(s => ({...s,[e.id]:x.target.checked}))} /></td>
                   <td className="p-2">
                     <input
@@ -739,7 +655,6 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
                   </td>
                   <td className="p-2">
                     <textarea value={e.imageSearch} onChange={x=>patch(e.id,{imageSearch:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none" placeholder="imageSearch" />
-                    <textarea value={e.gifUrl ?? ''} onChange={x=>patch(e.id,{gifUrl:x.target.value})} rows={2} className="w-52 border rounded-lg p-1 resize-none mt-1" placeholder="gifUrl" />
                   </td>
                   <td className="p-2">
                     <textarea aria-label="Video IDs" value={list(e.videoIds)} onChange={x=>patch(e.id,{videoIds:split(x.target.value)})} rows={3} className="w-44 border rounded-lg p-1 resize-none" placeholder="videoIds, one per line" />

@@ -379,7 +379,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
           <button
             type="button"
             aria-label="Move exercise up or down"
-            className={`sm:hidden flex-shrink-0 w-7 h-10 rounded-xl flex items-center justify-center transition-all ${showMoveControls ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
+            className={`flex h-10 w-7 flex-shrink-0 items-center justify-center rounded-xl transition-all ${showMoveControls ? 'bg-[#E4ECE6] text-[#7E9B86]' : 'text-stone-300'}`}
             style={{ touchAction: 'manipulation' }}
             title="Move exercise"
             onClick={(e) => {
@@ -424,7 +424,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
               <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
             )}
             {showMoveControls && (
-              <div className="sm:hidden mt-2 flex items-center gap-1.5">
+              <div className="mt-2 flex items-center gap-1.5">
                 <button
                   onClick={(e) => { e.stopPropagation(); void moveWithinSection(-1); }}
                   disabled={!!moveBusy}

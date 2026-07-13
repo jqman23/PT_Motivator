@@ -8,7 +8,7 @@ const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
 const MAX_TRANSCRIPTS = 20;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const NOTE_COLORS = new Set(['green', 'orange', 'blue', 'purple']);
+const NOTE_COLORS = new Set(['none', 'green', 'orange', 'blue', 'purple']);
 
 type DoctorNotePhoto = {
   id: string;
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     const photoAttachments = normalizePhotos(body.photoAttachments);
     const responseTranscripts = normalizeTranscripts(body.responseTranscripts);
     const pinned = body.pinned === true;
-    const noteColor = NOTE_COLORS.has(cleanText(body.noteColor, 20)) ? cleanText(body.noteColor, 20) : 'green';
+    const noteColor = NOTE_COLORS.has(cleanText(body.noteColor, 20)) ? cleanText(body.noteColor, 20) : 'none';
 
     if (!title && !noteBody && photoAttachments.length === 0) {
       return NextResponse.json({ error: 'Add a title, note, or photo before saving.' }, { status: 400 });

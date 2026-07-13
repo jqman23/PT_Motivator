@@ -36,7 +36,6 @@ type ExerciseDbResult = {
   source?: 'exercisedb';
   exerciseId: string;
   name: string;
-  gifUrl?: string;
   targetMuscles?: string[];
   bodyParts?: string[];
   equipments?: string[];
@@ -91,7 +90,6 @@ function normalizeExerciseDbMatch(item: ExerciseDbResult): SmartDbMatch {
     name: toTitleCase(item.name),
     cue: [target, equipment].filter(Boolean).join(' · '),
     tips: item.instructions?.slice(0, 5),
-    gifUrl: item.gifUrl,
     label: 'ExerciseDB',
   };
 }

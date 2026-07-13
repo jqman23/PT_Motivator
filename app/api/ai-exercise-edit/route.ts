@@ -26,7 +26,6 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   const sets = cleanText(raw.sets, 260);
   const imageSearch = cleanText(raw.imageSearch, 220);
   const sourceId = cleanText(raw.sourceId, 90);
-  const gifUrl = cleanText(raw.gifUrl, 400);
   const mainImageUrl = cleanText(raw.mainImageUrl, 600);
   const mainImageUrls = cleanList(raw.mainImageUrls, 3, 600);
   const mainVideoUrl = cleanText(raw.mainVideoUrl, 600);
@@ -40,7 +39,6 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
   if (typeof raw.optional === 'boolean') patch.optional = raw.optional;
   if (imageSearch) patch.imageSearch = imageSearch;
   if (sourceId) patch.sourceId = sourceId;
-  if (gifUrl) patch.gifUrl = gifUrl;
   if (mainImageUrl) patch.mainImageUrl = mainImageUrl;
   if (mainImageUrls.length) patch.mainImageUrls = mainImageUrls;
   if (mainVideoUrl) patch.mainVideoUrl = mainVideoUrl;
@@ -81,7 +79,6 @@ export async function POST(req: NextRequest) {
       optional: !!exercise?.optional,
       origin: cleanText(exercise?.origin, 40),
       sourceId: cleanText(exercise?.sourceId, 90),
-      gifUrl: cleanText(exercise?.gifUrl, 300),
       mainImageUrl: cleanText(exercise?.mainImageUrl, 500),
       mainImageUrls: cleanList(exercise?.mainImageUrls, 3, 500),
       mainVideoUrl: cleanText(exercise?.mainVideoUrl, 500),
@@ -104,7 +101,7 @@ export async function POST(req: NextRequest) {
       'Tips should be short, useful bullets with one idea per item.',
       'Do not add unsupported benefits, claims, mechanics, or random tips.',
       'If confidence is low for a field, leave that field blank.',
-      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","gifUrl":"","mainImageUrl":"","mainImageUrls":[],"mainVideoUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
+      'JSON shape: {"summary":[],"name":"","cue":"","sets":"","type":"mobility","optional":false,"origin":"patient_added","sourceId":"","mainImageUrl":"","mainImageUrls":[],"mainVideoUrl":"","imageSearch":"","videoIds":[],"videoTitles":[],"tips":[]}.'
     ].join(' ');
 
     const finalInstruction = isEnhance

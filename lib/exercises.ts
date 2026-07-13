@@ -43,7 +43,6 @@ export interface Exercise {
   /** Programs this exercise belongs to. An exercise may belong to either or both. */
   programs?: ExerciseProgram[];
   sourceId?: string;
-  gifUrl?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
   mainVideoUrl?: string;

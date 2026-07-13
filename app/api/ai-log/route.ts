@@ -22,7 +22,6 @@ type SourceMatch = {
   sets?: string;
   cue?: string;
   tips?: string[];
-  gifUrl?: string;
   label?: string;
 };
 
@@ -69,7 +68,6 @@ function cleanSourceMatches(value: unknown): SourceMatch[] {
         sets: cleanText(match?.sets, 120),
         cue: cleanText(match?.cue, 260),
         tips: cleanList(match?.tips, 5, 140),
-        gifUrl: cleanText(match?.gifUrl, 220),
         label: cleanText(match?.label, 40),
       })).filter(match => match.name)
     : [];
@@ -188,7 +186,7 @@ export async function POST(req: NextRequest) {
       'Fields: name canonical; sets concise dosage; cue clear setup/form; tips 2-5 specific non-generic bullets; note only today performance.',
       'Avoid generic filler: breathe naturally, engage core, keep back straight, neutral spine, sit tall unless specifically relevant.',
       'Use categoryName exactly from categories. completed true only if performed today; null if just creating library item.',
-      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":"","origin":"patient_added|exercisedb|api_ninjas","sourceId":"","gifUrl":"","dbMatches":[]}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}',
+      'JSON shape: {"summary":[],"exerciseChanges":[{"id":"","completed":true,"note":"","reason":""}],"newExercises":[{"name":"","categoryName":"","sets":"","cue":"","tips":[],"note":"","completed":null,"reason":"","origin":"patient_added|exercisedb|api_ninjas","sourceId":"","dbMatches":[]}],"healthChanges":{},"questions":[],"clarificationOptions":[{"label":"","value":""}]}',
     ].join(' ');
 
     const userPayload = JSON.stringify({
@@ -251,7 +249,6 @@ export async function POST(req: NextRequest) {
             reason: cleanText(item.reason, 180),
             origin: validOrigin(item.origin),
             sourceId: cleanText(item.sourceId, 120),
-            gifUrl: cleanText(item.gifUrl, 240),
             dbMatches: cleanSourceMatches(item.dbMatches).slice(0, 3),
           }))
           .filter((item: { name: string }) => item.name)

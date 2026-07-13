@@ -33,7 +33,6 @@ export function makeCustomExercise(opts: {
   sourceId?: string;
   imageSearch?: string;
   tips?: string[];
-  gifUrl?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
   mainVideoUrl?: string;
@@ -51,7 +50,6 @@ export function makeCustomExercise(opts: {
     tips: opts.tips ?? [],
     origin: opts.origin ?? 'patient_added',
     sourceId: opts.sourceId,
-    gifUrl: opts.gifUrl,
     mainImageUrl: opts.mainImageUrl,
     mainImageUrls: opts.mainImageUrls,
     mainVideoUrl: opts.mainVideoUrl,

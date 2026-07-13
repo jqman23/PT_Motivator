@@ -133,7 +133,7 @@ export async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
-  await sql`ALTER TABLE doctor_notes ADD COLUMN IF NOT EXISTS note_color TEXT NOT NULL DEFAULT 'green'`;
+  await sql`ALTER TABLE doctor_notes ADD COLUMN IF NOT EXISTS note_color TEXT NOT NULL DEFAULT 'none'`;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {
@@ -214,10 +214,36 @@ export async function getConfig(key: string): Promise<unknown | null> {
   }
 }
 
+export async function getConfigs(keys: string[]): Promise<Record<string, unknown>> {
+  if (!keys.length) return {};
+  try {
+    const rows = await sql`
+      SELECT key, value
+      FROM user_config
+      WHERE key IN (SELECT jsonb_array_elements_text(${JSON.stringify(keys.slice(0, 20))}::jsonb))
+    `;
+    return Object.fromEntries(rows.map(row => [String(row.key), row.value]));
+  } catch {
+    return {};
+  }
+}
+
 export async function setConfig(key: string, value: unknown) {
   await sql`
     INSERT INTO user_config (key, value, updated_at)
     VALUES (${key}, ${JSON.stringify(value)}::jsonb, NOW())
+    ON CONFLICT (key)
+    DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `;
+}
+
+export async function setConfigs(values: Record<string, unknown>) {
+  const entries = Object.entries(values).slice(0, 20).map(([key, value]) => ({ key, value }));
+  if (!entries.length) return;
+  await sql`
+    INSERT INTO user_config (key, value, updated_at)
+    SELECT item.key, item.value, NOW()
+    FROM jsonb_to_recordset(${JSON.stringify(entries)}::jsonb) AS item(key TEXT, value JSONB)
     ON CONFLICT (key)
     DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
   `;

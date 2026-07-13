@@ -13,10 +13,11 @@ const NOTE_TYPES = [
   ['plan', 'Plan / instruction'],
 ];
 const NOTE_COLORS = {
-  green: { accent: '#7E9B86', light: '#E4ECE6' },
-  orange: { accent: '#C17B4F', light: '#F4E3D6' },
-  blue: { accent: '#5B9BD5', light: '#DBEAFE' },
-  purple: { accent: '#7C3AED', light: '#EDE9FE' },
+  none: { label: 'No color', accent: '#D6D3D1', light: '#FFFFFF' },
+  green: { label: 'Sage', accent: '#7E9B86', light: '#E4ECE6' },
+  orange: { label: 'Peach', accent: '#C17B4F', light: '#F4E3D6' },
+  blue: { label: 'Blue', accent: '#5B9BD5', light: '#DBEAFE' },
+  purple: { label: 'Lavender', accent: '#7C3AED', light: '#EDE9FE' },
 };
 
 function makeId() {
@@ -89,7 +90,7 @@ function parseNote(row) {
     photoAttachments: parsePhotos(row?.photo_attachments ?? row?.photoAttachments),
     responseTranscripts: parseTranscripts(row?.response_transcripts ?? row?.responseTranscripts),
     pinned: row?.pinned === true,
-    noteColor: NOTE_COLORS[text(row?.note_color) || text(row?.noteColor)] ? (text(row?.note_color) || text(row?.noteColor)) : 'green',
+    noteColor: NOTE_COLORS[text(row?.note_color) || text(row?.noteColor)] ? (text(row?.note_color) || text(row?.noteColor)) : 'none',
     createdAt: text(row?.created_at) || text(row?.createdAt) || new Date().toISOString(),
     updatedAt: text(row?.updated_at) || text(row?.updatedAt) || new Date().toISOString(),
   };
@@ -107,7 +108,7 @@ function blankNote() {
     linkedDates: [],
     photoAttachments: [],
     pinned: true,
-    noteColor: 'green',
+    noteColor: 'none',
     createdAt: now,
     updatedAt: now,
   };
@@ -1339,17 +1340,20 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
               <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Card color</p>
-                <div className="mt-2 flex gap-3">
+                <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
                   {Object.entries(NOTE_COLORS).map(([color, palette]) => (
                     <button
                       key={color}
                       type="button"
                       onClick={() => setDraft({ ...draft, noteColor: color })}
-                      className="h-9 w-9 rounded-full border-2 border-white shadow-sm"
-                      style={{ background: palette.light, boxShadow: draft.noteColor === color ? `0 0 0 2px white, 0 0 0 4px ${palette.accent}` : `inset 0 0 0 1px ${palette.accent}33` }}
+                      className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border px-1.5 py-2 text-[10px] font-bold text-stone-600 transition-transform active:scale-95"
+                      style={{ background: palette.light, borderColor: draft.noteColor === color ? palette.accent : `${palette.accent}55`, boxShadow: draft.noteColor === color ? `0 0 0 2px ${palette.accent}33` : 'none' }}
                       aria-label={`Use ${color} note card`}
-                      title={`${color} card`}
-                    />
+                      title={`${palette.label} card`}
+                    >
+                      <span className="h-3.5 w-3.5 rounded-full border" style={{ background: color === 'none' ? '#fff' : palette.accent, borderColor: palette.accent }} />
+                      <span className="truncate">{palette.label}</span>
+                    </button>
                   ))}
                 </div>
               </section>
@@ -1453,7 +1457,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                                 setConfirmDelete(false);
                               }}
                               className="min-w-0 cursor-pointer overflow-hidden rounded-2xl border p-3 shadow-sm active:scale-[0.995]"
-                              style={{ touchAction: 'pan-y', background: NOTE_COLORS[note.noteColor]?.light || NOTE_COLORS.green.light, borderColor: `${NOTE_COLORS[note.noteColor]?.accent || NOTE_COLORS.green.accent}33` }}
+                              style={{ touchAction: 'pan-y', background: NOTE_COLORS[note.noteColor]?.light || NOTE_COLORS.none.light, borderColor: `${NOTE_COLORS[note.noteColor]?.accent || NOTE_COLORS.none.accent}55` }}
                               {...noteSwipeHandlers(note)}
                               onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); void startCleanup(note); }}
                             >

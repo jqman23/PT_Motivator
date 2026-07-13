@@ -14,7 +14,6 @@ export type SmartDbMatch = {
   sets?: string;
   cue?: string;
   tips?: string[];
-  gifUrl?: string;
   label?: string;
 };
 
@@ -30,7 +29,6 @@ export type SmartNewExercise = {
   reason?: string;
   origin?: 'patient_added' | 'exercisedb' | 'api_ninjas';
   sourceId?: string;
-  gifUrl?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
   mainVideoUrl?: string;

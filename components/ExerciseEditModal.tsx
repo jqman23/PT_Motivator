@@ -39,7 +39,6 @@ function fieldLabel(key: string) {
     programs: 'Programs',
     origin: 'Origin',
     sourceId: 'Source ID',
-    gifUrl: 'GIF URL',
     mainImageUrl: 'Main image',
     mainImageUrls: 'Main images',
     mainVideoUrl: 'Main video',
@@ -78,7 +77,6 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
   const [programs, setPrograms] = useState<string[]>(exercise.programs ?? []);
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
   const [sourceId, setSourceId] = useState(exercise.sourceId ?? '');
-  const [gifUrl, setGifUrl] = useState(exercise.gifUrl ?? '');
   const [mainImageUrl, setMainImageUrl] = useState(exercise.mainImageUrl ?? '');
   const [mainImageUrls, setMainImageUrls] = useState((exercise.mainImageUrls ?? []).join('\n'));
   const [mainVideoUrl, setMainVideoUrl] = useState(exercise.mainVideoUrl ?? '');
@@ -118,7 +116,6 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
     programs,
     origin,
     sourceId: sourceId.trim() || undefined,
-    gifUrl: gifUrl.trim() || undefined,
     mainImageUrl: mainImageUrl.trim() || undefined,
     mainImageUrls: linesToList(mainImageUrls).slice(0, 3),
     mainVideoUrl: mainVideoUrl.trim() || undefined,
@@ -126,7 +123,7 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
     videoIds: linesToList(videoIds),
     videoTitles: linesToList(videoTitles),
     tips: linesToList(tipsText),
-  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerTargetsText, cat, optional, programs, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
+  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerTargetsText, cat, optional, programs, origin, sourceId, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
 
   const proposalRows = useMemo(() => {
     if (!proposal) return [];
@@ -173,7 +170,6 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
     if (proposal.programs !== undefined) setPrograms(proposal.programs);
     if (proposal.origin !== undefined) setOrigin(proposal.origin);
     if (proposal.sourceId !== undefined) setSourceId(proposal.sourceId ?? '');
-    if (proposal.gifUrl !== undefined) setGifUrl(proposal.gifUrl ?? '');
     if (proposal.mainImageUrl !== undefined) setMainImageUrl(proposal.mainImageUrl ?? '');
     if (proposal.mainImageUrls !== undefined) setMainImageUrls(listToLines(proposal.mainImageUrls?.slice(0, 3)));
     if (proposal.mainVideoUrl !== undefined) setMainVideoUrl(proposal.mainVideoUrl ?? '');
@@ -231,7 +227,6 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
         programs,
         origin,
         sourceId: sourceId.trim() || undefined,
-        gifUrl: gifUrl.trim() || undefined,
         mainImageUrl: orderedMainImages[0] || undefined,
         mainImageUrls: orderedMainImages,
         mainVideoUrl: videoSource?.url,
@@ -441,9 +436,6 @@ export default function ExerciseEditModal({ exercise, programOptions, programMet
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Source ID</label>
             <input value={sourceId} onChange={e => setSourceId(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
-
-            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">GIF URL</label>
-            <input value={gifUrl} onChange={e => setGifUrl(e.target.value)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }} />
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Main image URL</label>
             {mainImageUrl && <img src={mainImageUrl} alt="" className="w-full aspect-video rounded-xl object-cover bg-stone-100 border border-stone-100" />}

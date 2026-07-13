@@ -14,6 +14,18 @@ type MetricInput = {
   weightUnit?: unknown;
   scopeMultiplier?: unknown;
   add?: unknown;
+  metrics?: unknown;
+  operationId?: unknown;
+};
+
+type CleanMetric = {
+  exerciseId: string;
+  sets: number;
+  reps: number | null;
+  durationSeconds: number | null;
+  weight: number | null;
+  weightUnit: 'lb' | 'kg';
+  scopeMultiplier: 1 | 2 | 4;
 };
 
 function validDate(value: unknown): value is string {
@@ -36,6 +48,25 @@ function nullableDecimal(value: unknown, min: number, max: number): number | nul
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return Math.max(min, Math.min(max, Math.round(parsed * 100) / 100));
+}
+
+function cleanMetric(value: unknown): CleanMetric | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as MetricInput;
+  if (!validExerciseId(input.exerciseId)) return null;
+  const sets = nullableInteger(input.sets, 1, 99);
+  const reps = nullableInteger(input.reps, 1, 9999);
+  const durationSeconds = nullableInteger(input.durationSeconds, 1, 86400);
+  if (!sets || (!reps && !durationSeconds) || (reps && durationSeconds)) return null;
+  return {
+    exerciseId: input.exerciseId.trim(),
+    sets,
+    reps,
+    durationSeconds,
+    weight: nullableDecimal(input.weight, 0, 9999.99),
+    weightUnit: input.weightUnit === 'kg' ? 'kg' : 'lb',
+    scopeMultiplier: input.scopeMultiplier === 2 || input.scopeMultiplier === 4 ? input.scopeMultiplier : 1,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -88,6 +119,96 @@ export async function POST(req: NextRequest) {
   }
 
   const { date, exerciseId } = body;
+  if (validDate(date) && Array.isArray(body.metrics)) {
+    if (body.metrics.length < 1 || body.metrics.length > 50) {
+      return NextResponse.json({ error: 'Provide between 1 and 50 workout metrics.' }, { status: 400 });
+    }
+    const metrics = body.metrics.map(cleanMetric);
+    if (metrics.some(metric => !metric)) {
+      return NextResponse.json({ error: 'Each workout metric needs an exercise, sets, and either reps or duration.' }, { status: 400 });
+    }
+    const cleanMetrics = metrics as CleanMetric[];
+    const operationId = typeof body.operationId === 'string' && /^[A-Za-z0-9-]{10,100}$/.test(body.operationId)
+      ? body.operationId
+      : '';
+    if (!operationId) {
+      return NextResponse.json({ error: 'A valid workout operationId is required.' }, { status: 400 });
+    }
+    if (new Set(cleanMetrics.map(metric => metric.exerciseId)).size !== cleanMetrics.length) {
+      return NextResponse.json({ error: 'Combine duplicate exercises before saving workout metrics.' }, { status: 400 });
+    }
+
+    try {
+      const payload = JSON.stringify(cleanMetrics.map(metric => ({
+        exercise_id: metric.exerciseId,
+        sets_count: metric.sets,
+        reps_count: metric.reps,
+        duration_seconds: metric.durationSeconds,
+        weight_value: metric.weight,
+        weight_unit: metric.weightUnit,
+        scope_multiplier: metric.scopeMultiplier,
+      })));
+      const operationKey = `workoutMetricRun:${operationId}`;
+      const rows = await sql`
+        WITH input AS (
+          SELECT exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
+          FROM jsonb_to_recordset(${payload}::jsonb) AS metric(
+            exercise_id TEXT,
+            sets_count INTEGER,
+            reps_count INTEGER,
+            duration_seconds INTEGER,
+            weight_value NUMERIC,
+            weight_unit TEXT,
+            scope_multiplier INTEGER
+          )
+        ), conflicts AS (
+          SELECT input.exercise_id
+          FROM input
+          JOIN exercise_metrics existing
+            ON existing.date = ${date}::date AND existing.exercise_id = input.exercise_id
+          WHERE existing.reps_count IS DISTINCT FROM input.reps_count
+             OR existing.duration_seconds IS DISTINCT FROM input.duration_seconds
+             OR existing.scope_multiplier IS DISTINCT FROM input.scope_multiplier
+        ), operation AS (
+          INSERT INTO user_config (key, value, updated_at)
+          SELECT ${operationKey}, ${JSON.stringify({ date })}::jsonb, NOW()
+          WHERE NOT EXISTS (SELECT 1 FROM conflicts)
+          ON CONFLICT (key) DO NOTHING
+          RETURNING key
+        ), saved AS (
+          INSERT INTO exercise_metrics (
+            date, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier, updated_at
+          )
+          SELECT ${date}::date, input.exercise_id, input.sets_count, input.reps_count, input.duration_seconds,
+            input.weight_value, input.weight_unit, input.scope_multiplier, NOW()
+          FROM input
+          WHERE EXISTS (SELECT 1 FROM operation)
+          ON CONFLICT (date, exercise_id)
+          DO UPDATE SET
+            sets_count = LEAST(99, COALESCE(exercise_metrics.sets_count, 0) + COALESCE(EXCLUDED.sets_count, 0)),
+            weight_value = COALESCE(EXCLUDED.weight_value, exercise_metrics.weight_value),
+            weight_unit = CASE WHEN EXCLUDED.weight_value IS NULL THEN exercise_metrics.weight_unit ELSE EXCLUDED.weight_unit END,
+            updated_at = NOW()
+          RETURNING exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
+        )
+        SELECT
+          (SELECT COUNT(*)::int FROM conflicts) AS conflict_count,
+          (SELECT COUNT(*)::int FROM operation) AS operation_count,
+          COALESCE((SELECT jsonb_agg(to_jsonb(saved_row)) FROM saved AS saved_row), '[]'::jsonb) AS metrics
+      `;
+      const result = rows[0] as { conflict_count?: number; operation_count?: number; metrics?: unknown[] } | undefined;
+      if (Number(result?.conflict_count ?? 0) > 0) {
+        return NextResponse.json({
+          error: 'Today already has a different metric for one of these exercises. Edit it with double tap before retrying the workout save.',
+        }, { status: 409 });
+      }
+      return NextResponse.json({ ok: true, alreadySaved: Number(result?.operation_count ?? 0) === 0, metrics: result?.metrics ?? [] });
+    } catch (error) {
+      console.error('Exercise metrics batch POST failed', error);
+      return NextResponse.json({ error: 'Could not save workout metrics.' }, { status: 500 });
+    }
+  }
+
   if (!validDate(date) || !validExerciseId(exerciseId)) {
     return NextResponse.json({ error: 'A valid date and exerciseId are required.' }, { status: 400 });
   }
