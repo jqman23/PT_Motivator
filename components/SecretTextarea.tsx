@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SECRET_UNLOCK_CODE, SecretNoteBlock, parseSecretNote, serializeSecretNote } from '@/lib/secretNotes';
 
 type Props = {
@@ -34,18 +34,18 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [unlockCode, setUnlockCode] = useState('');
   const [heightPx, setHeightPx] = useState<number | null>(null);
   const pendingSecretIndex = useRef<number | null>(null);
-  const secretRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const secretRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
   const editorRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const resizeDraggedRef = useRef(false);
   const canResize = /\bresize-y\b/.test(className);
-  const compactInputBase = 'min-w-[5rem] max-w-full flex-1 border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none';
+  const compactInputBase = 'inline-block h-[1.35em] min-w-[5rem] max-w-full flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 align-middle text-inherit placeholder-stone-300 focus:outline-none';
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const index = pendingSecretIndex.current;
     if (index === null) return;
     pendingSecretIndex.current = null;
-    window.setTimeout(() => secretRefs.current[index]?.focus(), 0);
+    secretRefs.current[index]?.focus();
   }, [blocks]);
 
   const commit = (next: SecretNoteBlock[]) => onChange(serializeSecretNote(next));
@@ -89,7 +89,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     removeBlock(index - 1);
   };
 
-  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -198,12 +198,12 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height }}
     >
       {blocks.map((block, index) => block.type === 'secret' ? (
-        <span key={index} className="inline-flex max-w-full items-center gap-1 align-middle">
+        <span key={index} className="inline-flex max-w-full items-baseline gap-1 align-baseline">
             <button
               type="button"
               onClick={() => toggleSecret(index, block)}
               onKeyDown={event => handlePillKeyDown(index, event)}
-              className="inline-flex h-[1.125rem] items-center gap-0.5 rounded-full border px-1.5 text-[9px] font-bold uppercase tracking-wide transition-colors"
+              className="inline-flex h-4 items-center gap-0.5 rounded-full border px-1.5 text-[8px] font-bold uppercase tracking-wide transition-colors"
               style={{
                 background: block.locked ? '#1F2F46' : '#E4ECE6',
                 borderColor: block.locked ? '#162233' : '#cfded3',
@@ -246,12 +246,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             </span>
           )}
           {!block.locked && (
-            <input
+            <textarea
               ref={node => { secretRefs.current[index] = node; }}
               value={block.text}
               onChange={event => patchBlock(index, { text: event.target.value })}
               onKeyDown={event => handleSecretKeyDown(index, event)}
               placeholder="Private note..."
+              rows={1}
               className={compactInputBase}
               style={textAreaStyle}
             />
