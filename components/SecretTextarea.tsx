@@ -26,13 +26,31 @@ function LockIcon({ locked }: { locked: boolean }) {
 
 function normalizedBlocks(value: string): SecretNoteBlock[] {
   const blocks = parseSecretNote(value);
-  return blocks.length ? blocks : [{ type: 'text', text: '' }];
+  if (!blocks.length) return [{ type: 'text', text: '' }];
+  const normalized: SecretNoteBlock[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (block.type === 'text') {
+      const nextBlock = blocks[index + 1];
+      const trailingGap = nextBlock?.type === 'secret' ? (block.text.match(/\n+$/)?.[0] ?? '') : '';
+      if (trailingGap) {
+        const leadingText = block.text.slice(0, -trailingGap.length);
+        if (leadingText) normalized.push({ type: 'text', text: leadingText });
+        normalized.push({ type: 'text', text: trailingGap });
+        continue;
+      }
+    }
+    normalized.push(block);
+  }
+  return mergeText(normalized.length ? normalized : [{ type: 'text', text: '' }]);
 }
 
 function mergeText(blocks: SecretNoteBlock[]) {
   return blocks.reduce<SecretNoteBlock[]>((next, block) => {
     const prev = next.at(-1);
-    if (block.type === 'text' && prev?.type === 'text') prev.text += block.text;
+    const prevSpacer = prev?.type === 'text' && /^[\n]+$/.test(prev.text);
+    const nextSpacer = block.type === 'text' && /^[\n]+$/.test(block.text);
+    if (block.type === 'text' && prev?.type === 'text' && !prevSpacer && !nextSpacer) prev.text += block.text;
     else next.push({ ...block } as SecretNoteBlock);
     return next;
   }, []);
