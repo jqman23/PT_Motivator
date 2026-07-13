@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { stripSecretNotes } from '@/lib/secretNotes';
+import SecretTextarea from './SecretTextarea';
 
 interface Props {
   today: string;
@@ -111,7 +113,7 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Single day</p>
             <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
               {days.map(ds => {
-                const has = !!rows[ds]?.trim();
+                const has = !!stripSecretNotes(rows[ds]).trim();
                 const active = ds === activeDate;
                 return (
                   <button
@@ -129,9 +131,9 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
                 );
               })}
             </div>
-            <textarea
+            <SecretTextarea
               value={note}
-              onChange={e => setNote(e.target.value)}
+              onChange={setNote}
               placeholder="Meloxicam AM, Advil PM, ice, compression…"
               rows={3}
               className="mt-2 w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"
@@ -167,9 +169,9 @@ export default function TreatmentsModal({ today, selectedDate, onClose }: Props)
                 );
               })}
             </div>
-            <textarea
+            <SecretTextarea
               value={bulkNote}
-              onChange={e => setBulkNote(e.target.value)}
+              onChange={setBulkNote}
               placeholder="Apply this note to selected days…"
               rows={2}
               className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none bg-white"

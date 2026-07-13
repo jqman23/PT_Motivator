@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callGroqChat, groqErrorPayload } from '@/lib/groq';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 function cleanText(value: unknown, limit = 4000) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     const title = cleanText(body.title, 180);
     const doctor = cleanText(body.doctor, 180);
     const kind = cleanText(body.kind, 60);
-    const noteBody = cleanText(body.body, 3000);
+    const noteBody = cleanText(stripSecretNotes(body.body), 3000);
     const relatedDates = cleanList(body.relatedDates, 8, 40);
     fallbackTitle = title;
     fallbackBody = noteBody;

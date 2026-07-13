@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -34,6 +35,14 @@ function serializeHealthRow(row: Record<string, unknown>) {
     }
     const value = Number(raw);
     next[field] = Number.isFinite(value) ? value : null;
+  }
+  return next;
+}
+
+function serializePublicHealthRow(row: Record<string, unknown>) {
+  const next = serializeHealthRow(row);
+  for (const field of ['sleep_notes', 'sleep_quality_notes', 'energy_notes', 'mood_notes', 'pain_notes', 'general_notes', 'treatment_notes']) {
+    next[field] = stripSecretNotes(String(next[field] ?? ''));
   }
   return next;
 }
@@ -80,7 +89,7 @@ export async function GET(req: NextRequest) {
         WHERE date >= ${start}::date AND date <= ${end}::date
         ORDER BY date
       `;
-      return NextResponse.json({ rows: rows.map(row => serializeHealthRow(row as Record<string, unknown>)) });
+      return NextResponse.json({ rows: rows.map(row => serializePublicHealthRow(row as Record<string, unknown>)) });
     }
     if (!date || !DATE_PATTERN.test(date)) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
     const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;

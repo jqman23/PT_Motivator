@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getNotesForDate, getNotesForRange, upsertNote, deleteNotesForDate } from '@/lib/db';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -15,7 +16,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'valid start and end dates required' }, { status: 400 });
     }
     try {
-      return NextResponse.json({ rows: await getNotesForRange(start, end) });
+      const rows = await getNotesForRange(start, end) as Array<Record<string, unknown>>;
+      return NextResponse.json({
+        rows: rows
+          .map(row => ({ ...row, note: stripSecretNotes(typeof row.note === 'string' ? row.note : '') }))
+          .filter(row => String(row.note ?? '').trim()),
+      });
     } catch (err) {
       console.error(err);
       return NextResponse.json({ error: 'DB error' }, { status: 500 });

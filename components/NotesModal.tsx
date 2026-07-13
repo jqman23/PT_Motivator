@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { stripSecretNotes } from '@/lib/secretNotes';
+import SecretTextarea from './SecretTextarea';
 
 interface Props {
   exerciseName: string;
@@ -184,7 +186,7 @@ export default function NotesModal({
   useEffect(() => {
     fetch(`/api/recent-notes?exerciseId=${encodeURIComponent(exerciseId)}&beforeDate=${date}`)
       .then(r => r.json())
-      .then(data => setSuggestions((data.notes ?? []).filter((n: string) => n.trim())))
+      .then(data => setSuggestions((data.notes ?? []).map((n: string) => stripSecretNotes(n)).filter((n: string) => n.trim())))
       .catch(() => {/* silent */});
   }, [exerciseId, date]);
 
@@ -246,7 +248,7 @@ export default function NotesModal({
   };
 
   const handleReview = async () => {
-    const rawNote = preserveTypedNote(note);
+    const rawNote = stripSecretNotes(preserveTypedNote(note));
     if (!rawNote) {
       await saveAndClose('');
       return;
@@ -420,10 +422,10 @@ export default function NotesModal({
 
           {!review ? (
             <>
-              <textarea
+              <SecretTextarea
                 autoFocus
                 value={note}
-                onChange={(e) => { setNote(e.target.value); setStandardizeError(''); }}
+                onChange={(value) => { setNote(value); setStandardizeError(''); }}
                 placeholder="How it felt, pain or symptoms, setup changes, progress, or anything you want to remember."
                 className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2"
                 style={{ fontSize: 16, colorScheme: 'light' }}

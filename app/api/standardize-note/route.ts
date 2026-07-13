@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const ALLOWED_GROQ_MODELS = new Set([
   'canopylabs/orpheus-arabic-saudi',
@@ -67,12 +68,12 @@ export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
     const body = await req.json();
-    const rawNote = cleanText(body.rawNote, 900);
+    const rawNote = cleanText(stripSecretNotes(body.rawNote), 900);
     const exerciseName = cleanText(body.exerciseName, 120);
     const exerciseSets = cleanText(body.exerciseSets, 180);
     const exerciseCue = cleanText(body.exerciseCue, 240);
     const exerciseTips = cleanStringList(body.exerciseTips, 6, 160);
-    const recentNotes = cleanStringList(body.recentNotes, 8, 220);
+    const recentNotes = cleanStringList(Array.isArray(body.recentNotes) ? body.recentNotes.map((note: unknown) => stripSecretNotes(String(note ?? ''))) : body.recentNotes, 8, 220);
     const clarification = cleanText(body.clarification, 500);
     const previousStandardizedNote = cleanText(body.previousStandardizedNote, 260);
     const cleanupMode = !!body.cleanupMode;

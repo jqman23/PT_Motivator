@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 type HistoryRow = {
   date: string;
@@ -126,7 +127,7 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
 
   const stats = useMemo(() => {
     const completed = rows.filter(row => row.completed).length;
-    const notes = rows.filter(row => row.note.trim()).length;
+    const notes = rows.filter(row => stripSecretNotes(row.note).trim()).length;
     return { completed, notes };
   }, [rows]);
 
@@ -146,7 +147,7 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cleanupMode: true,
-          rawNote: row.note,
+          rawNote: stripSecretNotes(row.note),
           clarification,
           previousStandardizedNote: cleanupNote,
           exerciseId: exercise.id,
@@ -154,7 +155,7 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
           exerciseSets: exercise.sets ?? '',
           exerciseCue: exercise.cue ?? '',
           exerciseTips: exercise.tips ?? [],
-          recentNotes: rows.filter(item => item.note && item.date !== row.date).slice(0, 8).map(item => item.note),
+          recentNotes: rows.map(item => ({ ...item, note: stripSecretNotes(item.note) })).filter(item => item.note && item.date !== row.date).slice(0, 8).map(item => item.note),
           dailyMetric: {
             sets: row.sets_count,
             reps: row.reps_count,
@@ -406,9 +407,9 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
                         {row.completed ? 'Done' : 'Not done'}
                       </span>
                     </div>
-                    {row.note && <p className="text-xs text-stone-500 mt-2 italic leading-snug">📝 {row.note}</p>}
+                    {stripSecretNotes(row.note) && <p className="text-xs text-stone-500 mt-2 italic leading-snug">📝 {stripSecretNotes(row.note)}</p>}
                   </button>
-                  {row.note && (
+                  {stripSecretNotes(row.note) && (
                     <div className="mt-2 flex justify-end">
                       <button
                         onClick={(event) => { event.preventDefault(); event.stopPropagation(); void startCleanup(row); }}

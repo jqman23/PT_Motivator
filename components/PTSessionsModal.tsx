@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import SecretTextarea from './SecretTextarea';
 
 type PTSessionKind = 'pt' | 'training';
 
@@ -196,9 +197,9 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
                             </button>
                           </div>
 
-                          <textarea
+                          <SecretTextarea
                             value={session.note ?? ''}
-                            onChange={e => updateNote(session.date, kind, e.target.value)}
+                            onChange={value => updateNote(session.date, kind, value)}
                             placeholder={`${kindLabel(kind)} note…`}
                             rows={2}
                             className="mt-2 w-full text-xs resize-none rounded-lg border px-2.5 py-2 focus:outline-none focus:ring-1"

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -45,7 +46,9 @@ export async function GET(req: NextRequest) {
       LIMIT ${limit}
     `;
 
-    return NextResponse.json({ rows });
+    return NextResponse.json({
+      rows: rows.map(row => ({ ...row, note: stripSecretNotes(String(row.note ?? '')) })),
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });

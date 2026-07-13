@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { EXERCISES } from '@/lib/exercises';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 interface Props {
   onClose: () => void;
@@ -255,7 +256,7 @@ export default function ReportingModal({ onClose, today, ptSessions }: Props) {
       return vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : null;
     };
     const nextDayDates = ptDates.map(d => offsetDate(d, 1)).filter(d => d <= today);
-    const treatmentDays = healthData.filter(h => h.treatment_notes?.trim()).length;
+    const treatmentDays = healthData.filter(h => stripSecretNotes(h.treatment_notes).trim()).length;
     return {
       ptDays: ptDates.length,
       treatmentDays,

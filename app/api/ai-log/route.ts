@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentNotes } from '@/lib/db';
 import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 type ExerciseBrief = {
   id: string;
@@ -153,7 +154,7 @@ export async function POST(req: NextRequest) {
         cue: cleanText(ex.cue, 120),
         tips: cleanList(ex.tips, 2, 80),
         done: !!ex.done,
-        note: cleanText(ex.note, 80),
+        note: cleanText(stripSecretNotes(ex.note), 80),
       };
       safe.schemaText = makeSchemaText(safe);
       return safe;
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
         completedExercises.map(ex => getRecentNotes(ex.id, todayDate).catch(() => []))
       );
       for (let i = 0; i < completedExercises.length; i++) {
-        const notes = histories[i].map(r => r.note).filter(Boolean).slice(0, 3);
+        const notes = histories[i].map(r => stripSecretNotes(r.note)).filter(Boolean).slice(0, 3);
         if (notes.length > 0) completedExercises[i].recentNotes = notes;
       }
     }

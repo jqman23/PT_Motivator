@@ -9,6 +9,7 @@ import NotesModal from './NotesModal';
 import ExerciseQuickInfoModal from './ExerciseQuickInfoModal';
 import ExerciseHistoryModal from './ExerciseHistoryModal';
 import ExerciseEditModal from './ExerciseEditModal';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 interface Props {
   exercise: Exercise;
@@ -116,6 +117,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
   const hideTypeBadge = categoryName
     ? normalizeExerciseType(categoryName) === normalizeExerciseType(exercise.cat)
     : false;
+  const visibleNote = stripSecretNotes(note);
 
   useEffect(() => {
     if (!showTypePicker) setTypeDraft(normalizeExerciseType(exercise.cat));
@@ -420,8 +422,8 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
               </span>
             </div>
             <p className="mt-0.5 text-xs leading-[1.08] text-stone-400 sm:leading-snug">{exercise.cue}</p>
-            {note && (
-              <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {note}</p>
+            {visibleNote && (
+              <p className="mt-0.5 text-xs italic leading-[1.2] text-stone-500 line-clamp-1 sm:mt-1 sm:leading-snug">📝 {visibleNote}</p>
             )}
             {showMoveControls && (
               <div className="mt-2 flex items-center gap-1.5">

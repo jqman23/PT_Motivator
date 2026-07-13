@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
+import { stripSecretNotes } from '@/lib/secretNotes';
+import SecretTextarea from './SecretTextarea';
 import { SmartDbMatch, SmartExerciseChange, SmartHealthChanges, SmartNewExercise, SmartProposal } from '@/components/SmartAddTypes';
 
 type LogMap = Record<string, Record<string, boolean>>;
@@ -253,7 +255,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         cue: ex.cue ?? '',
         tips: Array.isArray(ex.tips) ? ex.tips : [],
         done: !!log[date]?.[ex.id],
-        note: notes[ex.id] ?? '',
+        note: stripSecretNotes(notes[ex.id] ?? ''),
       }))
   ), [layout, exerciseMap, log, notes, date]);
 
@@ -269,7 +271,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
     const exerciseChanges: SmartExerciseChange[] = (raw.exerciseChanges ?? [])
       .map((change: SmartExerciseChange) => {
         const currentDone = !!log[date]?.[change.id];
-        const currentNote = notes[change.id] ?? '';
+        const currentNote = stripSecretNotes(notes[change.id] ?? '');
         const next: SmartExerciseChange = { id: change.id, reason: change.reason };
         if (typeof change.completed === 'boolean' && change.completed !== currentDone) next.completed = change.completed;
         if (change.note !== undefined && change.note !== null && !sameNote(change.note, currentNote)) next.note = String(change.note).trim();
@@ -397,7 +399,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
         sets: ex.sets,
         cue: ex.cue,
         done: ex.done,
-        note: ex.note,
+        note: stripSecretNotes(ex.note),
       }));
       const draftForRevision = overrideDraft ?? proposal;
       const res = await fetch('/api/ai-log', {
@@ -566,7 +568,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                 </select>
                 <button onClick={e => { e.preventDefault(); e.stopPropagation(); addManualNote(); }} disabled={!manualExerciseId || !manualNote.trim()} className="rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#5B9BD5' }}>Add note</button>
               </div>
-              <textarea value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Manual note exactly as you want it saved…" rows={2} className="w-full resize-none rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+              <SecretTextarea value={manualNote} onChange={setManualNote} placeholder="Manual note exactly as you want it saved…" rows={2} className="w-full resize-none rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
               <button onClick={e => { e.preventDefault(); e.stopPropagation(); addManualExerciseDraft(); }} className="w-full rounded-xl border-2 border-dashed border-stone-300 py-2 text-xs font-bold text-stone-500 hover:border-stone-400 hover:text-stone-700">＋ Manual exercise (no database / no AI label)</button>
             </div>
             {error && (
@@ -634,7 +636,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                       <input value={item.sets ?? ''} onChange={e => updateNewExercise(idx, { sets: e.target.value })} placeholder="Sets/reps/time" className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm" style={{ fontSize: 16 }} />
                       <textarea value={item.cue ?? ''} onChange={e => updateNewExercise(idx, { cue: e.target.value })} placeholder="Cue / instructions" rows={2} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
                       <textarea value={listToLines(item.tips)} onChange={e => updateNewExercise(idx, { tips: linesToList(e.target.value) })} placeholder="Tips, one per line" rows={3} className="mb-2 w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
-                      <textarea value={item.note ?? ''} onChange={e => updateNewExercise(idx, { note: e.target.value })} placeholder="Optional note for today" rows={2} className="w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
+                      <SecretTextarea value={item.note ?? ''} onChange={value => updateNewExercise(idx, { note: value })} placeholder="Optional note for today" rows={2} className="w-full rounded-lg border border-stone-200 px-2 py-2 text-sm resize-none" style={{ fontSize: 16 }} />
                     </div>
                   ))}
                 </div>
@@ -645,7 +647,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                   <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Exercise updates</p>
                   {proposal.exerciseChanges.map((change, idx) => {
                     const ex = exerciseMap[change.id];
-                    const oldNote = notes[change.id] ?? '';
+                    const oldNote = stripSecretNotes(notes[change.id] ?? '');
                     const noteChanged = change.note != null && change.note !== oldNote;
                     return (
                       <div key={`${change.id}-${idx}`} className="bg-white rounded-2xl border border-stone-100 p-3">
@@ -662,7 +664,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                           <button onClick={e => { e.preventDefault(); e.stopPropagation(); updateExercise(idx, { completed: false }); }} className="flex-1 rounded-lg py-2 text-xs font-bold" style={{ background: change.completed === false ? '#fee2e2' : '#f5f5f4', color: change.completed === false ? '#991b1b' : '#78716c' }}>Not done</button>
                         </div>
                         {noteChanged && oldNote && <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1 mb-2">Replacing note: {oldNote}</p>}
-                        <textarea value={change.note ?? ''} onChange={e => updateExercise(idx, { note: e.target.value })} placeholder="Optional note…" rows={2} className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+                        <SecretTextarea value={change.note ?? ''} onChange={value => updateExercise(idx, { note: value })} placeholder="Optional note…" rows={2} className="w-full text-sm resize-none rounded-xl border border-stone-200 px-3 py-2 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} />
                       </div>
                     );
                   })}
@@ -685,7 +687,7 @@ export default function AIQuickAddModal({ date, layout, exerciseMap, log, notes,
                         {NUMERIC_HEALTH.includes(key) ? (
                           <input type="number" value={value == null ? '' : String(value)} onChange={e => updateHealth(key, e.target.value)} className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm" style={{ fontSize: 16, colorScheme: 'light' }} />
                         ) : (
-                          <textarea value={value == null ? '' : String(value)} onChange={e => updateHealth(key, e.target.value)} rows={2} className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm resize-none" style={{ fontSize: 16, colorScheme: 'light' }} />
+                          <SecretTextarea value={value == null ? '' : String(value)} onChange={nextValue => updateHealth(key, nextValue)} rows={2} className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm resize-none" style={{ fontSize: 16, colorScheme: 'light' }} />
                         )}
                       </div>
                     );

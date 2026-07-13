@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { stripSecretNotes } from '@/lib/secretNotes';
+import SecretTextarea from './SecretTextarea';
 
 const MAX_PHOTOS = 5;
 const DOCTOR_LIST_CONFIG_KEY = 'doctorNoteDoctors';
@@ -164,7 +166,7 @@ function noteAsText(note) {
     note.provider ? `Provider: ${note.provider}` : '',
     note.referenceText ? `Reference: ${note.referenceText}` : '',
     note.linkedDates.length ? `Related dates: ${note.linkedDates.map(formatDate).join(', ')}` : '',
-    note.body,
+    stripSecretNotes(note.body),
   ].filter(Boolean).join('\n');
 }
 
@@ -225,11 +227,11 @@ function parseResponseForEdit(section) {
 }
 
 function responsePreview(section) {
-  return text(section)
+  return stripSecretNotes(text(section)
     .replace(/^Response - .+?\n?/, '')
     .replace(/^Answer \/ notes:\s*/m, '')
     .replace(/^Next steps:\s*/m, 'Next steps: ')
-    .trim();
+    .trim());
 }
 
 function bodyWithResponses(noteBody, responses) {
@@ -380,7 +382,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
   const filteredNotes = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return notes;
-    return notes.filter(note => [note.title, note.provider, note.referenceText, note.body, typeLabel(note.kind), ...note.linkedDates]
+    return notes.filter(note => [note.title, note.provider, note.referenceText, stripSecretNotes(note.body), typeLabel(note.kind), ...note.linkedDates]
       .join(' ')
       .toLowerCase()
       .includes(query));
@@ -544,7 +546,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     setCleanupNote(note);
     setCleanupDraft({
       improvedTitle: note.title || typeLabel(note.kind),
-      improvedBody: note.body || '',
+      improvedBody: stripSecretNotes(note.body) || '',
       highlights: [],
       questions: [],
     });
@@ -559,7 +561,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
           title: note.title,
           doctor: note.provider,
           kind: typeLabel(note.kind),
-          body: note.body,
+          body: stripSecretNotes(note.body),
           relatedDates: note.linkedDates,
         }),
       });
@@ -1226,10 +1228,10 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
               <div className="rounded-2xl border border-stone-200 bg-white p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Responding to</p>
                 <h3 className="mt-1 text-sm font-bold text-stone-800">{respondingTo.title || typeLabel(respondingTo.kind)}</h3>
-                {respondingTo.noteBody && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{respondingTo.noteBody}</p>}
+                {stripSecretNotes(respondingTo.noteBody) && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-stone-500">{stripSecretNotes(respondingTo.noteBody)}</p>}
               </div>
 
-              <textarea value={responseDraft.answer} onChange={event => setResponseDraft({ ...responseDraft, answer: event.currentTarget.value })} rows={5} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <SecretTextarea value={responseDraft.answer} onChange={value => setResponseDraft({ ...responseDraft, answer: value })} rows={5} placeholder="Answer / notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {(responseTranscriptTiles.length > 0 || responseListening) && (
                 <div className="rounded-xl border border-[#E8D9B4] bg-[#FDF8EE] p-2">
@@ -1281,7 +1283,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                   </div>
                 </div>
               )}
-              <textarea value={responseDraft.nextSteps} onChange={event => setResponseDraft({ ...responseDraft, nextSteps: event.currentTarget.value })} rows={2} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <SecretTextarea value={responseDraft.nextSteps} onChange={value => setResponseDraft({ ...responseDraft, nextSteps: value })} rows={2} placeholder="Next steps" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               {error && <p className="min-w-0 break-words rounded-xl bg-white px-3 py-2 text-xs text-rose-600">{error}</p>}
 
@@ -1336,7 +1338,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 <button type="button" onClick={() => void addDoctor()} className="flex min-h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white text-lg font-bold text-stone-500" aria-label="Add doctor" title="Add doctor">+</button>
               </div>
 
-              <textarea value={draft.body} onChange={event => setDraft({ ...draft, body: event.currentTarget.value })} rows={7} placeholder="Notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
+              <SecretTextarea value={draft.body} onChange={value => setDraft({ ...draft, body: value })} rows={7} placeholder="Notes" className="w-full min-w-0 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2.5" style={{ fontSize: 16 }} />
 
               <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Card color</p>
@@ -1468,7 +1470,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                                     <p className="min-w-0 truncate text-sm font-bold text-stone-800">{note.title || typeLabel(note.kind)}</p>
                                   </div>
                                   <p className="mt-0.5 min-w-0 truncate text-[10px] font-bold uppercase tracking-wider text-stone-400">{typeLabel(note.kind)}{note.provider ? ` · ${note.provider}` : ''}</p>
-                                  {noteBody && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{noteBody}</p>}
+                                  {stripSecretNotes(noteBody) && <p className="mt-2 line-clamp-2 break-words text-xs leading-relaxed text-stone-600">{stripSecretNotes(noteBody)}</p>}
                                 </div>
                                 {note.photoAttachments.length > 0 && <img src={note.photoAttachments[0].dataUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl object-cover" />}
                               </div>

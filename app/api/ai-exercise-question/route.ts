@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { callGroqChat, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqTask } from '@/lib/groq';
 import { getConfig } from '@/lib/db';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -210,12 +211,12 @@ function compactHealth(row: Record<string, unknown> | undefined) {
     mood: numeric(row.mood),
     sleepHours: numeric(row.sleep_hours),
     sleepQuality: numeric(row.sleep_quality),
-    painNote: cleanText(row.pain_notes, 320),
-    generalNote: cleanText(row.general_notes, 480),
-    treatmentNote: cleanText(row.treatment_notes, 320),
-    sleepNote: cleanText(row.sleep_notes, 240),
-    energyNote: cleanText(row.energy_notes, 240),
-    moodNote: cleanText(row.mood_notes, 240),
+    painNote: cleanText(stripSecretNotes(String(row.pain_notes ?? '')), 320),
+    generalNote: cleanText(stripSecretNotes(String(row.general_notes ?? '')), 480),
+    treatmentNote: cleanText(stripSecretNotes(String(row.treatment_notes ?? '')), 320),
+    sleepNote: cleanText(stripSecretNotes(String(row.sleep_notes ?? '')), 240),
+    energyNote: cleanText(stripSecretNotes(String(row.energy_notes ?? '')), 240),
+    moodNote: cleanText(stripSecretNotes(String(row.mood_notes ?? '')), 240),
   };
 }
 
@@ -250,7 +251,7 @@ async function loadDayRecords(startDate: string, endDate: string, exerciseMap: M
   for (const row of noteRows) {
     const date = validDate(row.date);
     const id = cleanText(row.exercise_id, 100);
-    const note = cleanText(row.note, 700);
+    const note = cleanText(stripSecretNotes(String(row.note ?? '')), 700);
     if (!date || !id || !note) continue;
     getDay(date).exerciseNotes.push({ exerciseId: id, exercise: exerciseMap.get(id)?.name ?? id, note });
   }
@@ -266,7 +267,7 @@ async function loadDayRecords(startDate: string, endDate: string, exerciseMap: M
     if (!date || date < startDate || date > endDate) continue;
     getDay(date).session = {
       kind: session.kind === 'training' ? 'training' : 'pt',
-      note: cleanText(session.note, 500),
+      note: cleanText(stripSecretNotes(session.note), 500),
     };
   }
 

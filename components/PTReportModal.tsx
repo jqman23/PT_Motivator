@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
@@ -176,7 +177,9 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
     const moodAvg = avg(healthInRange.map(h => num(h.mood)));
     const sleepAvg = avg(healthInRange.map(h => num(h.sleep_hours)));
     const ptInRange = ptSessions.filter(s => s.date >= startDate && s.date <= endDate);
-    const currentNotes = Object.entries(notes).filter(([, note]) => note.trim());
+    const currentNotes = Object.entries(notes)
+      .map(([id, note]) => [id, stripSecretNotes(note)] as const)
+      .filter(([, note]) => note.trim());
     const currentDone = allExercises.filter(ex => log[selectedDate]?.[ex.id]).length;
 
     const rows = rangeDates.map(d => {
@@ -194,31 +197,36 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
 
     const treatmentHtml = rangeDates.map(d => {
       const h = healthByDate[d];
-      if (!h?.treatment_notes?.trim()) return '';
-      return `<li><strong>${displayDate(d)}:</strong> ${nl(h.treatment_notes)}</li>`;
+      const treatmentNotes = stripSecretNotes(h?.treatment_notes);
+      if (!treatmentNotes.trim()) return '';
+      return `<li><strong>${displayDate(d)}:</strong> ${nl(treatmentNotes)}</li>`;
     }).filter(Boolean).join('');
 
     const painHtml = rangeDates.map(d => {
       const h = healthByDate[d];
-      if (num(h?.pain) === null && !h?.pain_notes?.trim()) return '';
-      return `<li><strong>${displayDate(d)}:</strong> pain ${num(h?.pain) ?? '—'}/10${h?.pain_notes ? ` — ${nl(h.pain_notes)}` : ''}</li>`;
+      const painNotes = stripSecretNotes(h?.pain_notes);
+      if (num(h?.pain) === null && !painNotes.trim()) return '';
+      return `<li><strong>${displayDate(d)}:</strong> pain ${num(h?.pain) ?? '—'}/10${painNotes ? ` — ${nl(painNotes)}` : ''}</li>`;
     }).filter(Boolean).join('');
 
     const healthNotesHtml = rangeDates.map(d => {
       const h = healthByDate[d];
       if (!h) return '';
       const bits = [
-        h.sleep_notes ? `Sleep duration note: ${nl(h.sleep_notes)}` : '',
-        h.sleep_quality_notes ? `Sleep quality note: ${nl(h.sleep_quality_notes)}` : '',
-        h.energy_notes ? `Energy note: ${nl(h.energy_notes)}` : '',
-        h.mood_notes ? `Mood note: ${nl(h.mood_notes)}` : '',
-        h.general_notes ? `General: ${nl(h.general_notes)}` : '',
+        stripSecretNotes(h.sleep_notes) ? `Sleep duration note: ${nl(stripSecretNotes(h.sleep_notes))}` : '',
+        stripSecretNotes(h.sleep_quality_notes) ? `Sleep quality note: ${nl(stripSecretNotes(h.sleep_quality_notes))}` : '',
+        stripSecretNotes(h.energy_notes) ? `Energy note: ${nl(stripSecretNotes(h.energy_notes))}` : '',
+        stripSecretNotes(h.mood_notes) ? `Mood note: ${nl(stripSecretNotes(h.mood_notes))}` : '',
+        stripSecretNotes(h.general_notes) ? `General: ${nl(stripSecretNotes(h.general_notes))}` : '',
       ].filter(Boolean);
       if (!bits.length) return '';
       return `<li><strong>${displayDate(d)}:</strong><br/>${bits.join('<br/>')}</li>`;
     }).filter(Boolean).join('');
 
-    const ptHtml = ptInRange.map(s => `<li><strong>${displayDate(s.date)}:</strong> ${escapeHtml(s.kind === 'training' ? 'Training session' : 'PT session')}${s.note?.trim() ? ` — ${nl(s.note)}` : ''}</li>`).join('');
+    const ptHtml = ptInRange.map(s => {
+      const sessionNote = stripSecretNotes(s.note);
+      return `<li><strong>${displayDate(s.date)}:</strong> ${escapeHtml(s.kind === 'training' ? 'Training session' : 'PT session')}${sessionNote.trim() ? ` — ${nl(sessionNote)}` : ''}</li>`;
+    }).join('');
     const noteHtml = currentNotes.map(([id, note]) => `<li><strong>${escapeHtml(exerciseMap[id]?.name ?? id)}:</strong> ${nl(note)}</li>`).join('');
 
     const section = (title: string, body: string) => `<section><h2>${title}</h2>${body}</section>`;
@@ -293,22 +301,22 @@ export default function PTReportModal({ appTitle, today, selectedDate, layout, e
             pain: num(health.pain),
           } : null,
           healthNotes: health ? {
-            sleep: health.sleep_notes ?? '',
-            sleepQuality: health.sleep_quality_notes ?? '',
-            energy: health.energy_notes ?? '',
-            mood: health.mood_notes ?? '',
-            pain: health.pain_notes ?? '',
+            sleep: stripSecretNotes(health.sleep_notes),
+            sleepQuality: stripSecretNotes(health.sleep_quality_notes),
+            energy: stripSecretNotes(health.energy_notes),
+            mood: stripSecretNotes(health.mood_notes),
+            pain: stripSecretNotes(health.pain_notes),
           } : null,
-          medicationsAndTreatments: health?.treatment_notes ?? '',
-          generalNotes: health?.general_notes ?? '',
+          medicationsAndTreatments: stripSecretNotes(health?.treatment_notes),
+          generalNotes: stripSecretNotes(health?.general_notes),
           exerciseNotes: (notesByDate.get(date) ?? []).map(row => ({
             exerciseId: row.exercise_id,
             exerciseName: exerciseMap[row.exercise_id]?.name ?? row.exercise_id,
-            note: row.note,
-          })),
+            note: stripSecretNotes(row.note),
+          })).filter(row => row.note.trim()),
           sessions: ptSessions
             .filter(session => session.date === date)
-            .map(session => ({ kind: session.kind === 'training' ? 'training' : 'pt', note: session.note ?? '' })),
+            .map(session => ({ kind: session.kind === 'training' ? 'training' : 'pt', note: stripSecretNotes(session.note) })),
         };
       }),
     };

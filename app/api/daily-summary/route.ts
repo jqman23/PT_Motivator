@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getLogForRange, getNotesForDate, getHealthForDate, getConfigs, setConfigs } from '@/lib/db';
 import { callGroqChat, getGroqModelChain } from '@/lib/groq';
+import { stripSecretNotes } from '@/lib/secretNotes';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
 const DEFAULT_MODEL = getGroqModelChain('summary')[0];
@@ -96,9 +97,19 @@ export async function POST() {
     const library = Array.isArray(libraryData) ? (libraryData as Array<{ id: string; name: string }>) : [];
     const nameMap = Object.fromEntries(library.map(ex => [ex.id, ex.name]));
     const noteMap = Object.fromEntries(
-      (noteRows as Array<{ exercise_id: string; note: string }>).map(r => [r.exercise_id, r.note])
+      (noteRows as Array<{ exercise_id: string; note: string }>).map(r => [r.exercise_id, stripSecretNotes(r.note)])
     );
-    const health = (healthRows as Array<Record<string, unknown>>)[0] ?? null;
+    const rawHealth = (healthRows as Array<Record<string, unknown>>)[0] ?? null;
+    const health = rawHealth ? {
+      ...rawHealth,
+      sleep_notes: stripSecretNotes(String(rawHealth.sleep_notes ?? '')),
+      sleep_quality_notes: stripSecretNotes(String(rawHealth.sleep_quality_notes ?? '')),
+      energy_notes: stripSecretNotes(String(rawHealth.energy_notes ?? '')),
+      mood_notes: stripSecretNotes(String(rawHealth.mood_notes ?? '')),
+      pain_notes: stripSecretNotes(String(rawHealth.pain_notes ?? '')),
+      general_notes: stripSecretNotes(String(rawHealth.general_notes ?? '')),
+      treatment_notes: stripSecretNotes(String(rawHealth.treatment_notes ?? '')),
+    } : null;
     const session = Array.isArray(ptSessions)
       ? (ptSessions as Array<{ date: string; kind?: string; note?: string }>).find(s => s.date === yesterday)
       : null;
@@ -114,7 +125,7 @@ export async function POST() {
       completedCount: completedIds.length,
       exercises: lines,
       health,
-      session: session ? { kind: session.kind === 'training' ? 'training' : 'pt', note: session.note ?? '' } : null,
+      session: session ? { kind: session.kind === 'training' ? 'training' : 'pt', note: stripSecretNotes(session.note) } : null,
     });
 
     const { data, model } = await callGroqChat(apiKey, 'summary', {
