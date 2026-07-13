@@ -9,6 +9,8 @@ const EMPTY_DRAFT = {
   value: '',
   durationUnit: 'sec',
   scopeMultiplier: 1,
+  weight: '',
+  weightUnit: 'lb',
 };
 
 function localDateString() {
@@ -67,6 +69,8 @@ function draftFromMetric(metric) {
       : numberString(metric.reps_count),
     durationUnit: useMinutes ? 'min' : 'sec',
     scopeMultiplier: metric.scope_multiplier === 2 || metric.scope_multiplier === 4 ? metric.scope_multiplier : 1,
+    weight: numberString(metric.weight_value),
+    weightUnit: metric.weight_unit === 'kg' ? 'kg' : 'lb',
   };
 }
 
@@ -85,8 +89,6 @@ export default function ExerciseGestureEnhancer() {
   const [error, setError] = useState('');
   const [hasCurrent, setHasCurrent] = useState(false);
   const [seededFromLast, setSeededFromLast] = useState(false);
-  const [preservedWeight, setPreservedWeight] = useState(null);
-  const [preservedWeightUnit, setPreservedWeightUnit] = useState('lb');
   const dirtyRef = useRef(false);
   const setsRef = useRef(null);
   const valueRef = useRef(null);
@@ -129,8 +131,6 @@ export default function ExerciseGestureEnhancer() {
     setError('');
     setHasCurrent(false);
     setSeededFromLast(false);
-    setPreservedWeight(null);
-    setPreservedWeightUnit('lb');
     setDraft({ ...EMPTY_DRAFT });
 
     fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
@@ -146,8 +146,6 @@ export default function ExerciseGestureEnhancer() {
         const source = data.current || data.previous;
         setHasCurrent(Boolean(data.current));
         setSeededFromLast(!data.current && Boolean(data.previous));
-        setPreservedWeight(data.current?.weight_value ?? null);
-        setPreservedWeightUnit(data.current?.weight_unit === 'kg' ? 'kg' : 'lb');
         if (!dirtyRef.current) setDraft(draftFromMetric(source));
       })
       .catch(loadError => {
@@ -213,8 +211,8 @@ export default function ExerciseGestureEnhancer() {
           sets: draft.sets || null,
           reps: mode === 'reps' ? draft.value || null : null,
           durationSeconds,
-          weight: preservedWeight,
-          weightUnit: preservedWeightUnit,
+          weight: mode === 'reps' ? draft.weight || null : null,
+          weightUnit: draft.weightUnit,
           scopeMultiplier: draft.scopeMultiplier,
         }),
       });
@@ -246,7 +244,7 @@ export default function ExerciseGestureEnhancer() {
         data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
-          width: 'min(226px, calc(100vw - 16px))',
+          width: 'min(250px, calc(100vw - 16px))',
           left: active.x,
           top: active.y,
           transform: active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
@@ -354,7 +352,7 @@ export default function ExerciseGestureEnhancer() {
                 onClick={() => updateDraft({
                   scopeMultiplier: draft.scopeMultiplier === 1 ? 2 : draft.scopeMultiplier === 2 ? 4 : 1,
                 })}
-                className="shrink-0 rounded bg-stone-100 px-1 py-0.5 text-[9px] font-black text-stone-500"
+                className="shrink-0 rounded-md bg-stone-100 px-1.5 py-1 text-[11px] font-black leading-none text-stone-600"
                 aria-label={`Scope multiplier ${draft.scopeMultiplier}. Tap for next multiplier.`}
                 title="×1 one side; ×2 both legs or directions; ×4 both legs and both directions"
               >
@@ -367,6 +365,34 @@ export default function ExerciseGestureEnhancer() {
             </datalist>
           </label>
         </div>
+
+        {draft.mode === 'reps' && (
+          <label className="mt-1.5 flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
+            <span className="text-[9px] font-black uppercase tracking-wider text-stone-400">Weight</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={draft.weight}
+              onChange={event => {
+                const next = event.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 7);
+                updateDraft({ weight: next });
+              }}
+              placeholder="Optional"
+              className="min-w-0 flex-1 bg-transparent text-right font-semibold text-stone-700 outline-none"
+              style={{ fontSize: 16 }}
+              aria-label="Weight used"
+            />
+            <button
+              type="button"
+              onClick={() => updateDraft({ weightUnit: draft.weightUnit === 'lb' ? 'kg' : 'lb' })}
+              className="min-w-8 rounded-md bg-stone-100 px-1.5 py-1 text-[10px] font-black uppercase text-stone-500"
+              aria-label={`Weight unit ${draft.weightUnit}. Tap to change.`}
+              title="Toggle pounds or kilograms"
+            >
+              {draft.weightUnit}
+            </button>
+          </label>
+        )}
 
         {draft.mode === 'reps' && draft.scopeMultiplier > 1 && draft.sets && draft.value && (
           <p className="mt-1 text-right text-[9px] font-semibold text-stone-500">
