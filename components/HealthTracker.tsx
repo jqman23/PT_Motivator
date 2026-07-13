@@ -254,7 +254,7 @@ function Slider({ metric, label, description, value, min, max, step = 1, lowLabe
           onChange={onNoteChange}
           placeholder={`Notes on ${label.toLowerCase()}…`}
           rows={2}
-          className="mt-2 w-full text-xs resize-none rounded-lg border px-2.5 py-2 focus:outline-none focus:ring-1"
+          className="mt-2 w-full text-xs resize-y rounded-lg border px-2.5 py-2 focus:outline-none focus:ring-1"
           style={{
             color: '#44403c',
             borderColor: '#e7e5e4',
@@ -624,7 +624,7 @@ export default function HealthTracker({ today }: Props) {
           onChange={(value) => updateNote('treatment_notes', value)}
           placeholder="Meloxicam AM, Advil PM, none today…"
           rows={2}
-          className="w-full text-sm resize-none rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2 transition-shadow"
+          className="w-full text-sm resize-y rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2 transition-shadow"
           style={{
             color: '#44403c',
             borderColor: '#e7e5e4',
@@ -658,7 +658,7 @@ export default function HealthTracker({ today }: Props) {
           onChange={(value) => updateNote('general_notes', value)}
           placeholder="Feeling better than yesterday, ankle still stiff in the morning…"
           rows={3}
-          className="w-full text-sm resize-none rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2 transition-shadow"
+          className="w-full text-sm resize-y rounded-xl border px-3 py-2.5 focus:outline-none focus:ring-2 transition-shadow"
           style={{
             color: '#44403c',
             borderColor: '#e7e5e4',
