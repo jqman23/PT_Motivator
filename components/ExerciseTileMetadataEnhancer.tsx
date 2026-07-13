@@ -53,14 +53,10 @@ function prescriptionLabel(exercise: ExerciseImage | undefined) {
   const sets = Math.max(1, Math.round(Number(prescription.sets) || 0));
   const amount = Math.max(1, Math.round(Number(prescription.amount) || 0));
   if (!sets || !amount) return '';
-  const namedTargetCount = (prescription.targets ?? []).map(target => target.trim()).filter(Boolean).length;
-  const targetCount = namedTargetCount || prescription.scopeMultiplier || 1;
   if (prescription.unit === 'reps') {
-    const base = `${sets}×${amount} reps`;
-    return targetCount > 1 ? `${base} ×${targetCount} (${sets * amount * targetCount} total)` : base;
+    return `${sets}×${amount} reps`;
   }
-  const base = `${sets}×${amount} ${amount === 1 ? 'sec' : 'secs'}`;
-  return targetCount > 1 ? `${base} ×${targetCount}` : base;
+  return `${sets}×${amount} ${amount === 1 ? 'sec' : 'secs'}`;
 }
 
 function cardIsDone(card: HTMLElement) {
