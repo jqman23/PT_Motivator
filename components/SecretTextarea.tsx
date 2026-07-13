@@ -163,7 +163,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     <button
       type="button"
       onClick={toggleResize}
-      className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500"
+      className="absolute bottom-1.5 right-1.5 flex h-6 w-6 touch-none items-end justify-end rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-500 sm:hidden"
       aria-label={expanded ? 'Shrink note' : 'Expand note'}
       title={expanded ? 'Shrink note' : 'Expand note'}
     >
@@ -179,7 +179,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         onChange={handlePlainChange}
         placeholder={placeholder}
         rows={rows}
-        className={`${className} ${canResize ? 'resize-none pr-7' : ''}`}
+        className={`${className} ${canResize ? 'resize-none pr-7 sm:resize-y sm:pr-3' : ''}`}
         style={{ ...style, height: textareaHeight }}
         autoFocus={autoFocus}
         onFocus={event => {
@@ -208,7 +208,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       <div
         role="textbox"
         aria-multiline="true"
-        className={`${className} secret-note-editor overflow-auto resize-none ${canResize ? 'pr-7' : ''}`}
+        className={`${className} secret-note-editor overflow-auto resize-none ${canResize ? 'pr-7 sm:resize-y sm:pr-3' : ''}`}
         style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: textareaHeight, whiteSpace: 'pre-wrap' }}
         onFocus={event => {
           focusedRef.current = true;
