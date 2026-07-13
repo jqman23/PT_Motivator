@@ -1,11 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Exercise, ExerciseTimerPrescription } from '@/lib/exercises';
+import { EXERCISE_PROGRAM_OPTIONS, Exercise, ExerciseProgram, ExerciseTimerPrescription } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,120}$/;
 
@@ -99,6 +99,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     if (field === 'optional') next = /true|yes|1/i.test(value);
     if (field === 'cat') next = cleanType(value) || 'mobility';
     if (['videoIds','videoTitles','tips','mainImageUrls'].includes(field)) next = split(value).slice(0, field === 'mainImageUrls' ? 3 : 999);
+    if (field === 'programs') next = Array.from(new Set(split(value))).filter((program): program is ExerciseProgram => EXERCISE_PROGRAM_OPTIONS.some(option => option.value === program));
 
     return { ...e, [field]: next } as Exercise;
   }));
@@ -257,10 +258,15 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     const videoTitles = importedList(item.videoTitles);
     const tips = importedList(item.tips ?? item.instructions);
     const mainImageUrls = importedList(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls);
+    const programs = importedList(item.programs);
     if (videoIds) out.videoIds = videoIds;
     if (videoTitles) out.videoTitles = videoTitles;
     if (tips) out.tips = tips;
     if (mainImageUrls) out.mainImageUrls = mainImageUrls.slice(0, 3);
+    if (programs) {
+      const validPrograms = Array.from(new Set(programs)).filter((program): program is ExerciseProgram => EXERCISE_PROGRAM_OPTIONS.some(option => option.value === program));
+      if (programs.length === 0 || validPrograms.length > 0) out.programs = validPrograms;
+    }
     const timerPrescription = importedTimerPrescription(item.timerPrescription);
     if (timerPrescription) out.timerPrescription = timerPrescription;
 
@@ -367,6 +373,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             tips: incoming.tips ?? [],
             optional: incoming.optional,
             origin: incoming.origin ?? 'patient_added',
+            programs: incoming.programs,
             sourceId: incoming.sourceId,
             gifUrl: incoming.gifUrl,
             mainImageUrl: incoming.mainImageUrl,
@@ -568,7 +575,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
-                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
+                {['name','cue','sets','imageSearch','gifUrl','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','programs','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className={buttonPrimary}>Apply bulk value</button>
@@ -600,10 +607,10 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           </aside>
 
           <div className="flex-1 overflow-auto p-4">
-            <table className="w-full min-w-[1740px] border-separate border-spacing-y-2 text-xs">
+            <table className="w-full min-w-[1880px] border-separate border-spacing-y-2 text-xs">
               <thead>
                 <tr className="text-left text-stone-400 uppercase tracking-widest">
-                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Timer prescription</th><th>Type</th><th>Category</th><th>Opt</th><th>Origin / source</th><th>Main media</th><th>Search / GIF</th><th>Video IDs / titles</th><th>Tips</th>
+                  <th>✓</th><th>ID</th><th>Name</th><th>Cue</th><th>Sets</th><th>Timer prescription</th><th>Type</th><th>Category</th><th>Opt</th><th>Programs</th><th>Origin / source</th><th>Main media</th><th>Search / GIF</th><th>Video IDs / titles</th><th>Tips</th>
                 </tr>
               </thead>
               <tbody>{filtered.map(e => (
@@ -661,6 +668,24 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   </td>
                   <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
+                  <td className="p-2">
+                    <div className="w-36 space-y-1">
+                      {EXERCISE_PROGRAM_OPTIONS.map(option => (
+                        <label key={option.value} className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-stone-600">
+                          <input
+                            type="checkbox"
+                            checked={e.programs?.includes(option.value) ?? false}
+                            onChange={x => patch(e.id, {
+                              programs: x.target.checked
+                                ? Array.from(new Set([...(e.programs ?? []), option.value]))
+                                : (e.programs ?? []).filter(program => program !== option.value),
+                            })}
+                          />
+                          <span aria-hidden="true">{option.icon}</span>{option.shortLabel}
+                        </label>
+                      ))}
+                    </div>
+                  </td>
                   <td className="p-2">
                     <div className="w-40 space-y-1">
                       <select aria-label="Origin" value={e.origin ?? ''} onChange={x=>patch(e.id,{origin:(x.target.value || undefined) as Exercise['origin']})} className="w-full border rounded-lg p-1 bg-white">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Exercise } from '@/lib/exercises';
+import { EXERCISE_PROGRAM_OPTIONS, Exercise, ExerciseProgram } from '@/lib/exercises';
 import { exerciseVideoSource } from '@/lib/media';
 
 interface Props {
@@ -34,6 +34,7 @@ function fieldLabel(key: string) {
     sets: 'Sets / reps',
     cat: 'Type',
     optional: 'Optional',
+    programs: 'Programs',
     origin: 'Origin',
     sourceId: 'Source ID',
     gifUrl: 'GIF URL',
@@ -72,6 +73,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [timerTargetsText, setTimerTargetsText] = useState((exercise.timerPrescription?.targets?.length ? exercise.timerPrescription.targets : legacyTimerTargets).join('\n'));
   const [cat, setCat] = useState<Exercise['cat']>(exercise.cat);
   const [optional, setOptional] = useState(!!exercise.optional);
+  const [programs, setPrograms] = useState<ExerciseProgram[]>(exercise.programs ?? []);
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
   const [sourceId, setSourceId] = useState(exercise.sourceId ?? '');
   const [gifUrl, setGifUrl] = useState(exercise.gifUrl ?? '');
@@ -111,6 +113,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     } : undefined,
     cat,
     optional: optional || undefined,
+    programs,
     origin,
     sourceId: sourceId.trim() || undefined,
     gifUrl: gifUrl.trim() || undefined,
@@ -121,7 +124,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     videoIds: linesToList(videoIds),
     videoTitles: linesToList(videoTitles),
     tips: linesToList(tipsText),
-  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerTargetsText, cat, optional, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
+  }), [exercise, name, cue, sets, timerDefaultsEnabled, timerSets, timerAmount, timerUnit, timerTargetsText, cat, optional, programs, origin, sourceId, gifUrl, mainImageUrl, mainImageUrls, mainVideoUrl, imageSearch, videoIds, videoTitles, tipsText]);
 
   const proposalRows = useMemo(() => {
     if (!proposal) return [];
@@ -165,6 +168,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
     if (proposal.sets !== undefined) setSets(proposal.sets ?? '');
     if (proposal.cat !== undefined) setCat(proposal.cat);
     if (proposal.optional !== undefined) setOptional(!!proposal.optional);
+    if (proposal.programs !== undefined) setPrograms(proposal.programs);
     if (proposal.origin !== undefined) setOrigin(proposal.origin);
     if (proposal.sourceId !== undefined) setSourceId(proposal.sourceId ?? '');
     if (proposal.gifUrl !== undefined) setGifUrl(proposal.gifUrl ?? '');
@@ -222,6 +226,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
         } : undefined,
         cat,
         optional: optional || undefined,
+        programs,
         origin,
         sourceId: sourceId.trim() || undefined,
         gifUrl: gifUrl.trim() || undefined,
@@ -412,6 +417,25 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
               <input type="checkbox" checked={optional} onChange={e => setOptional(e.target.checked)} />
               Optional exercise
             </label>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Programs</label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {EXERCISE_PROGRAM_OPTIONS.map(option => (
+                  <label key={option.value} className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs font-semibold text-stone-600">
+                    <input
+                      type="checkbox"
+                      checked={programs.includes(option.value)}
+                      onChange={e => setPrograms(current => e.target.checked
+                        ? Array.from(new Set([...current, option.value]))
+                        : current.filter(program => program !== option.value))}
+                    />
+                    <span aria-hidden="true">{option.icon}</span>{option.label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-stone-400">Choose either program or both. Origin stays separate.</p>
+            </div>
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Origin</label>
             <select value={origin} onChange={e => setOrigin(e.target.value as NonNullable<Exercise['origin']>)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }}>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { EXERCISES, Exercise } from '@/lib/exercises';
+import { EXERCISE_PROGRAM_OPTIONS, EXERCISES, Exercise, ExerciseProgram } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE, COLOR_KEYS } from '@/lib/layout';
 import ExerciseCard from '@/components/ExerciseCard';
 import WeekTracker from '@/components/WeekTracker';
@@ -146,6 +146,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [hiddenDoneByDate, setHiddenDoneByDate] = useState<Record<string, string[]>>({});
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [programFilter, setProgramFilter] = useState<ExerciseProgram[]>([]);
   const [showTypeFilterMenu, setShowTypeFilterMenu] = useState(false);
 
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
@@ -200,6 +201,9 @@ export default function Home() {
     [allExercises]
   );
   const typeFilterActive = typeFilter.length > 0;
+  const programFilterActive = programFilter.length > 0;
+  const exerciseFilterActive = typeFilterActive || programFilterActive;
+  const exerciseFilterCount = typeFilter.length + programFilter.length;
   const layoutExercises = useMemo(() =>
     layout.flatMap(cat => cat.exerciseIds
       .map(id => {
@@ -648,12 +652,12 @@ export default function Home() {
                 onClick={() => setShowTypeFilterMenu(prev => !prev)}
                 className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium"
                 style={{
-                  color: typeFilterActive ? '#7E9B86' : '#a8a29e',
-                  background: typeFilterActive ? '#E4ECE6' : '#f5f5f4',
+                  color: exerciseFilterActive ? '#7E9B86' : '#a8a29e',
+                  background: exerciseFilterActive ? '#E4ECE6' : '#f5f5f4',
                   touchAction: 'manipulation',
                 }}
               >
-                {typeFilterActive ? `Type (${typeFilter.length})` : 'Type'}
+                {exerciseFilterActive ? `Filter (${exerciseFilterCount})` : 'Filter'}
               </button>
               {showTypeFilterMenu && (
                 <>
@@ -661,14 +665,14 @@ export default function Home() {
                     type="button"
                     className="fixed inset-0 z-[61] cursor-default bg-transparent"
                     onClick={() => setShowTypeFilterMenu(false)}
-                    aria-label="Close type filter"
+                    aria-label="Close exercise filter"
                   />
                   <div className="fixed left-4 right-4 top-[6rem] z-[62] rounded-2xl border border-stone-100 bg-white p-2 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
                     <div className="flex items-center justify-between gap-2 px-1 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
-                      {typeFilterActive && (
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter exercises</p>
+                      {exerciseFilterActive && (
                         <button
-                          onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
+                          onClick={() => { setTypeFilter([]); setProgramFilter([]); setShowTypeFilterMenu(false); }}
                           className="text-[10px] font-semibold text-stone-400 hover:text-stone-600"
                           style={{ touchAction: 'manipulation' }}
                         >
@@ -676,9 +680,10 @@ export default function Home() {
                         </button>
                       )}
                     </div>
-                    <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto">
+                    <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-widest text-stone-400">Type</p>
+                    <div className="grid max-h-44 grid-cols-2 gap-1.5 overflow-y-auto">
                       <button
-                        onClick={() => { setTypeFilter([]); setShowTypeFilterMenu(false); }}
+                        onClick={() => setTypeFilter([])}
                         className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
                         style={{
                           borderColor: !typeFilterActive ? '#7E9B86' : '#e7e5e4',
@@ -702,6 +707,25 @@ export default function Home() {
                           }}
                         >
                           <span className="mr-1" aria-hidden="true">{getExerciseTypeDisplay(type, typeMeta).emoji}</span>{type}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="my-2 border-t border-stone-100" />
+                    <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-widest text-stone-400">Program</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {EXERCISE_PROGRAM_OPTIONS.map(option => (
+                        <button
+                          key={option.value}
+                          onClick={() => setProgramFilter(prev => prev.includes(option.value) ? prev.filter(item => item !== option.value) : [...prev, option.value])}
+                          className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
+                          style={{
+                            borderColor: programFilter.includes(option.value) ? '#7E9B86' : '#e7e5e4',
+                            color: programFilter.includes(option.value) ? '#7E9B86' : '#78716c',
+                            background: programFilter.includes(option.value) ? '#E4ECE6' : '#fff',
+                            touchAction: 'manipulation',
+                          }}
+                        >
+                          <span className="mr-1" aria-hidden="true">{option.icon}</span>{option.label}
                         </button>
                       ))}
                     </div>
@@ -763,11 +787,15 @@ export default function Home() {
               const palette = COLOR_PALETTE[cat.color] ?? COLOR_PALETTE.green;
               const isCollapsed = !!collapsed[cat.id];
               const catExercises: Exercise[] = cat.exerciseIds.map(id => exerciseMap[id]).filter(Boolean);
-              const visibleCatExercises = typeFilterActive ? catExercises.filter(ex => typeFilter.includes(normalizeExerciseType(ex.cat))) : catExercises;
+              const visibleCatExercises = catExercises.filter(ex => {
+                const matchesType = !typeFilterActive || typeFilter.includes(normalizeExerciseType(ex.cat));
+                const matchesProgram = !programFilterActive || programFilter.some(program => ex.programs?.includes(program));
+                return matchesType && matchesProgram;
+              });
               const done = visibleCatExercises.filter(e => dayLog[e.id]).length;
               const total = visibleCatExercises.length;
               const isRenaming = renamingCat === cat.id;
-              if (typeFilterActive && visibleCatExercises.length === 0) return null;
+              if (exerciseFilterActive && visibleCatExercises.length === 0) return null;
               return (
                 <section key={cat.id} className="mb-5">
                   <div className="flex items-center gap-1.5 mb-2.5">

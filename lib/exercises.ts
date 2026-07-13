@@ -1,4 +1,10 @@
 export type Category = string;
+export type ExerciseProgram = 'physical_therapy' | 'personal_training';
+
+export const EXERCISE_PROGRAM_OPTIONS: ReadonlyArray<{ value: ExerciseProgram; label: string; shortLabel: string; icon: string }> = [
+  { value: 'physical_therapy', label: 'Physical therapy', shortLabel: 'PT', icon: '🩺' },
+  { value: 'personal_training', label: 'Personal training', shortLabel: 'Training', icon: '🏋️' },
+];
 
 export interface ExerciseTimerPrescription {
   sets: number;
@@ -22,6 +28,8 @@ export interface Exercise {
   tips: string[];
   optional?: boolean;
   origin?: 'hep' | 'patient_added' | 'exercisedb' | 'api_ninjas';
+  /** Programs this exercise belongs to. An exercise may belong to either or both. */
+  programs?: ExerciseProgram[];
   sourceId?: string;
   gifUrl?: string;
   mainImageUrl?: string;
