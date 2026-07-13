@@ -105,6 +105,17 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     }
   };
 
+  const updateUnlockCode = (index: number, value: string) => {
+    const next = value.replace(/\D/g, '').slice(0, 4);
+    setUnlockCode(next);
+    if (next === SECRET_UNLOCK_CODE) {
+      pendingSecretIndex.current = index;
+      setUnlockingIndex(null);
+      setUnlockCode('');
+      patchBlock(index, { locked: false });
+    }
+  };
+
   const removeBlock = (index: number) => {
     const next = blocks.filter((_, i) => i !== index);
     setUnlockingIndex(null);
@@ -178,7 +189,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             <span className="inline-flex min-w-[9.5rem] flex-1 items-center gap-1.5">
               <input
                 value={unlockCode}
-                onChange={event => setUnlockCode(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                onChange={event => updateUnlockCode(index, event.target.value)}
                 onKeyDown={event => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
