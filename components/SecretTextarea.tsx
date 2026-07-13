@@ -80,10 +80,33 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     patchBlock(index, { text: nextText });
   };
 
-  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+  const handleTextKeyDown = (index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Backspace' || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    const target = event.currentTarget;
+    if ((target.selectionStart ?? 0) !== 0 || (target.selectionEnd ?? 0) !== 0) return;
+    if (blocks[index - 1]?.type !== 'secret') return;
     event.preventDefault();
-    patchBlock(index, { locked: true });
+    removeBlock(index - 1);
+  };
+
+  const handleSecretKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      patchBlock(index, { locked: true });
+      return;
+    }
+    if (event.key !== 'Backspace') return;
+    const target = event.currentTarget;
+    if (target.value || (target.selectionStart ?? 0) !== 0 || (target.selectionEnd ?? 0) !== 0) return;
+    event.preventDefault();
+    removeBlock(index);
+  };
+
+  const handlePillKeyDown = (index: number, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Backspace' && event.key !== 'Delete') return;
+    event.preventDefault();
+    removeBlock(index);
   };
 
   const toggleSecret = (index: number, block: Extract<SecretNoteBlock, { type: 'secret' }>) => {
@@ -179,6 +202,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             <button
               type="button"
               onClick={() => toggleSecret(index, block)}
+              onKeyDown={event => handlePillKeyDown(index, event)}
               className="inline-flex h-[1.125rem] items-center gap-0.5 rounded-full border px-1.5 text-[9px] font-bold uppercase tracking-wide transition-colors"
               style={{
                 background: block.locked ? '#1F2F46' : '#E4ECE6',
@@ -191,16 +215,6 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             >
               <LockIcon locked={block.locked} />
               secret
-            </button>
-            <button
-              type="button"
-              onClick={() => removeBlock(index)}
-              className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-500"
-              style={{ touchAction: 'manipulation' }}
-              aria-label="Remove secret note"
-              title="Remove secret note"
-            >
-              x
             </button>
           {block.locked && unlockingIndex === index && (
             <span className="inline-flex min-w-[7rem] items-center gap-1">
@@ -249,6 +263,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           autoFocus={autoFocus && index === 0}
           value={block.text}
           onChange={event => handleTextChange(index, event)}
+          onKeyDown={event => handleTextKeyDown(index, event)}
           placeholder={blocks.length === 1 ? placeholder : undefined}
           rows={rows}
           className="block w-full resize-none border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none"
