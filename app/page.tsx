@@ -701,7 +701,7 @@ export default function Home() {
                             touchAction: 'manipulation',
                           }}
                         >
-                          {type}
+                          <span className="mr-1" aria-hidden="true">{getExerciseTypeDisplay(type, typeMeta).emoji}</span>{type}
                         </button>
                       ))}
                     </div>
