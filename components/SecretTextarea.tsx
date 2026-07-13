@@ -220,7 +220,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         }}
       >
         {blocks.map((block, index) => block.type === 'secret' ? (
-          <span key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="inline-flex min-h-[1.55rem] max-w-full items-center gap-1 align-baseline">
+          <div key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="my-1 flex min-h-[1.55rem] w-full max-w-full flex-wrap items-center gap-1">
             <button
               ref={node => {
                 pillRefs.current[index] = node;
@@ -282,7 +282,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 aria-label="Secret note text"
               />
             )}
-          </span>
+          </div>
         ) : (
           <textarea
             key={index}
