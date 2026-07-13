@@ -64,15 +64,6 @@ const QUOTES = [
   'Tight and weak aren\'t the same problem. Neither are busy and recovered.',
 ];
 
-function mergeTimerNotes(existing: string, incoming: string): string {
-  if (!existing) return incoming;
-  const pattern = /^(\d+) x (\d+) seconds ea side$/;
-  const a = existing.match(pattern);
-  const b = incoming.match(pattern);
-  if (a && b && a[2] === b[2]) return `${Number(a[1]) + Number(b[1])} x ${a[2]} seconds ea side`;
-  return `${existing}\n${incoming}`;
-}
-
 const DEFAULT_WIDGET_PREFS: WidgetPrefs = {
   timer: true,
   info: true,
@@ -220,17 +211,6 @@ export default function Home() {
       .filter((ex): ex is Exercise & { categoryName: string; categoryColor: string; typeLetters: string; typeEmoji: string } => Boolean(ex))),
     [layout, exerciseMap, typeMeta]
   );
-  const notesRef = useRef<NotesMap>({});
-  useEffect(() => { notesRef.current = notes; }, [notes]);
-
-  const handleTimerNoteSave = useCallback(async (exerciseId: string, note: string) => {
-    const existing = notesRef.current[exerciseId] ?? '';
-    const merged = mergeTimerNotes(existing, note);
-    setNotes(prev => ({ ...prev, [exerciseId]: merged }));
-    try { await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: today, exerciseId, note: merged }) }); }
-    catch (err) { console.error(err); }
-  }, [today]);
-
   useEffect(() => {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
@@ -622,7 +602,7 @@ export default function Home() {
           <div className="flex items-center justify-between gap-2">
             <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
-              {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} onSaveNote={handleTimerNoteSave} onOpenNote={setNoteModalId} />}
+              {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} metricDate={selectedDate} />}
               <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
               <IconButton title="Ask AI about exercise" label="Ask" onClick={() => setShowAiCoach(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M7.8 7.4A2.4 2.4 0 0 1 10.2 5c1.4 0 2.5.9 2.5 2.2 0 1.1-.6 1.7-1.7 2.4-.8.5-1 1-1 1.9"/><path d="M10 14.6h.01"/></svg></IconButton>
               {widgetPrefs.info && <IconButton title="Exercise guide" label="guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}

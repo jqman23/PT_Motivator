@@ -180,10 +180,5 @@ export default function TimerWidget(props: TimerWidgetProps) {
     };
   }, []);
 
-  const handleSaveNote: TimerWidgetProps['onSaveNote'] = async (exerciseId, note) => {
-    await props.onSaveNote?.(exerciseId, note);
-    window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId } }));
-  };
-
-  return <QuickTimerWidget {...props} onSaveNote={handleSaveNote} />;
+  return <QuickTimerWidget {...props} />;
 }

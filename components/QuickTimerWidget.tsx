@@ -289,17 +289,6 @@ function workoutDurationSummary(workout: CustomWorkout) {
   return manualCount > 0 ? `${time}+ (${manualCount} manual rep ${manualCount === 1 ? 'set' : 'sets'})` : time;
 }
 
-function notesForCompletedSteps(workoutName: string, steps: TimerStep[]) {
-  const notes = new Map<string, string[]>();
-  steps.forEach(step => {
-    if (!step.exerciseId || !step.workNote) return;
-    const current = notes.get(step.exerciseId) ?? [];
-    current.push(step.workNote);
-    notes.set(step.exerciseId, current);
-  });
-  return Array.from(notes.entries()).map(([exerciseId, lines]) => ({ exerciseId, note: `${workoutName}: ${lines.join('; ')}` }));
-}
-
 const SEQUENCE_OPTIONS: SequenceOption[] = [
   { key: 'one60', label: '1 set', group: '60 sec holds', holdSeconds: 60, steps: buildSequence(1, 60) },
   { key: 'two60', label: '2 sets', group: '60 sec holds', holdSeconds: 60, steps: buildSequence(2, 60) },
@@ -310,10 +299,6 @@ const SEQUENCE_OPTIONS: SequenceOption[] = [
 ];
 
 const DEFAULT_SEQUENCE = SEQUENCE_OPTIONS[0];
-
-function getSequence(key: SequenceKey | null | undefined) {
-  return SEQUENCE_OPTIONS.find(option => option.key === key) ?? DEFAULT_SEQUENCE;
-}
 
 function segmentLabel(step?: TimerStep) {
   if (!step) return '';
@@ -364,14 +349,6 @@ function setLabelParts(label: SequenceOption['label']) {
   return { count, noun: count === '1' ? 'set' : 'sets' };
 }
 
-function noteForSequence(seq: SequenceOption) {
-  if (seq.holdSeconds) {
-    const count = seq.label.split(' ')[0];
-    return `${count} x ${seq.holdSeconds} seconds right + left`;
-  }
-  return seq.steps.map(step => step.label).filter(Boolean).join('\n');
-}
-
 function getFriendlyVoice() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
@@ -384,11 +361,10 @@ function getFriendlyVoice() {
 
 interface QuickTimerWidgetProps {
   exercises?: TimerExerciseSource[];
-  onSaveNote?: (exerciseId: string, note: string) => void | Promise<void>;
-  onOpenNote?: (exerciseId: string) => void;
+  metricDate?: string;
 }
 
-export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: QuickTimerWidgetProps = {}) {
+export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWidgetProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [workoutModeOpen, setWorkoutModeOpen] = useState(false);
@@ -417,8 +393,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [showWorkoutJsonTools, setShowWorkoutJsonTools] = useState(false);
 
   const [logExerciseId, setLogExerciseId] = useState('');
-  const [logNoteText, setLogNoteText] = useState('');
   const [logSaved, setLogSaved] = useState(false);
+  const [logSaving, setLogSaving] = useState(false);
+  const [logError, setLogError] = useState('');
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const bellOnRef = useRef(bellOn);
@@ -468,18 +445,12 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       : `${activeSequence.label} · ${segmentLabel(currentStep)}`
     : '';
 
-  // Pre-fill log note when timer completes
-  useEffect(() => {
-    if (!done || sequenceActive) return;
-    setLogNoteText(sequenceKey ? noteForSequence(getSequence(sequenceKey)) : `1 x ${duration} seconds`);
-    setLogSaved(false);
-  }, [done, sequenceActive, sequenceKey, duration]);
-
   // Reset log state when timer resets
   useEffect(() => {
     if (!done) {
       setLogSaved(false);
       setLogExerciseId('');
+      setLogError('');
     }
   }, [done]);
 
@@ -600,13 +571,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     sequenceActiveRef.current = false;
     playCue(message);
     persistTimer({ running: false, done: true, remaining: 0, sequenceActive: false, endAt: null, cue: message }, true);
-    if (completedWorkout && onSaveNote) {
-      void Promise.all(notesForCompletedSteps(completedWorkout.name, completedWorkStepsRef.current).map(async ({ exerciseId, note }) => {
-        const standardized = await standardizeWorkoutNote(exerciseId, note);
-        await onSaveNote(exerciseId, standardized);
-      }));
-      setLogSaved(true);
-    }
+    // Structured exercise metrics own sets/reps/duration now. Completing a
+    // workout must not write those values into free-form notes.
+    if (completedWorkout) setLogSaved(false);
   };
 
   const resolveSequenceAt = (now: number): SequenceResolution => {
@@ -848,32 +815,38 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const start = () => mode === 'timer' ? void startCountdown() : void startStopwatch();
   const reset = () => mode === 'timer' ? resetTimer() : resetStopwatch();
 
-  const handleLogNote = async () => {
-    if (!logExerciseId || !logNoteText || !onSaveNote) return;
-    await onSaveNote(logExerciseId, logNoteText);
-    setLogSaved(true);
+  const completedTimerMetric = () => {
+    if (sequenceKey && activeSequence.holdSeconds) {
+      const workSteps = activeSequence.steps.filter(step => step.kind === 'stretch').length;
+      return {
+        sets: Math.max(1, Math.round(workSteps / 2)),
+        durationSeconds: activeSequence.holdSeconds,
+        scopeMultiplier: 2 as const,
+      };
+    }
+    return { sets: 1, durationSeconds: Math.max(1, Math.round(duration)), scopeMultiplier: 1 as const };
   };
 
-  const standardizeWorkoutNote = async (exerciseId: string, rawNote: string) => {
-    const exercise = exercises?.find(item => item.id === exerciseId);
+  const handleSaveTimerMetrics = async () => {
+    if (!logExerciseId || logSaving) return;
+    setLogSaving(true);
+    setLogError('');
     try {
-      const res = await fetch('/api/standardize-note', {
+      const fallbackDate = new Date().toLocaleDateString('en-CA');
+      const response = await fetch('/api/exercise-metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawNote,
-          exerciseName: exercise?.name ? exercise.name.replace(/\b(with|without|no)\s+(bands?|weights?|support)\b/gi, '').replace(/\s+/g, ' ').trim() : '',
-          exerciseSets: '',
-          exerciseCue: '',
-          exerciseTips: [],
-        }),
+        body: JSON.stringify({ date: metricDate || fallbackDate, exerciseId: logExerciseId, ...completedTimerMetric() }),
       });
-      const data = await res.json().catch(() => ({})) as { standardizedNote?: string };
-      return typeof data.standardizedNote === 'string' && data.standardizedNote.trim()
-        ? data.standardizedNote.trim()
-        : rawNote;
-    } catch {
-      return rawNote;
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'Could not save metrics.');
+      setLogSaved(true);
+      window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', { detail: { exerciseId: logExerciseId, date: metricDate || fallbackDate } }));
+      window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId: logExerciseId } }));
+    } catch (error) {
+      setLogError(error instanceof Error ? error.message : 'Could not save metrics.');
+    } finally {
+      setLogSaving(false);
     }
   };
 
@@ -1277,7 +1250,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     return groups;
   }, []);
 
-  const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!onSaveNote && !!(exercises?.length);
+  const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!(exercises?.length);
+  const finishedMetric = completedTimerMetric();
+  const finishedMetricLabel = `${finishedMetric.sets}×${finishedMetric.durationSeconds} sec${finishedMetric.scopeMultiplier === 2 ? ' · R/L' : ''}`;
   const currentWorkoutStep = sequenceActive && sequenceIndex >= 0 ? activeSequence.steps[sequenceIndex] : undefined;
   const nextWorkoutStep = sequenceActive ? activeSequence.steps[Math.max(0, sequenceIndex + 1)] : undefined;
   const upcomingWorkoutSteps = sequenceActive
@@ -1431,7 +1406,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
           {!logSaved ? (
             <>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-stone-400 mb-2">Log to exercise</p>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-stone-400">Save metrics to exercise</p>
+                <span className="text-[10px] font-bold text-[#476653]">{finishedMetricLabel}</span>
+              </div>
               <select
                 value={logExerciseId}
                 onChange={e => setLogExerciseId(e.target.value)}
@@ -1442,26 +1420,11 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 <option value="">Choose exercise…</option>
                 {exercises!.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
               </select>
-              <div className="flex gap-1.5">
-                <input
-                  value={logNoteText}
-                  onChange={e => setLogNoteText(e.target.value)}
-                  onClick={e => e.stopPropagation()}
-                  className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2"
-                  style={{ padding: '5px 8px', fontSize: 14, colorScheme: 'light' }}
-                />
-                <button
-                  onClick={e => { e.stopPropagation(); void handleLogNote(); }}
-                  disabled={!logExerciseId || !logNoteText}
-                  className="rounded-lg px-3 text-xs font-bold text-white flex-shrink-0 disabled:opacity-40"
-                  style={{ background: '#7E9B86' }}
-                >
-                  Log
-                </button>
-              </div>
+              <button onClick={e => { e.stopPropagation(); void handleSaveTimerMetrics(); }} disabled={!logExerciseId || logSaving} className="w-full rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{logSaving ? 'Saving…' : 'Save actual metrics'}</button>
+              {logError && <p className="mt-1.5 text-[11px] font-semibold text-red-600">{logError}</p>}
             </>
           ) : (
-            <button onClick={e => { e.stopPropagation(); if (onOpenNote && logExerciseId) { setOpen(false); onOpenNote(logExerciseId); } else { setLogSaved(false); } }} className="w-full text-center text-xs font-bold py-0.5 rounded-lg hover:bg-stone-100 transition-colors" style={{ color: '#7E9B86' }}>✓ Note logged · tap to edit</button>
+            <p className="w-full text-center text-xs font-bold py-0.5" style={{ color: '#7E9B86' }}>✓ Metrics saved for {finishedMetricLabel}</p>
           )}
         </div>
       )}
@@ -1585,18 +1548,18 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
               {showLogSection && (
                 <div className="rounded-3xl bg-white p-4 text-stone-800">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Log timer</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Save metrics · {finishedMetricLabel}</p>
                   {!logSaved ? (
                     <div className="mt-2 space-y-2">
                       <select value={logExerciseId} onChange={e => setLogExerciseId(e.target.value)} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm" style={{ colorScheme: 'light' }}>
                         <option value="">Choose exercise...</option>
                         {exercises!.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
                       </select>
-                      <input value={logNoteText} onChange={e => setLogNoteText(e.target.value)} className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm" style={{ colorScheme: 'light' }} />
-                      <button onClick={() => void handleLogNote()} disabled={!logExerciseId || !logNoteText} className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>Save note</button>
+                      <button onClick={() => void handleSaveTimerMetrics()} disabled={!logExerciseId || logSaving} className="w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{logSaving ? 'Saving…' : 'Save actual metrics'}</button>
+                      {logError && <p className="text-xs font-semibold text-red-600">{logError}</p>}
                     </div>
                   ) : (
-                    <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Note saved.</p>
+                    <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Metrics saved.</p>
                   )}
                 </div>
               )}
