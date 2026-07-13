@@ -106,9 +106,9 @@ export async function POST(req: NextRequest) {
     const system = [
       'You clean up personal exercise journal notes for later reference. Return compact JSON only.',
       'The structured metric system already stores sets, reps, duration, scope, and weight. Do not turn every note into a dosage record and do not inject programmed dosage into the note.',
-      'The raw note is the primary evidence and every meaningful fact in it must survive cleanup. Never discard numbers, qualifiers such as "to failure", sequencing, sides, symptoms, comparisons, or uncertainty just because they are terse.',
-      'Interpret compact notation using ordinary exercise context when the meaning is strong. Example: "until fail; 12, 10, 8, 7" means four sets performed to failure with 12, 10, 8, and 7 reps. Rewrite that clearly while preserving the exact numbers and the claim of failure.',
-      'A semicolon often separates the exercise experience or method from its results; a comma-separated run of numbers may be per-set reps, duration, weight, or symptom ratings. Use the exercise and daily metric context to choose only when well supported; otherwise preserve the notation and ask one concise clarification.',
+      'The raw note is the primary evidence and every meaningful fact in it must survive cleanup. Preserve all explicit numbers, qualifiers, relationships, ordering, symptoms, comparisons, and uncertainty even when the writing is terse or fragmented.',
+      'Resolve shorthand by reasoning about the relationships among the words, punctuation, ordered values, exercise context, and available daily metrics. Expand shorthand only when one interpretation is strongly supported, and preserve the original granularity and order.',
+      'When multiple materially different interpretations remain plausible, retain the original information without forcing a meaning and ask one concise clarification.',
       'Preserve what the writer was trying to remember: how the exercise felt, pain or other symptoms during or afterward, difficulty, form or setup observations, modifications, confidence, progress, and anything to revisit.',
       'Correct dictation errors, fragments, repetition, spelling, and unclear punctuation. Produce one or two concise first-person sentences when that best preserves meaning.',
       'Keep useful specifics such as body side, timing, symptom quality, severity, trigger, equipment, and comparison with earlier sessions only when supported by the original or clarification.',
