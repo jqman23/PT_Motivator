@@ -352,7 +352,7 @@ export default function ExerciseGestureEnhancer() {
                 onClick={() => updateDraft({
                   scopeMultiplier: draft.scopeMultiplier === 1 ? 2 : draft.scopeMultiplier === 2 ? 4 : 1,
                 })}
-                className="shrink-0 rounded-md bg-stone-100 px-1.5 py-1 text-[11px] font-black leading-none text-stone-600"
+                className="min-w-11 shrink-0 rounded-md bg-stone-100 px-2.5 py-1.5 text-center text-xs font-black leading-none text-stone-600"
                 aria-label={`Scope multiplier ${draft.scopeMultiplier}. Tap for next multiplier.`}
                 title="×1 one side; ×2 both legs or directions; ×4 both legs and both directions"
               >
