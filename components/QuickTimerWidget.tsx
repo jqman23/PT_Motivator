@@ -1075,19 +1075,6 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
     },
   }, null, 2);
 
-  const downloadCurrentWorkoutJson = () => {
-    const blob = new Blob([currentWorkoutJson()], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const safeName = (workoutDraft.name || 'workout').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workout';
-    link.href = url;
-    link.download = `${safeName}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
   const copyCurrentWorkoutJson = async () => {
     const text = currentWorkoutJson();
     setWorkoutJsonText(text);
@@ -1675,10 +1662,9 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
             {showWorkoutJsonTools && (
               <div className="mt-3 space-y-2 border-t border-stone-100 pt-3">
                 <textarea value={workoutJsonText} onChange={event => setWorkoutJsonText(event.target.value)} rows={8} placeholder="Export the current workout or paste workout JSON here…" className="w-full resize-y rounded-xl border border-stone-200 bg-stone-50 p-2 font-mono text-[11px] leading-snug focus:outline-none" style={{ fontSize: 13, colorScheme: 'light' }} />
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-3 gap-2">
                   <button type="button" onClick={() => setWorkoutJsonText(currentWorkoutJson())} className="rounded-xl bg-stone-100 px-2 py-2 text-xs font-bold text-stone-600">Export</button>
                   <button type="button" onClick={() => void copyCurrentWorkoutJson()} className="rounded-xl bg-[#E4ECE6] px-2 py-2 text-xs font-bold text-[#476653]">Copy</button>
-                  <button type="button" onClick={downloadCurrentWorkoutJson} className="rounded-xl bg-[#1F2F46] px-2 py-2 text-xs font-bold text-white">Download</button>
                   <button type="button" onClick={importWorkoutJsonToDraft} disabled={!workoutJsonText.trim()} className="rounded-xl bg-[#D9A94B] px-2 py-2 text-xs font-bold text-white disabled:opacity-40">Import draft</button>
                 </div>
                 <p className="text-[11px] leading-snug text-stone-400">Import replaces only the open draft. Review it, then use the normal save button.</p>

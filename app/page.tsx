@@ -630,7 +630,7 @@ export default function Home() {
           <DayControls />
         </div>
 
-        <div className="sticky top-[2.65rem] z-30 -mt-4 mb-4 flex justify-center py-1 sm:static sm:top-auto sm:z-auto sm:mt-2 sm:mb-6 sm:py-0">
+        <div className="sticky top-[2.65rem] z-[60] -mt-4 mb-4 flex justify-center py-1 sm:relative sm:top-auto sm:mt-2 sm:mb-6 sm:py-0">
           <div className="flex max-w-full items-center gap-1.5 overflow-visible rounded-full bg-white/75 p-1.5 shadow-sm ring-1 ring-stone-200/70 backdrop-blur">
             {!isToday && <button onClick={() => changeDate(today)} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>Today</button>}
             <div className="relative flex shrink-0 items-center gap-1.5">
@@ -659,11 +659,11 @@ export default function Home() {
                 <>
                   <button
                     type="button"
-                    className="fixed inset-0 z-20 cursor-default bg-transparent"
+                    className="fixed inset-0 z-[61] cursor-default bg-transparent"
                     onClick={() => setShowTypeFilterMenu(false)}
                     aria-label="Close type filter"
                   />
-                  <div className="fixed left-4 right-4 top-[6rem] z-30 rounded-2xl border border-stone-100 bg-white p-2 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
+                  <div className="fixed left-4 right-4 top-[6rem] z-[62] rounded-2xl border border-stone-100 bg-white p-2 shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72">
                     <div className="flex items-center justify-between gap-2 px-1 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Filter by type</p>
                       {typeFilterActive && (
