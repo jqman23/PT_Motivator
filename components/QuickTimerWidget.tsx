@@ -909,11 +909,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     if (!running) return;
     const id = window.setInterval(() => {
       if (modeRef.current === 'timer') syncTimerFromClock(true);
-      else setElapsed(prev => {
-        const next = prev + 1;
-        persistTimer({ mode: 'stopwatch', elapsed: next, running: true, endAt: null });
-        return next;
-      });
+      // Stopwatch ticks are local UI state only. Broadcasting the timer event
+      // here would trigger background-notification cleanup every second.
+      else setElapsed(prev => prev + 1);
     }, mode === 'timer' ? 350 : 1000);
     return () => window.clearInterval(id);
   }, [running, mode, sequenceActive, cue, duration, remaining]);
@@ -1196,6 +1194,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const focusWorkoutExercise = focusWorkoutStep?.exerciseId ? exercises?.find(exercise => exercise.id === focusWorkoutStep.exerciseId) : undefined;
   const focusWorkoutImage = focusWorkoutExercise?.mainImageUrls?.[0] || focusWorkoutExercise?.mainImageUrl;
   const focusWorkoutIsUpcoming = Boolean(focusWorkoutStep && focusWorkoutStep !== currentWorkoutStep);
+  const selectedWorkout = customWorkouts.find(workout => workout.id === selectedWorkoutId);
+  const selectedWorkoutForDisplay = selectedWorkout ? refreshWorkoutExerciseDefaults(selectedWorkout, exercises ?? []) : undefined;
   const openWorkoutInfo = (step?: TimerStep) => {
     if (!step?.exerciseId && !step?.exerciseName && !step?.label) return;
     setWorkoutInfoStep(step);
@@ -1289,10 +1289,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
               </select>
               <button onClick={event => { event.stopPropagation(); void startCustomWorkout(); }} className="rounded-lg px-3 text-xs font-bold text-white" style={{ background: '#D9A94B' }}>Load</button>
             </div>
-            {selectedWorkoutId && customWorkouts.find(workout => workout.id === selectedWorkoutId) && (
+            {selectedWorkoutForDisplay && (
               <div className="mt-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#7E9B86' }}>Total: {workoutDurationSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
-                <p className="text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#7E9B86' }}>Total: {workoutDurationSummary(selectedWorkoutForDisplay)}</p>
+                <p className="text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(selectedWorkoutForDisplay)}</p>
               </div>
             )}
             <div className="mt-2 grid grid-cols-2 gap-1.5">
