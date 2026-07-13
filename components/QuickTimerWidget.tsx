@@ -1289,6 +1289,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const workoutStatus = done ? 'Complete' : running ? 'In progress' : currentWorkoutStep?.manual ? 'Waiting for reps' : sequenceActive ? 'Ready' : mode === 'stopwatch' ? 'Stopwatch' : 'Timer';
   const canShowWorkoutMode = mode === 'timer' && Boolean(activeSequence.workout) && (sequenceActive || done);
   const workoutInfoExercise = workoutInfoStep?.exerciseId ? exercises?.find(exercise => exercise.id === workoutInfoStep.exerciseId) : undefined;
+  const workoutInfoImage = workoutInfoExercise?.mainImageUrls?.[0] || workoutInfoExercise?.mainImageUrl;
   const focusWorkoutStep = currentWorkoutStep?.exerciseId
     ? currentWorkoutStep
     : upcomingWorkoutSteps.find(step => step.exerciseId);
@@ -1616,6 +1617,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
             </div>
 
             <div className="grid gap-3">
+              {workoutInfoImage && <img src={workoutInfoImage} alt={workoutInfoExercise?.name ?? 'Exercise'} className="max-h-64 w-full rounded-2xl border border-stone-100 bg-white object-contain" />}
               {(workoutInfoExercise?.sets || workoutInfoStep.workNote) && (
                 <div className="rounded-2xl bg-stone-50 p-3">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Prescription</p>
