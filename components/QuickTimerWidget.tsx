@@ -1064,7 +1064,13 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const newWorkout = () => {
     const next = makeDefaultWorkout();
     setWorkoutDraft(next);
-    setSelectedWorkoutId(next.id);
+    setShowWorkoutBuilder(true);
+  };
+
+  const editSelectedWorkout = () => {
+    const selected = customWorkouts.find(workout => workout.id === selectedWorkoutId);
+    if (!selected) return;
+    setWorkoutDraft(selected);
     setShowWorkoutBuilder(true);
   };
 
@@ -1187,7 +1193,6 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
             <div className="flex items-center justify-between gap-2 mb-2">
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Custom workout</p>
-              <button onClick={event => { event.stopPropagation(); setShowWorkoutBuilder(value => !value); }} className="text-[10px] font-bold rounded-lg px-2 py-1" style={{ color: '#476653', background: '#E4ECE6' }}>{showWorkoutBuilder ? 'Hide' : 'Edit'}</button>
             </div>
             <div className="flex gap-1.5">
               <select value={selectedWorkoutId} onChange={event => selectWorkout(event.target.value)} onClick={event => event.stopPropagation()} className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2" style={{ padding: '6px 8px', fontSize: 14, colorScheme: 'light' }}>
@@ -1201,6 +1206,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 <p className="text-[10px] leading-snug text-stone-400 line-clamp-2">{workoutSummary(customWorkouts.find(workout => workout.id === selectedWorkoutId)!)}</p>
               </div>
             )}
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+              <button onClick={event => { event.stopPropagation(); newWorkout(); }} className="rounded-lg px-2 py-2 text-[11px] font-bold text-white" style={{ background: '#7E9B86' }}>＋ Create new workout</button>
+              <button onClick={event => { event.stopPropagation(); editSelectedWorkout(); }} disabled={!selectedWorkoutId} className="rounded-lg px-2 py-2 text-[11px] font-bold disabled:opacity-40" style={{ color: '#476653', background: '#E4ECE6' }}>Edit selected workout</button>
+            </div>
           </div>
 
           <div className="flex gap-1.5 mb-3">
@@ -1447,13 +1456,14 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
     </div>
   ) : null;
 
+  const editingExistingWorkout = customWorkouts.some(workout => workout.id === workoutDraft.id);
   const builderSheet = showWorkoutBuilder ? (
     <div className="fixed inset-0 z-[10000] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={() => setShowWorkoutBuilder(false)}>
       <div className="w-full sm:max-w-2xl bg-[#F6F1E7] rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-100 flex flex-col" style={{ maxHeight: '92dvh' }} onClick={event => event.stopPropagation()}>
         <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between flex-shrink-0">
           <div className="min-w-0">
-            <h2 className="font-serif text-lg font-semibold text-stone-800">Build workout</h2>
-            <p className="text-[11px] text-stone-400">Tap exercises from your current list, then confirm sets/time/reps.</p>
+            <h2 className="font-serif text-lg font-semibold text-stone-800">{editingExistingWorkout ? 'Edit selected workout' : 'Create new workout'}</h2>
+            <p className="text-[11px] text-stone-400">{editingExistingWorkout ? `Changes will update “${workoutDraft.name}”.` : 'This will create a separate saved workout.'}</p>
           </div>
           <button onClick={() => setShowWorkoutBuilder(false)} className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 text-xl">×</button>
         </div>
@@ -1566,8 +1576,8 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
         </div>
 
         <div className="p-4 border-t border-stone-200 bg-[#F6F1E7] flex gap-2 flex-shrink-0">
-          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(() => setShowWorkoutBuilder(false)); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#7E9B86' }}>Save workout</button>
-          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(saved => { setShowWorkoutBuilder(false); if (saved) void startSequencePreset(buildCustomSequence(saved)); }); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>Save & load</button>
+          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(() => setShowWorkoutBuilder(false)); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#7E9B86' }}>{editingExistingWorkout ? 'Save changes' : 'Create workout'}</button>
+          <button onClick={event => { event.stopPropagation(); void saveWorkoutDraft().then(saved => { setShowWorkoutBuilder(false); if (saved) void startSequencePreset(buildCustomSequence(saved)); }); }} className="flex-1 rounded-xl py-3 text-sm font-bold text-white" style={{ background: '#D9A94B' }}>{editingExistingWorkout ? 'Save changes & load' : 'Create & load'}</button>
         </div>
       </div>
     </div>
