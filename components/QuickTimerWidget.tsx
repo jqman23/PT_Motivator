@@ -408,6 +408,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [selectedWorkoutId, setSelectedWorkoutId] = useState('');
   const [workoutDraft, setWorkoutDraft] = useState<CustomWorkout>(() => makeDefaultWorkout());
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
+  const [showSelectedExercisesOnly, setShowSelectedExercisesOnly] = useState(false);
   const [workoutImagePreview, setWorkoutImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [reorderText, setReorderText] = useState('');
 
@@ -1601,9 +1602,10 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
           <div className="bg-white rounded-2xl border border-stone-100 p-3">
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Current exercises</p>
+              <button type="button" onClick={() => setShowSelectedExercisesOnly(value => !value)} className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold" style={{ color: showSelectedExercisesOnly ? '#fff' : '#476653', background: showSelectedExercisesOnly ? '#7E9B86' : '#E4ECE6' }}>{showSelectedExercisesOnly ? 'Show all' : 'Selected only'}</button>
             </div>
             <div className="space-y-3">
-              {groupedCurrentExercises.map(group => (
+              {groupedCurrentExercises.map(group => ({ ...group, items: showSelectedExercisesOnly ? group.items.filter(exercise => workoutDraft.exercises.some(item => item.exerciseId === exercise.id)) : group.items })).filter(group => group.items.length > 0).map(group => (
                 <div key={group.name}>
                   <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: categoryAccent(group.color) }}>{group.name}</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1641,6 +1643,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                   </div>
                 </div>
               ))}
+              {showSelectedExercisesOnly && workoutDraft.exercises.length === 0 && <p className="rounded-xl bg-stone-50 px-3 py-5 text-center text-sm font-semibold text-stone-400">No exercises selected yet. Tap Show all to add some.</p>}
             </div>
           </div>
 
