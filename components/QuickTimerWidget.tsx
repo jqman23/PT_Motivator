@@ -1294,11 +1294,6 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
         </button>
       )}
 
-      <div className="flex gap-1.5 mb-3 rounded-xl bg-stone-100 p-1">
-        <button onClick={event => { event.stopPropagation(); switchMode('timer'); }} className="flex-1 rounded-lg py-1.5 text-xs font-bold" style={{ background: mode === 'timer' ? 'white' : 'transparent', color: mode === 'timer' ? '#57534e' : '#a8a29e' }}>Timer</button>
-        <button onClick={event => { event.stopPropagation(); switchMode('stopwatch'); }} className="flex-1 rounded-lg py-1.5 text-xs font-bold" style={{ background: mode === 'stopwatch' ? 'white' : 'transparent', color: mode === 'stopwatch' ? '#57534e' : '#a8a29e' }}>Stopwatch</button>
-      </div>
-
       {mode === 'timer' && (
         <>
           <div className="flex gap-1.5 mb-2">
