@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { Exercise } from '@/lib/exercises';
+import { Exercise, ExerciseProgramMeta } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { ExerciseTypeMeta, getExerciseTypeDisplay, getExerciseTypeMark, getExerciseTypeTheme, normalizeExerciseType } from '@/lib/exerciseTypes';
 import VideoModal from './VideoModal';
@@ -21,6 +21,8 @@ interface Props {
   onMoveExercise?: (exerciseId: string, direction: -1 | 1) => Promise<boolean> | boolean;
   typeOptions: string[];
   typeMeta: ExerciseTypeMeta;
+  programOptions: string[];
+  programMeta: ExerciseProgramMeta;
 }
 
 const SWIPE_REVEAL = 92;
@@ -43,7 +45,7 @@ async function saveConfigValue(key: string, value: unknown) {
   if (!res.ok) throw new Error(`Could not save ${key}`);
 }
 
-export default function ExerciseCard({ exercise, done, note, today, categoryName, onToggle, onNoteSave, onMoveExercise, typeOptions, typeMeta }: Props) {
+export default function ExerciseCard({ exercise, done, note, today, categoryName, onToggle, onNoteSave, onMoveExercise, typeOptions, typeMeta, programOptions, programMeta }: Props) {
   const [showVideo, setShowVideo] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showQuickInfo, setShowQuickInfo] = useState(false);
@@ -604,7 +606,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       )}
 
       {showEdit && (
-        <ExerciseEditModal exercise={exercise} onClose={() => setShowEdit(false)} />
+        <ExerciseEditModal exercise={exercise} programOptions={programOptions} programMeta={programMeta} onClose={() => setShowEdit(false)} />
       )}
 
       {showNotes && (

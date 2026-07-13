@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { EXERCISE_PROGRAM_OPTIONS, Exercise, ExerciseProgram, ExerciseTimerPrescription } from '@/lib/exercises';
+import { Exercise, ExerciseProgramMeta, ExerciseTimerPrescription, getExerciseProgramDisplay } from '@/lib/exercises';
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
 
@@ -9,11 +9,13 @@ type Field = 'name'|'cue'|'sets'|'imageSearch'|'gifUrl'|'mainImageUrl'|'mainImag
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,120}$/;
 
-export default function MasterDatabaseModal({ exercises, layout, onLibraryChange, onLayoutChange, onClose }: {
+export default function MasterDatabaseModal({ exercises, layout, programMeta, onLibraryChange, onLayoutChange, onProgramMetaChange, onClose }: {
   exercises: Exercise[];
   layout: CategoryConfig[];
+  programMeta: ExerciseProgramMeta;
   onLibraryChange: (e: Exercise[]) => void;
   onLayoutChange: (l: CategoryConfig[]) => void;
+  onProgramMetaChange: (meta: ExerciseProgramMeta) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Exercise[]>(exercises.map(e => ({ ...e })));
@@ -29,6 +31,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameStatus, setRenameStatus] = useState('');
+  const [programMetaDraft, setProgramMetaDraft] = useState<ExerciseProgramMeta>(programMeta);
 
   const filtered = useMemo(
     () => draft.filter(e => !q || JSON.stringify(e).toLowerCase().includes(q.toLowerCase())),
@@ -86,6 +89,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   };
   const currentCat = (id: string) => layout.find(c => c.exerciseIds.includes(id))?.id ?? '';
   const typeOptions = useMemo(() => Array.from(new Set(draft.map(e => e.cat).filter(Boolean))).sort(), [draft]);
+  const programOptions = useMemo(() => Array.from(new Set(draft.flatMap(e => e.programs ?? []).filter(Boolean))).sort((a, b) => getExerciseProgramDisplay(a).label.localeCompare(getExerciseProgramDisplay(b).label)), [draft]);
   const buttonBase = 'w-full rounded-xl py-2 text-xs font-semibold border transition-colors disabled:opacity-50';
   const buttonPrimary = `${buttonBase} text-white border-transparent bg-[#7E9B86]`;
   const buttonSecondary = `${buttonBase} bg-white border-stone-200 text-stone-600 hover:bg-stone-50`;
@@ -99,7 +103,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     if (field === 'optional') next = /true|yes|1/i.test(value);
     if (field === 'cat') next = cleanType(value) || 'mobility';
     if (['videoIds','videoTitles','tips','mainImageUrls'].includes(field)) next = split(value).slice(0, field === 'mainImageUrls' ? 3 : 999);
-    if (field === 'programs') next = Array.from(new Set(split(value))).filter((program): program is ExerciseProgram => EXERCISE_PROGRAM_OPTIONS.some(option => option.value === program));
+    if (field === 'programs') next = Array.from(new Set(split(value)));
 
     return { ...e, [field]: next } as Exercise;
   }));
@@ -263,10 +267,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     if (videoTitles) out.videoTitles = videoTitles;
     if (tips) out.tips = tips;
     if (mainImageUrls) out.mainImageUrls = mainImageUrls.slice(0, 3);
-    if (programs) {
-      const validPrograms = Array.from(new Set(programs)).filter((program): program is ExerciseProgram => EXERCISE_PROGRAM_OPTIONS.some(option => option.value === program));
-      if (programs.length === 0 || validPrograms.length > 0) out.programs = validPrograms;
-    }
+    if (programs) out.programs = Array.from(new Set(programs));
     const timerPrescription = importedTimerPrescription(item.timerPrescription);
     if (timerPrescription) out.timerPrescription = timerPrescription;
 
@@ -295,6 +296,15 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
   const importJsonToDraft = () => {
     try {
       const parsed = JSON.parse(json);
+      let importedProgramEmojiCount = 0;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.programMeta && typeof parsed.programMeta === 'object' && !Array.isArray(parsed.programMeta)) {
+        const importedMeta = Object.fromEntries(Object.entries(parsed.programMeta as Record<string, unknown>).flatMap(([program, value]) => {
+          const emoji = typeof value === 'string' ? value.trim() : value && typeof value === 'object' && !Array.isArray(value) ? asString((value as Record<string, unknown>).emoji) : '';
+          return program.trim() && emoji ? [[program.trim(), { emoji }]] : [];
+        }));
+        importedProgramEmojiCount = Object.keys(importedMeta).length;
+        setProgramMetaDraft(current => ({ ...current, ...importedMeta }));
+      }
       const rawItems: unknown[] = Array.isArray(parsed)
         ? parsed
         : Array.isArray(parsed.exercises)
@@ -311,8 +321,8 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
           : Array.isArray(parsed.categoryConfig)
             ? parsed.categoryConfig
             : [];
-      if (!rawItems.length && !rawLayout.length) {
-        alert('No exercises or categories found in JSON.');
+      if (!rawItems.length && !rawLayout.length && !importedProgramEmojiCount) {
+        alert('No exercises, categories, or program emojis found in JSON.');
         return;
       }
 
@@ -440,6 +450,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
         if (exerciseChanges.length > 12) messages.push(`• …and ${exerciseChanges.length - 12} more`);
       }
       if (rawLayout.length) messages.push('', `Categories — updated: ${categoryUpdated}, added: ${categoryAdded}, unchanged: ${categoryUnchanged}.`);
+      if (importedProgramEmojiCount) messages.push('', `Program emojis merged: ${importedProgramEmojiCount}.`);
       messages.push('', 'Review the draft, then click Save database to commit.');
       alert(messages.join('\n'));
     } catch (err) {
@@ -460,6 +471,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
     });
     setDraft(normalized);
     onLibraryChange(normalized);
+    onProgramMetaChange(programMetaDraft);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
@@ -582,6 +594,25 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
             </div>
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Program emojis</p>
+              {!programOptions.length && <p className="text-[11px] text-stone-400">Programs appear here after they are assigned or imported.</p>}
+              {programOptions.map(program => {
+                const display = getExerciseProgramDisplay(program, programMetaDraft);
+                return (
+                  <label key={program} className="flex items-center gap-2">
+                    <input
+                      value={programMetaDraft[program]?.emoji ?? display.icon}
+                      onChange={event => setProgramMetaDraft(current => ({ ...current, [program]: { ...current[program], emoji: event.target.value } }))}
+                      className="w-12 rounded-lg border border-stone-200 px-2 py-1 text-center text-base"
+                      aria-label={`${display.label} emoji`}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-stone-600">{display.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={catId} onChange={e => setCatId(e.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
                 {layout.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -592,7 +623,7 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">JSON merge</p>
               <textarea value={json} onChange={e => setJson(e.target.value)} rows={8} placeholder="Paste exercise JSON to merge by id, sourceId, or name..." className="w-full font-mono text-[10px] rounded-xl border border-stone-200 p-2 resize-none" />
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setJson(JSON.stringify({ exercises: draft, layout }, null, 2))} className={buttonSecondary}>Export JSON</button>
+                <button onClick={() => setJson(JSON.stringify({ exercises: draft, layout, programMeta: programMetaDraft }, null, 2))} className={buttonSecondary}>Export JSON</button>
                 <button onClick={importJsonToDraft} disabled={!json.trim()} className={buttonPrimary}>Merge JSON</button>
               </div>
             </div>
@@ -669,22 +700,14 @@ export default function MasterDatabaseModal({ exercises, layout, onLibraryChange
                   <td className="p-2"><select value={currentCat(e.id)} onChange={x=>moveOne(e.id,x.target.value)} className="w-36 border rounded-lg p-1 bg-white"><option value="">Unassigned</option>{layout.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
                   <td className="p-2"><input type="checkbox" checked={!!e.optional} onChange={x=>patch(e.id,{optional:x.target.checked})} /></td>
                   <td className="p-2">
-                    <div className="w-36 space-y-1">
-                      {EXERCISE_PROGRAM_OPTIONS.map(option => (
-                        <label key={option.value} className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-stone-600">
-                          <input
-                            type="checkbox"
-                            checked={e.programs?.includes(option.value) ?? false}
-                            onChange={x => patch(e.id, {
-                              programs: x.target.checked
-                                ? Array.from(new Set([...(e.programs ?? []), option.value]))
-                                : (e.programs ?? []).filter(program => program !== option.value),
-                            })}
-                          />
-                          <span aria-hidden="true">{option.icon}</span>{option.shortLabel}
-                        </label>
-                      ))}
-                    </div>
+                    <textarea
+                      aria-label="Programs"
+                      value={list(e.programs)}
+                      onChange={x => patch(e.id, { programs: x.target.value.split('\n').map(program => program.trim()).filter(Boolean) })}
+                      rows={4}
+                      className="w-44 border rounded-lg p-1 resize-none"
+                      placeholder="programs, one per line"
+                    />
                   </td>
                   <td className="p-2">
                     <div className="w-40 space-y-1">

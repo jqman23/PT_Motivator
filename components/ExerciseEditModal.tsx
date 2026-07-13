@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { EXERCISE_PROGRAM_OPTIONS, Exercise, ExerciseProgram } from '@/lib/exercises';
+import { Exercise, ExerciseProgramMeta, getExerciseProgramDisplay } from '@/lib/exercises';
 import { exerciseVideoSource } from '@/lib/media';
 
 interface Props {
   exercise: Exercise;
+  programOptions: string[];
+  programMeta: ExerciseProgramMeta;
   onClose: () => void;
 }
 
@@ -59,7 +61,7 @@ function cleanType(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
 }
 
-export default function ExerciseEditModal({ exercise, onClose }: Props) {
+export default function ExerciseEditModal({ exercise, programOptions, programMeta, onClose }: Props) {
   const [name, setName] = useState(exercise.name);
   const [cue, setCue] = useState(exercise.cue ?? '');
   const [sets, setSets] = useState(exercise.sets ?? '');
@@ -73,7 +75,7 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
   const [timerTargetsText, setTimerTargetsText] = useState((exercise.timerPrescription?.targets?.length ? exercise.timerPrescription.targets : legacyTimerTargets).join('\n'));
   const [cat, setCat] = useState<Exercise['cat']>(exercise.cat);
   const [optional, setOptional] = useState(!!exercise.optional);
-  const [programs, setPrograms] = useState<ExerciseProgram[]>(exercise.programs ?? []);
+  const [programs, setPrograms] = useState<string[]>(exercise.programs ?? []);
   const [origin, setOrigin] = useState<NonNullable<Exercise['origin']>>(exercise.origin ?? 'patient_added');
   const [sourceId, setSourceId] = useState(exercise.sourceId ?? '');
   const [gifUrl, setGifUrl] = useState(exercise.gifUrl ?? '');
@@ -418,24 +420,19 @@ export default function ExerciseEditModal({ exercise, onClose }: Props) {
               Optional exercise
             </label>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Programs</label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {EXERCISE_PROGRAM_OPTIONS.map(option => (
-                  <label key={option.value} className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs font-semibold text-stone-600">
-                    <input
-                      type="checkbox"
-                      checked={programs.includes(option.value)}
-                      onChange={e => setPrograms(current => e.target.checked
-                        ? Array.from(new Set([...current, option.value]))
-                        : current.filter(program => program !== option.value))}
-                    />
-                    <span aria-hidden="true">{option.icon}</span>{option.label}
+            <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Programs</label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {programOptions.map(program => {
+                const display = getExerciseProgramDisplay(program, programMeta);
+                return (
+                  <label key={program} className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs font-semibold text-stone-600">
+                    <input type="checkbox" checked={programs.includes(program)} onChange={e => setPrograms(current => e.target.checked ? Array.from(new Set([...current, program])) : current.filter(value => value !== program))} />
+                    <span aria-hidden="true">{display.icon}</span>{display.label}
                   </label>
-                ))}
-              </div>
-              <p className="text-[11px] text-stone-400">Choose either program or both. Origin stays separate.</p>
+                );
+              })}
             </div>
+            {!programOptions.length && <p className="text-[11px] text-stone-400">Create programs in Master Database or through JSON import first.</p>}
 
             <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Origin</label>
             <select value={origin} onChange={e => setOrigin(e.target.value as NonNullable<Exercise['origin']>)} className="w-full text-sm border border-stone-200 rounded-xl px-3 py-3 focus:outline-none bg-white" style={{ fontSize: 16, colorScheme: 'light' }}>

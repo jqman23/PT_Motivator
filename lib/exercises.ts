@@ -1,10 +1,22 @@
 export type Category = string;
-export type ExerciseProgram = 'physical_therapy' | 'personal_training';
+export type ExerciseProgram = string;
+export type ExerciseProgramMeta = Record<string, { emoji?: string }>;
 
 export const EXERCISE_PROGRAM_OPTIONS: ReadonlyArray<{ value: ExerciseProgram; label: string; shortLabel: string; icon: string }> = [
   { value: 'physical_therapy', label: 'Physical therapy', shortLabel: 'PT', icon: '🩺' },
   { value: 'personal_training', label: 'Personal training', shortLabel: 'Training', icon: '🏋️' },
 ];
+
+export function getExerciseProgramDisplay(value: string, meta: ExerciseProgramMeta = {}) {
+  const known = EXERCISE_PROGRAM_OPTIONS.find(option => option.value === value);
+  if (known) return { ...known, icon: meta[value]?.emoji?.trim() || known.icon };
+  const label = value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+  return { value, label: label || value, shortLabel: label || value, icon: meta[value]?.emoji?.trim() || '🏷️' };
+}
 
 export interface ExerciseTimerPrescription {
   sets: number;

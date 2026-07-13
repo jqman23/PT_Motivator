@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { EXERCISE_PROGRAM_OPTIONS, EXERCISES, Exercise, ExerciseProgram } from '@/lib/exercises';
+import { EXERCISES, Exercise, ExerciseProgram, ExerciseProgramMeta, getExerciseProgramDisplay } from '@/lib/exercises';
 import { CategoryConfig, COLOR_PALETTE, COLOR_KEYS } from '@/lib/layout';
 import ExerciseCard from '@/components/ExerciseCard';
 import WeekTracker from '@/components/WeekTracker';
@@ -186,6 +186,7 @@ export default function Home() {
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<WidgetPrefs>(DEFAULT_WIDGET_PREFS);
   const [typeMeta, setTypeMeta] = useState<ExerciseTypeMeta>({});
+  const [programMeta, setProgramMeta] = useState<ExerciseProgramMeta>({});
   const [undoMessage, setUndoMessage] = useState('');
   const [canUndo, setCanUndo] = useState(false);
 
@@ -200,6 +201,10 @@ export default function Home() {
   const typeOptions = useMemo(
     () => Array.from(new Set(allExercises.map(ex => normalizeExerciseType(ex.cat)))).sort((a, b) => a.localeCompare(b)),
     [allExercises]
+  );
+  const programOptions = useMemo(
+    () => Array.from(new Set(allExercises.flatMap(exercise => exercise.programs ?? []).map(program => program.trim()).filter(Boolean))).sort((a, b) => getExerciseProgramDisplay(a, programMeta).label.localeCompare(getExerciseProgramDisplay(b, programMeta).label)),
+    [allExercises, programMeta]
   );
   const typeFilterActive = typeFilter.length > 0;
   const programFilterActive = programFilter.length > 0;
@@ -270,7 +275,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/config?keys=layout,exerciseLibrary,customExercises,appTitle,ptSessions,widgetPrefs,exerciseTypeMeta')
+    fetch('/api/config?keys=layout,exerciseLibrary,customExercises,appTitle,ptSessions,widgetPrefs,exerciseTypeMeta,exerciseProgramMeta')
       .then(response => response.json())
       .then(data => {
         const values = data.values && typeof data.values === 'object' ? data.values as Record<string, unknown> : {};
@@ -298,6 +303,7 @@ export default function Home() {
         }));
         if (values.widgetPrefs && typeof values.widgetPrefs === 'object') setWidgetPrefs({ ...DEFAULT_WIDGET_PREFS, ...values.widgetPrefs });
         if (values.exerciseTypeMeta && typeof values.exerciseTypeMeta === 'object') setTypeMeta(values.exerciseTypeMeta as ExerciseTypeMeta);
+        if (values.exerciseProgramMeta && typeof values.exerciseProgramMeta === 'object') setProgramMeta(values.exerciseProgramMeta as ExerciseProgramMeta);
       })
       .catch(() => {
         setLayout(makeDefaultLayout());
@@ -440,6 +446,10 @@ export default function Home() {
     setTypeMeta(next);
     fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseTypeMeta', value: next }) }).catch(console.error);
   }, [captureUndo]);
+  const updateProgramMeta = useCallback((next: ExerciseProgramMeta) => {
+    setProgramMeta(next);
+    fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'exerciseProgramMeta', value: next }) }).catch(console.error);
+  }, []);
 
   const moveExerciseInLayout = useCallback(async (exerciseId: string, direction: -1 | 1) => {
     let moved = false;
@@ -717,21 +727,24 @@ export default function Home() {
                     <div className="my-2 border-t border-stone-100" />
                     <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-widest text-stone-400">Program</p>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {EXERCISE_PROGRAM_OPTIONS.map(option => (
+                      {programOptions.map(program => {
+                        const option = getExerciseProgramDisplay(program, programMeta);
+                        return (
                         <button
-                          key={option.value}
-                          onClick={() => setProgramFilter(prev => prev.includes(option.value) ? prev.filter(item => item !== option.value) : [...prev, option.value])}
+                          key={program}
+                          onClick={() => setProgramFilter(prev => prev.includes(program) ? prev.filter(item => item !== program) : [...prev, program])}
                           className="min-w-0 rounded-lg border px-2 py-2 text-left text-xs font-semibold"
                           style={{
-                            borderColor: programFilter.includes(option.value) ? '#7E9B86' : '#e7e5e4',
-                            color: programFilter.includes(option.value) ? '#7E9B86' : '#78716c',
-                            background: programFilter.includes(option.value) ? '#E4ECE6' : '#fff',
+                            borderColor: programFilter.includes(program) ? '#7E9B86' : '#e7e5e4',
+                            color: programFilter.includes(program) ? '#7E9B86' : '#78716c',
+                            background: programFilter.includes(program) ? '#E4ECE6' : '#fff',
                             touchAction: 'manipulation',
                           }}
                         >
                           <span className="mr-1" aria-hidden="true">{option.icon}</span>{option.label}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
               )}
@@ -762,7 +775,7 @@ export default function Home() {
         {showInfo && <ExerciseInfoModal layout={layout} exerciseMap={exerciseMap} typeMeta={typeMeta} onClose={() => setShowInfo(false)} />}
         {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onOpenTypes={() => { setShowTypeSettings(true); }} onClose={() => setShowWidgetSettings(false)} />}
         {showTypeSettings && <TypeSettingsModal types={typeOptions} meta={typeMeta} onChange={updateTypeMeta} onClose={() => setShowTypeSettings(false)} />}
-        {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onClose={() => setShowMasterDatabase(false)} />}
+        {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} programMeta={programMeta} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onProgramMetaChange={updateProgramMeta} onClose={() => setShowMasterDatabase(false)} />}
         {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} selectedDate={selectedDate} today={today} onClose={() => setShowAiCoach(false)} />}
         <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={changeDate} open={showDoctorNotes} startInNew={doctorNotesStartNew} onClose={() => { setShowDoctorNotes(false); setDoctorNotesStartNew(false); }} />
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
@@ -807,7 +820,7 @@ export default function Home() {
                     <span className="text-xs text-stone-400 flex-shrink-0">{done}/{total}</span>
                     <div className="relative flex-shrink-0"><button onClick={() => setColorMenuCat(colorMenuCat === cat.id ? null : cat.id)} className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ background: palette.accent, touchAction: 'manipulation' }} title="Change color" />{colorMenuCat === cat.id && <div className="absolute right-0 top-7 z-20 bg-white rounded-xl shadow-lg border border-stone-100 p-2 flex gap-2">{COLOR_KEYS.map(c => <button key={c} onClick={() => changeColor(cat.id, c)} className="w-6 h-6 rounded-full" style={{ background: COLOR_PALETTE[c].accent, boxShadow: cat.color === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div>}</div>
                   </div>
-                  {!isCollapsed && <div className="space-y-2">{visibleCatExercises.filter(ex => !hiddenDoneSet.has(ex.id)).map(ex => <ExerciseCard key={ex.id} exercise={ex} categoryName={cat.name} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} typeMeta={typeMeta} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
+                  {!isCollapsed && <div className="space-y-2">{visibleCatExercises.filter(ex => !hiddenDoneSet.has(ex.id)).map(ex => <ExerciseCard key={ex.id} exercise={ex} categoryName={cat.name} done={dayLog[ex.id] ?? false} note={notes[ex.id] ?? ''} today={selectedDate} onToggle={() => handleToggle(ex.id)} onNoteSave={note => handleNoteSave(ex.id, note)} onMoveExercise={moveExerciseInLayout} typeOptions={typeOptions} typeMeta={typeMeta} programOptions={programOptions} programMeta={programMeta} />)}<button onClick={() => openLibraryFor(cat.id)} className="ml-1 text-xs font-semibold flex items-center gap-1 px-2 py-1.5 rounded-lg text-stone-400 hover:bg-stone-100" style={{ touchAction: 'manipulation' }}><span className="text-base leading-none">＋</span> Add exercise</button></div>}
                   {isCollapsed && <button onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: false }))} className="w-full py-2 rounded-xl text-xs font-semibold text-center border border-dashed" style={{ borderColor: palette.accent + '40', color: palette.accent, background: palette.light + '60', touchAction: 'manipulation' }}>{done}/{total} done · tap to expand</button>}
                 </section>
               );
