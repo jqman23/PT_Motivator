@@ -364,6 +364,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const [selectedWorkoutId, setSelectedWorkoutId] = useState('');
   const [workoutDraft, setWorkoutDraft] = useState<CustomWorkout>(() => makeDefaultWorkout());
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
+  const [workoutImagePreview, setWorkoutImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [reorderText, setReorderText] = useState('');
 
   const [logExerciseId, setLogExerciseId] = useState('');
@@ -1501,13 +1502,23 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                           className="flex items-center gap-2.5 text-left rounded-xl border px-2.5 py-2 transition-colors"
                           style={{ borderColor: selected ? categoryAccent(group.color) : '#e7e5e4', background: selected ? `${categoryAccent(group.color)}12` : '#fff' }}
                         >
-                          {primaryImage && <img src={primaryImage} alt="" className="h-12 w-12 flex-shrink-0 rounded-lg border border-stone-100 bg-white object-contain" loading="lazy" />}
+                          {primaryImage && <img
+                            src={primaryImage}
+                            alt={`Preview ${exercise.name}`}
+                            className="h-12 w-12 flex-shrink-0 cursor-zoom-in rounded-lg border border-stone-100 bg-white object-contain"
+                            loading="lazy"
+                            onClick={event => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setWorkoutImagePreview({ url: primaryImage, name: exercise.name });
+                            }}
+                          />}
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-800 leading-snug">
                               <span className="min-w-0 truncate">{exercise.name}</span>
                               {selected && <span className="text-[10px] font-bold uppercase tracking-wide flex-shrink-0" style={{ color: categoryAccent(group.color) }}>Selected</span>}
                             </span>
-                            <span className="block text-[11px] text-stone-400 truncate">{exercise.sets || exercise.cue || 'Defaults to 2 x 60 sec'}</span>
+                            <span className="block text-[11px] text-stone-400 truncate">{exercise.cue || 'Tap to add'}</span>
                           </span>
                         </button>
                       );
@@ -1585,6 +1596,14 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
 
   const labelStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.9 };
 
+  const workoutImagePreviewOverlay = workoutImagePreview ? (
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onClick={() => setWorkoutImagePreview(null)} role="dialog" aria-label={`Image for ${workoutImagePreview.name}`}>
+      <div className="flex max-h-[86dvh] max-w-[94vw] items-center justify-center" onClick={event => event.stopPropagation()}>
+        <img src={workoutImagePreview.url} alt={workoutImagePreview.name} className="max-h-[86dvh] max-w-[94vw] rounded-2xl bg-white object-contain shadow-2xl" />
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <button onClick={event => { event.stopPropagation(); void unlockAudio(); setOpen(current => !current); }} className="w-9 h-9 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors shadow-sm border flex-shrink-0" title="Quick timer" style={{ touchAction: 'manipulation', background: running ? '#D9A94B' : done ? '#7E9B86' : '#FEF3C7', borderColor: running ? '#D9A94B' : done ? '#7E9B86' : '#D97706', color: running || done ? '#ffffff' : '#92400E' }}>
@@ -1594,6 +1613,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
       {mounted && panel ? createPortal(panel, document.body) : null}
       {mounted && workoutMode ? createPortal(workoutMode, document.body) : null}
       {mounted && builderSheet ? createPortal(builderSheet, document.body) : null}
+      {mounted && workoutImagePreviewOverlay ? createPortal(workoutImagePreviewOverlay, document.body) : null}
     </>
   );
 }
