@@ -74,6 +74,28 @@ function draftFromMetric(metric) {
   };
 }
 
+function draftFromPrescription(prescription) {
+  if (!prescription || !Number(prescription.amount)) return { draft: { ...EMPTY_DRAFT }, placeholders: { sets: '3', value: '10' } };
+  const mode = prescription.unit === 'seconds' ? 'duration' : 'reps';
+  const seconds = Number(prescription.amount);
+  const useMinutes = mode === 'duration' && seconds >= 60 && seconds % 60 === 0;
+  return {
+    draft: {
+      ...EMPTY_DRAFT,
+      mode,
+      kindText: kindLabel(mode),
+      durationUnit: useMinutes ? 'min' : 'sec',
+      scopeMultiplier: prescription.scopeMultiplier === 2 || prescription.scopeMultiplier === 4
+        ? prescription.scopeMultiplier
+        : 1,
+    },
+    placeholders: {
+      sets: numberString(prescription.sets) || '3',
+      value: numberString(useMinutes ? seconds / 60 : seconds) || (mode === 'duration' ? '45' : '10'),
+    },
+  };
+}
+
 function focusAndSelect(ref) {
   window.requestAnimationFrame(() => {
     ref.current?.focus();
@@ -89,6 +111,7 @@ export default function ExerciseGestureEnhancer() {
   const [error, setError] = useState('');
   const [hasCurrent, setHasCurrent] = useState(false);
   const [seededFromLast, setSeededFromLast] = useState(false);
+  const [placeholders, setPlaceholders] = useState({ sets: '3', value: '10' });
   const dirtyRef = useRef(false);
   const setsRef = useRef(null);
   const valueRef = useRef(null);
@@ -115,6 +138,8 @@ export default function ExerciseGestureEnhancer() {
         x,
         y,
         placeBelow,
+        mobile: window.matchMedia('(max-width: 639px)').matches,
+        prescription: event.detail?.prescription || null,
       });
     };
 
@@ -131,7 +156,9 @@ export default function ExerciseGestureEnhancer() {
     setError('');
     setHasCurrent(false);
     setSeededFromLast(false);
-    setDraft({ ...EMPTY_DRAFT });
+    const programmed = draftFromPrescription(active.prescription);
+    setDraft(programmed.draft);
+    setPlaceholders(programmed.placeholders);
 
     fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
       cache: 'no-store',
@@ -143,10 +170,9 @@ export default function ExerciseGestureEnhancer() {
       })
       .then(data => {
         if (cancelled) return;
-        const source = data.current || data.previous;
         setHasCurrent(Boolean(data.current));
-        setSeededFromLast(!data.current && Boolean(data.previous));
-        if (!dirtyRef.current) setDraft(draftFromMetric(source));
+        setSeededFromLast(!data.current && Boolean(active.prescription));
+        if (!dirtyRef.current && data.current) setDraft(draftFromMetric(data.current));
       })
       .catch(loadError => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Could not load.');
@@ -245,9 +271,9 @@ export default function ExerciseGestureEnhancer() {
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
           width: 'min(250px, calc(100vw - 16px))',
-          left: active.x,
-          top: active.y,
-          transform: active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+          left: active.mobile ? '50%' : active.x,
+          top: active.mobile ? 'max(4.5rem, env(safe-area-inset-top))' : active.y,
+          transform: active.mobile ? 'translateX(-50%)' : active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
         }}
         onClick={event => event.stopPropagation()}
         onPointerDown={event => event.stopPropagation()}
@@ -260,7 +286,7 @@ export default function ExerciseGestureEnhancer() {
           <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-stone-700">{active.exerciseName}</p>
           {loading && <span className="text-[9px] text-stone-400">loading</span>}
           {saving && <span className="text-[9px] text-stone-400">saving</span>}
-          {seededFromLast && !loading && !saving && <span className="text-[9px] text-stone-400">last</span>}
+          {seededFromLast && !loading && !saving && <span className="text-[9px] text-stone-400">programmed</span>}
           <button
             type="button"
             onClick={cancel}
@@ -288,7 +314,7 @@ export default function ExerciseGestureEnhancer() {
                 updateDraft({ sets: next });
                 if (next.length === 1) focusAndSelect(valueRef);
               }}
-              placeholder="3"
+              placeholder={placeholders.sets}
               className="w-full bg-transparent text-base font-semibold text-stone-700 outline-none"
               style={{ fontSize: 16 }}
             />
@@ -307,7 +333,7 @@ export default function ExerciseGestureEnhancer() {
                 updateDraft({ value: next });
                 if (next.length === 2) focusAndSelect(kindRef);
               }}
-              placeholder={draft.mode === 'duration' ? '45' : '10'}
+              placeholder={placeholders.value}
               className="w-full bg-transparent text-base font-semibold text-stone-700 outline-none"
               style={{ fontSize: 16 }}
             />

@@ -15,19 +15,33 @@ export async function GET(req: NextRequest) {
 
   try {
     const rows = await sql`
+      WITH tracked_dates AS (
+        SELECT date FROM workout_log WHERE exercise_id = ${exerciseId}
+        UNION
+        SELECT date FROM exercise_notes WHERE exercise_id = ${exerciseId}
+        UNION
+        SELECT date FROM exercise_metrics WHERE exercise_id = ${exerciseId}
+      )
       SELECT
-        COALESCE(l.date, n.date)::text AS date,
+        d.date::text AS date,
         COALESCE(l.completed, false) AS completed,
-        COALESCE(n.note, '') AS note
-      FROM workout_log l
-      FULL OUTER JOIN exercise_notes n
-        ON l.date = n.date AND l.exercise_id = n.exercise_id
-      WHERE COALESCE(l.exercise_id, n.exercise_id) = ${exerciseId}
-        AND (
+        COALESCE(n.note, '') AS note,
+        m.sets_count,
+        m.reps_count,
+        m.duration_seconds,
+        m.weight_value,
+        m.weight_unit,
+        m.scope_multiplier
+      FROM tracked_dates d
+      LEFT JOIN workout_log l ON l.date = d.date AND l.exercise_id = ${exerciseId}
+      LEFT JOIN exercise_notes n ON n.date = d.date AND n.exercise_id = ${exerciseId}
+      LEFT JOIN exercise_metrics m ON m.date = d.date AND m.exercise_id = ${exerciseId}
+      WHERE (
           COALESCE(l.completed, false) = true
           OR COALESCE(NULLIF(TRIM(n.note), ''), '') <> ''
+          OR m.id IS NOT NULL
         )
-      ORDER BY COALESCE(l.date, n.date) DESC
+      ORDER BY d.date DESC
       LIMIT ${limit}
     `;
 

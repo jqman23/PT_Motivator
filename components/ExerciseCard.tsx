@@ -30,6 +30,41 @@ const SWIPE_THRESHOLD = 44;
 const HISTORY_HOLD_MS = 1500;
 const DOUBLE_TAP_MS = 300;
 
+function programmedMetric(exercise: Exercise) {
+  const saved = exercise.timerPrescription;
+  if (saved && Number(saved.sets) > 0 && Number(saved.amount) > 0) {
+    const targetCount = saved.targets?.filter(Boolean).length || 1;
+    const scopeMultiplier = saved.scopeMultiplier === 2 || saved.scopeMultiplier === 4
+      ? saved.scopeMultiplier
+      : targetCount === 4 ? 4 : targetCount === 2 ? 2 : 1;
+    return { ...saved, scopeMultiplier };
+  }
+
+  const text = `${exercise.sets ?? ''} ${exercise.cue ?? ''}`.toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ');
+  const setsMatch = text.match(/(\d+)\s*(?:-\s*\d+)?\s*(?:x|×|sets?\b)/)
+    ?? text.match(/(?:x|×)\s*(\d+)/)
+    ?? text.match(/\b(\d+)\s*rounds?\b/);
+  const compactMatch = text.match(/\b(\d+)\s*(?:x|×)\s*(\d+)\b/);
+  const minutes = text.match(/(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?)\s*)?(?:min|minutes?)/);
+  const seconds = text.match(/(\d+)\s*(?:-\s*(\d+)\s*)?(?:sec|secs|seconds?)/);
+  const reps = text.match(/(\d+)\s*(?:-\s*(\d+)\s*)?reps?/);
+  const isReps = Boolean(reps || (compactMatch && /\breps?\b/.test(text)));
+  const amount = minutes ? Math.round(Number(minutes[2] || minutes[1]) * 60)
+    : seconds ? Number(seconds[2] || seconds[1])
+      : reps ? Number(reps[2] || reps[1])
+        : compactMatch && isReps ? Number(compactMatch[2])
+          : 0;
+  if (!amount) return null;
+  const eachSide = /\beach\b|\bper\b|\bside\b|\bleg\b|\bdirection\b|left.*right|right.*left/.test(text);
+  const fourTargets = /\binversion\b/.test(text) && /\beversion\b/.test(text) && eachSide;
+  return {
+    sets: setsMatch ? Number(setsMatch[1]) : compactMatch ? Number(compactMatch[1]) : 1,
+    amount,
+    unit: isReps ? 'reps' as const : 'seconds' as const,
+    scopeMultiplier: fourTargets ? 4 as const : eachSide ? 2 as const : 1 as const,
+  };
+}
+
 async function getConfigValue<T>(key: string, fallback: T): Promise<T> {
   const res = await fetch(`/api/config?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
   const data = await res.json();
@@ -142,7 +177,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       clearSingleTap();
       lastTapAt.current = 0;
       window.dispatchEvent(new CustomEvent('pt-exercise-quick-log', {
-        detail: { exerciseId: exercise.id, clientX: event.clientX },
+        detail: { exerciseId: exercise.id, clientX: event.clientX, prescription: programmedMetric(exercise) },
       }));
       return;
     }

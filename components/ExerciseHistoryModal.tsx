@@ -7,6 +7,12 @@ type HistoryRow = {
   date: string;
   completed: boolean;
   note: string;
+  sets_count?: number | string | null;
+  reps_count?: number | string | null;
+  duration_seconds?: number | string | null;
+  weight_value?: number | string | null;
+  weight_unit?: string | null;
+  scope_multiplier?: number | string | null;
 };
 
 type ClarificationOption = { label?: string; value?: string } | string;
@@ -42,6 +48,22 @@ function optionLabel(option: ClarificationOption) {
 
 function optionValue(option: ClarificationOption) {
   return typeof option === 'string' ? option : String(option.value ?? option.label ?? '').trim();
+}
+
+function metricSummary(row: HistoryRow) {
+  const sets = Number(row.sets_count || 0);
+  const reps = Number(row.reps_count || 0);
+  const seconds = Number(row.duration_seconds || 0);
+  if (!sets) return '';
+  const amount = reps || (seconds >= 60 && seconds % 60 === 0 ? seconds / 60 : seconds);
+  const unit = reps ? 'reps' : seconds >= 60 && seconds % 60 === 0 ? (amount === 1 ? 'min' : 'mins') : (amount === 1 ? 'sec' : 'secs');
+  return `${sets} × ${amount} ${unit}`;
+}
+
+function weightSummary(row: HistoryRow) {
+  const weight = Number(row.weight_value);
+  if (!Number.isFinite(weight) || weight <= 0) return '';
+  return `${weight} ${row.weight_unit === 'kg' ? 'kg' : 'lb'}`;
 }
 
 async function readJson(res: Response) {
@@ -86,6 +108,7 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
           return;
         }
         setRows(data.rows.map((row: HistoryRow) => ({
+          ...row,
           date: String(row.date).split('T')[0],
           completed: !!row.completed,
           note: row.note ?? '',
@@ -132,6 +155,14 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
           exerciseCue: exercise.cue ?? '',
           exerciseTips: exercise.tips ?? [],
           recentNotes: rows.filter(item => item.note && item.date !== row.date).slice(0, 8).map(item => item.note),
+          dailyMetric: {
+            sets: row.sets_count,
+            reps: row.reps_count,
+            durationSeconds: row.duration_seconds,
+            weight: row.weight_value,
+            weightUnit: row.weight_unit,
+            scopeMultiplier: row.scope_multiplier,
+          },
         }),
       });
       const data = await readJson(res) as CleanupResult;
@@ -218,7 +249,7 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
 
         <div className="px-4 py-3 flex-shrink-0">
           <p className="text-xs text-stone-500 rounded-xl bg-white border border-stone-100 px-3 py-2">
-            Tap a day to jump there. Use Clean up to standardize an old messy note.
+            Tap a day to jump there. Weight and other saved metrics appear beside each entry.
           </p>
         </div>
 
@@ -358,6 +389,12 @@ export default function ExerciseHistoryModal({ exercise, onClose }: Props) {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-stone-800">{displayDate(row.date)}</p>
                         <p className="text-[11px] text-stone-400">{row.date}</p>
+                        {(metricSummary(row) || weightSummary(row)) && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {metricSummary(row) && <span className="rounded-full bg-[#E4ECE6] px-2 py-0.5 text-[10px] font-bold text-[#476653]">{metricSummary(row)}</span>}
+                            {weightSummary(row) && <span className="rounded-full bg-[#FBF5E8] px-2 py-0.5 text-[10px] font-bold text-[#A97920]">{weightSummary(row)}</span>}
+                          </div>
+                        )}
                       </div>
                       <span
                         className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full flex-shrink-0"

@@ -25,6 +25,7 @@ import { ExerciseTypeMeta, getExerciseTypeDisplay, normalizeExerciseType } from 
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
+const EXERCISE_FILTER_STORAGE_KEY = 'pt-home-exercise-filters';
 type PTSessionKind = 'pt' | 'training';
 type PTSession = { date: string; kind?: PTSessionKind; note?: string };
 type UndoSnapshot = {
@@ -148,6 +149,7 @@ export default function Home() {
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [programFilter, setProgramFilter] = useState<ExerciseProgram[]>([]);
   const [showTypeFilterMenu, setShowTypeFilterMenu] = useState(false);
+  const [filtersReady, setFiltersReady] = useState(false);
 
   const [layout, setLayout] = useState<CategoryConfig[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -225,6 +227,23 @@ export default function Home() {
     const stored = localStorage.getItem('pt-selected-date');
     if (stored && stored <= todayStr()) setSelectedDate(stored);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem(EXERCISE_FILTER_STORAGE_KEY) || '{}') as { types?: unknown; programs?: unknown };
+        if (Array.isArray(stored.types)) setTypeFilter(stored.types.filter((item): item is string => typeof item === 'string'));
+        if (Array.isArray(stored.programs)) setProgramFilter(stored.programs.filter((item): item is ExerciseProgram => typeof item === 'string'));
+      } catch {}
+      setFiltersReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    try { localStorage.setItem(EXERCISE_FILTER_STORAGE_KEY, JSON.stringify({ types: typeFilter, programs: programFilter })); } catch {}
+  }, [filtersReady, programFilter, typeFilter]);
 
   useEffect(() => {
     if (!showTypeFilterMenu) return;

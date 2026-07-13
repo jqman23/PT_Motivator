@@ -15,11 +15,10 @@ interface Props {
 }
 
 type StandardizedFields = {
-  dose?: string;
-  target?: string;
-  variation?: string;
-  modifier?: string;
-  outcome?: string;
+  experience?: string;
+  symptoms?: string;
+  context?: string;
+  followUp?: string;
 };
 
 type StandardizeResult = {
@@ -256,6 +255,8 @@ export default function NotesModal({
     setStandardizeError('');
     setStandardizing(true);
     try {
+      const metricResponse = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(date)}&exerciseId=${encodeURIComponent(exerciseId)}`, { cache: 'no-store' });
+      const metricData = metricResponse.ok ? await metricResponse.json() : {};
       const res = await fetch('/api/standardize-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -267,6 +268,7 @@ export default function NotesModal({
           exerciseCue,
           exerciseTips: cleanLines(exerciseTips),
           recentNotes: suggestions,
+          dailyMetric: metricData.current ?? null,
         }),
       });
       const data = await readJson(res) as StandardizeResult;
@@ -333,7 +335,7 @@ export default function NotesModal({
   });
 
   const fields = review?.fields ?? {};
-  const fieldChips = [fields.dose, fields.target, fields.variation, fields.modifier, fields.outcome].filter(Boolean);
+  const fieldChips = [fields.experience, fields.symptoms, fields.context, fields.followUp].filter(Boolean);
 
   return (
     <div
@@ -422,7 +424,7 @@ export default function NotesModal({
                 autoFocus
                 value={note}
                 onChange={(e) => { setNote(e.target.value); setStandardizeError(''); }}
-                placeholder="Type anything. Use Save as-is to preserve it, or Review note for a one-line standardized version."
+                placeholder="How it felt, pain or symptoms, setup changes, progress, or anything you want to remember."
                 className="w-full h-32 text-sm text-stone-700 placeholder-stone-300 border border-stone-200 rounded-xl p-3 resize-none focus:outline-none focus:ring-2"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 onFocus={(e) => e.currentTarget.style.outlineColor = '#7E9B86'}
@@ -450,7 +452,7 @@ export default function NotesModal({
                 {photoError && <p className="mt-2 text-[11px] text-stone-500 leading-snug">{photoError}</p>}
               </div>
               <p className="mt-2 text-[11px] text-stone-400 leading-snug">
-                Save as-is preserves your exact note, line breaks, and attached photos. Review note only edits the text.
+                Save as-is preserves your exact note. Review note cleans up the wording while keeping what you meant.
               </p>
             </>
           ) : (
@@ -467,7 +469,7 @@ export default function NotesModal({
               </div>
 
               <div className="rounded-2xl border p-3" style={{ borderColor: '#cfded3', background: '#F8FBF8' }}>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: '#476653' }}>Standardized</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: '#476653' }}>Cleaned note</p>
                 <textarea
                   value={standardizedNote}
                   onChange={(e) => setStandardizedNote(e.target.value)}
@@ -534,7 +536,7 @@ export default function NotesModal({
                 className="px-2.5 py-2 text-xs font-semibold rounded-xl bg-stone-100 text-stone-600 disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                 style={{ touchAction: 'manipulation' }}
               >
-                {standardizing ? 'Standardizing…' : 'Review note'}
+                {standardizing ? 'Cleaning up…' : 'Clean up note'}
               </button>
             </>
           ) : (
@@ -564,7 +566,7 @@ export default function NotesModal({
                 className="px-2.5 py-2 text-xs font-bold text-white rounded-xl whitespace-nowrap flex-shrink-0 disabled:opacity-50"
                 style={{ background: '#7E9B86', touchAction: 'manipulation' }}
               >
-                {savingNote ? 'Saving…' : 'Save standardized'}
+                {savingNote ? 'Saving…' : 'Save cleaned'}
               </button>
             </>
           )}

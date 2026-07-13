@@ -8,6 +8,13 @@ const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
 const MAX_TRANSCRIPTS = 20;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const NOTE_COLORS = new Set(['green', 'orange', 'blue', 'purple']);
+let schemaReady: Promise<unknown> | null = null;
+
+function ensureSchema() {
+  if (!schemaReady) schemaReady = sql`ALTER TABLE doctor_notes ADD COLUMN IF NOT EXISTS note_color TEXT NOT NULL DEFAULT 'green'`;
+  return schemaReady;
+}
 
 type DoctorNotePhoto = {
   id: string;
@@ -82,10 +89,11 @@ function normalizeTranscripts(value: unknown): ResponseTranscript[] {
 
 export async function GET(req: NextRequest) {
   try {
+    await ensureSchema();
     const id = cleanText(new URL(req.url).searchParams.get('id'), 100);
     if (id) {
       const rows = await sql`
-        SELECT id, kind, title, provider, reference_text, body,
+        SELECT id, kind, title, provider, reference_text, body, note_color,
           COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
           COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
           COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,
@@ -95,7 +103,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ row: rows[0] ?? null });
     }
     const rows = await sql`
-      SELECT id, kind, title, provider, reference_text, body,
+      SELECT id, kind, title, provider, reference_text, body, note_color,
         COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
         COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
         COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,
@@ -113,6 +121,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureSchema();
     const body = await req.json() as Record<string, unknown>;
     const id = cleanText(body.id, 100);
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
@@ -126,6 +135,7 @@ export async function POST(req: NextRequest) {
     const photoAttachments = normalizePhotos(body.photoAttachments);
     const responseTranscripts = normalizeTranscripts(body.responseTranscripts);
     const pinned = body.pinned === true;
+    const noteColor = NOTE_COLORS.has(cleanText(body.noteColor, 20)) ? cleanText(body.noteColor, 20) : 'green';
 
     if (!title && !noteBody && photoAttachments.length === 0) {
       return NextResponse.json({ error: 'Add a title, note, or photo before saving.' }, { status: 400 });
@@ -134,13 +144,13 @@ export async function POST(req: NextRequest) {
     await sql`
       INSERT INTO doctor_notes (
         id, kind, title, provider, reference_text, body,
-        linked_dates, photo_attachments, response_transcripts, pinned, created_at, updated_at
+        linked_dates, photo_attachments, response_transcripts, pinned, note_color, created_at, updated_at
       ) VALUES (
         ${id}, ${kind}, ${title}, ${provider}, ${referenceText}, ${noteBody},
         ${JSON.stringify(linkedDates)}::jsonb,
         ${JSON.stringify(photoAttachments)}::jsonb,
         ${JSON.stringify(responseTranscripts)}::jsonb,
-        ${pinned}, NOW(), NOW()
+        ${pinned}, ${noteColor}, NOW(), NOW()
       )
       ON CONFLICT (id) DO UPDATE SET
         kind = EXCLUDED.kind,
@@ -152,11 +162,12 @@ export async function POST(req: NextRequest) {
         photo_attachments = EXCLUDED.photo_attachments,
         response_transcripts = EXCLUDED.response_transcripts,
         pinned = EXCLUDED.pinned,
+        note_color = EXCLUDED.note_color,
         updated_at = NOW()
     `;
 
     const rows = await sql`
-      SELECT id, kind, title, provider, reference_text, body,
+      SELECT id, kind, title, provider, reference_text, body, note_color,
         COALESCE(linked_dates, '[]'::jsonb) AS linked_dates,
         COALESCE(photo_attachments, '[]'::jsonb) AS photo_attachments,
         COALESCE(response_transcripts, '[]'::jsonb) AS response_transcripts,

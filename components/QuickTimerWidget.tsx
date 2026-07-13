@@ -396,6 +396,8 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
   const [logSaved, setLogSaved] = useState(false);
   const [logSaving, setLogSaving] = useState(false);
   const [logError, setLogError] = useState('');
+  const [workoutMetricsSaved, setWorkoutMetricsSaved] = useState(false);
+  const [workoutMetricsSaving, setWorkoutMetricsSaving] = useState(false);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const bellOnRef = useRef(bellOn);
@@ -449,6 +451,7 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
   useEffect(() => {
     if (!done) {
       setLogSaved(false);
+      setWorkoutMetricsSaved(false);
       setLogExerciseId('');
       setLogError('');
     }
@@ -836,7 +839,7 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
       const response = await fetch('/api/exercise-metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: metricDate || fallbackDate, exerciseId: logExerciseId, ...completedTimerMetric() }),
+        body: JSON.stringify({ date: metricDate || fallbackDate, exerciseId: logExerciseId, ...completedTimerMetric(), add: true }),
       });
       const data = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error || 'Could not save metrics.');
@@ -847,6 +850,58 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
       setLogError(error instanceof Error ? error.message : 'Could not save metrics.');
     } finally {
       setLogSaving(false);
+    }
+  };
+
+  const handleSaveWorkoutMetrics = async () => {
+    const workout = activeSequenceOptionRef.current.workout;
+    if (!workout || workoutMetricsSaving) return;
+    const completedSteps = completedWorkStepsRef.current;
+    const fallbackDate = new Date().toLocaleDateString('en-CA');
+    const date = metricDate || fallbackDate;
+    const metrics = workout.exercises.flatMap(exercise => {
+      if (!exercise.exerciseId) return [];
+      const targetCount = exercise.targets?.length || 1;
+      const scopeMultiplier = exercise.sides === 'inversion_eversion_both' || targetCount === 4 ? 4 : exercise.sides === 'each' || targetCount === 2 ? 2 : 1;
+      const completedParts = completedSteps.filter(step => (
+        step.exerciseId === exercise.exerciseId
+        && (exercise.unit === 'reps' ? step.kind === 'reps' : step.kind === 'stretch')
+        && (exercise.unit === 'reps' || step.seconds === exercise.amount)
+      )).length;
+      const sets = Math.floor(completedParts / scopeMultiplier);
+      if (sets < 1) return [];
+      return [{
+        exerciseId: exercise.exerciseId,
+        sets,
+        reps: exercise.unit === 'reps' ? exercise.amount : null,
+        durationSeconds: exercise.unit === 'seconds' ? exercise.amount : null,
+        scopeMultiplier,
+      }];
+    });
+    if (!metrics.length) {
+      setLogError('No completed exercise sets to apply.');
+      return;
+    }
+
+    setWorkoutMetricsSaving(true);
+    setLogError('');
+    try {
+      await Promise.all(metrics.map(async metric => {
+        const response = await fetch('/api/exercise-metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date, ...metric, add: true }),
+        });
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        if (!response.ok) throw new Error(data.error || 'Could not save workout metrics.');
+        window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', { detail: { exerciseId: metric.exerciseId, date } }));
+        window.dispatchEvent(new CustomEvent('pt-timer-note-saved', { detail: { exerciseId: metric.exerciseId } }));
+      }));
+      setWorkoutMetricsSaved(true);
+    } catch (error) {
+      setLogError(error instanceof Error ? error.message : 'Could not save workout metrics.');
+    } finally {
+      setWorkoutMetricsSaving(false);
     }
   };
 
@@ -1238,8 +1293,11 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
   }, []);
 
   const showLogSection = done && !sequenceActive && mode === 'timer' && !activeSequence.workout && !!(exercises?.length);
+  const showWorkoutLogSection = done && !sequenceActive && mode === 'timer' && !!activeSequence.workout;
   const finishedMetric = completedTimerMetric();
-  const finishedMetricLabel = `${finishedMetric.sets}×${finishedMetric.durationSeconds} sec${finishedMetric.scopeMultiplier === 2 ? ' · R/L' : ''}`;
+  const finishedUsesMinutes = finishedMetric.durationSeconds >= 60 && finishedMetric.durationSeconds % 60 === 0;
+  const finishedAmount = finishedUsesMinutes ? finishedMetric.durationSeconds / 60 : finishedMetric.durationSeconds;
+  const finishedMetricLabel = `${finishedMetric.sets} × ${finishedAmount} ${finishedUsesMinutes ? (finishedAmount === 1 ? 'min' : 'mins') : (finishedAmount === 1 ? 'sec' : 'secs')}`;
   const currentWorkoutStep = sequenceActive && sequenceIndex >= 0 ? activeSequence.steps[sequenceIndex] : undefined;
   const nextWorkoutStep = sequenceActive ? activeSequence.steps[Math.max(0, sequenceIndex + 1)] : undefined;
   const upcomingWorkoutSteps = sequenceActive
@@ -1411,6 +1469,20 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
         </div>
       )}
 
+      {showWorkoutLogSection && (
+        <div className="mb-3 rounded-xl border border-stone-100 bg-stone-50 p-2.5">
+          {workoutMetricsSaved ? (
+            <p className="text-center text-xs font-bold text-[#476653]">✓ Workout metrics added</p>
+          ) : (
+            <>
+              <p className="mb-2 text-[9px] font-bold uppercase tracking-wider text-stone-400">Add completed sets to today</p>
+              <button onClick={() => void handleSaveWorkoutMetrics()} disabled={workoutMetricsSaving} className="w-full rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{workoutMetricsSaving ? 'Adding…' : 'Apply workout metrics'}</button>
+              {logError && <p className="mt-1.5 text-[11px] font-semibold text-red-600">{logError}</p>}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-2">
         <button onClick={event => { event.stopPropagation(); if (running) pauseTimer(); else start(); }} className="flex-1 rounded-lg text-xs font-bold transition-colors" style={{ padding: '10px 0', background: running ? '#f5f5f4' : '#D9A94B', color: running ? '#57534e' : '#fff' }}>{running ? 'Pause' : currentStep?.manual ? 'Next' : done && mode === 'timer' ? 'Restart' : 'Start'}</button>
         {sequenceActive && sequenceIndex >= 0 && !done && <button onClick={event => { event.stopPropagation(); skipSegment(); }} className="rounded-lg text-xs font-semibold transition-colors" style={{ padding: '10px 10px', background: '#fef3c7', color: '#92400e' }}>Skip</button>}
@@ -1543,6 +1615,17 @@ export default function QuickTimerWidget({ exercises, metricDate }: QuickTimerWi
                   ) : (
                     <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Metrics saved.</p>
                   )}
+                </div>
+              )}
+              {showWorkoutLogSection && (
+                <div className="rounded-3xl bg-white p-4 text-stone-800">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Add completed sets to today</p>
+                  {workoutMetricsSaved ? (
+                    <p className="mt-2 rounded-xl bg-[#E4ECE6] px-3 py-2 text-sm font-bold text-[#476653]">Workout metrics added.</p>
+                  ) : (
+                    <button onClick={() => void handleSaveWorkoutMetrics()} disabled={workoutMetricsSaving} className="mt-2 w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-40" style={{ background: '#7E9B86' }}>{workoutMetricsSaving ? 'Adding…' : 'Apply workout metrics'}</button>
+                  )}
+                  {logError && <p className="mt-2 text-xs font-semibold text-red-600">{logError}</p>}
                 </div>
               )}
             </aside>

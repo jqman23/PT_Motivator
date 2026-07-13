@@ -38,25 +38,14 @@ function metricLabel(metric: MetricRow | undefined) {
   const sets = Number(metric.sets_count || 0);
   const reps = Number(metric.reps_count || 0);
   const seconds = Number(metric.duration_seconds || 0);
-  const scope = [2, 4].includes(Number(metric.scope_multiplier)) ? Number(metric.scope_multiplier) : 1;
   if (!sets) return '';
   if (reps) {
-    const base = `${sets}×${reps} reps`;
-    return scope > 1 ? `${base} ×${scope} (${sets * reps * scope} total)` : base;
+    return `${sets} × ${reps}`;
   }
-  return seconds ? `${sets}×${seconds} ${seconds === 1 ? 'sec' : 'secs'}` : '';
-}
-
-function prescriptionLabel(exercise: ExerciseImage | undefined) {
-  const prescription = exercise?.timerPrescription;
-  if (!prescription) return '';
-  const sets = Math.max(1, Math.round(Number(prescription.sets) || 0));
-  const amount = Math.max(1, Math.round(Number(prescription.amount) || 0));
-  if (!sets || !amount) return '';
-  if (prescription.unit === 'reps') {
-    return `${sets}×${amount} reps`;
-  }
-  return `${sets}×${amount} ${amount === 1 ? 'sec' : 'secs'}`;
+  if (!seconds) return '';
+  const useMinutes = seconds >= 60 && seconds % 60 === 0;
+  const amount = useMinutes ? seconds / 60 : seconds;
+  return `${sets} × ${amount} ${useMinutes ? (amount === 1 ? 'min' : 'mins') : (amount === 1 ? 'sec' : 'secs')}`;
 }
 
 function cardIsDone(card: HTMLElement) {
@@ -280,7 +269,6 @@ function syncPrimaryImage(card: HTMLElement, imageUrls: string[] = []) {
 export default function ExerciseTileMetadataEnhancer() {
   useEffect(() => {
     let imageMap = new Map<string, string[]>();
-    let exerciseMap = new Map<string, ExerciseImage>();
     let metricMap = new Map<string, MetricRow>();
     let imageRevision = 0;
     let loadedMetricDate = '';
@@ -293,7 +281,6 @@ export default function ExerciseTileMetadataEnhancer() {
         const response = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
         const data = await response.json();
         const library: ExerciseImage[] = Array.isArray(data.value) ? data.value : [];
-        exerciseMap = new Map(library.filter(exercise => exercise.id).map(exercise => [exercise.id!, exercise]));
         const loadedMap = new Map(
           library
             .map(exercise => [exercise.id || '', Array.from(new Set([
@@ -319,7 +306,17 @@ export default function ExerciseTileMetadataEnhancer() {
         const title = card.querySelector<HTMLElement>('.text-sm.font-semibold > span');
         if (!title) return;
         const recordedLabel = metricLabel(metricMap.get(exerciseId));
-        const label = recordedLabel || (cardIsDone(card) ? prescriptionLabel(exerciseMap.get(exerciseId)) : '');
+        const label = recordedLabel;
+        const titleRow = title.parentElement;
+        if (titleRow) {
+          if (recordedLabel && cardIsDone(card)) {
+            titleRow.style.color = '#78716c';
+            titleRow.dataset.metricApplied = 'true';
+          } else if (titleRow.dataset.metricApplied === 'true') {
+            titleRow.style.removeProperty('color');
+            delete titleRow.dataset.metricApplied;
+          }
+        }
         let badge = title.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
         if (!label) {
           badge?.remove();

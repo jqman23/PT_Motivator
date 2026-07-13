@@ -133,6 +133,7 @@ export async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE doctor_notes ADD COLUMN IF NOT EXISTS note_color TEXT NOT NULL DEFAULT 'green'`;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {
