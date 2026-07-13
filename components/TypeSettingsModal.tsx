@@ -10,15 +10,15 @@ interface Props {
   onClose: () => void;
 }
 
-export type EmojiItem = { emoji: string; keywords: string[] };
-export type EmojiGroup = { label: string; items: EmojiItem[] };
+type EmojiItem = { emoji: string; keywords: string[] };
+type EmojiGroup = { label: string; items: EmojiItem[] };
 
 const emojiItem = (emoji: string, keywords: string | string[]): EmojiItem => ({
   emoji,
   keywords: Array.isArray(keywords) ? keywords : keywords.split('|').map(k => k.trim()).filter(Boolean),
 });
 
-export const EMOJI_GROUPS: EmojiGroup[] = [
+const EMOJI_GROUPS: EmojiGroup[] = [
   { label: 'Recent', items: [] },
   { label: 'Cardio', items: [
     emojiItem('❤️', 'heart|cardio|pulse'),
@@ -178,7 +178,7 @@ export const EMOJI_GROUPS: EmojiGroup[] = [
   ] },
 ];
 
-export function loadRecentEmojis(): string[] {
+function loadRecentEmojis(): string[] {
   if (typeof window === 'undefined') return [];
   try {
     const parsed = JSON.parse(localStorage.getItem('pt-type-emoji-recents') || '[]');
@@ -188,7 +188,7 @@ export function loadRecentEmojis(): string[] {
   }
 }
 
-export function saveRecentEmoji(emoji: string) {
+function saveRecentEmoji(emoji: string) {
   try {
     const current = loadRecentEmojis().filter(item => item !== emoji);
     localStorage.setItem('pt-type-emoji-recents', JSON.stringify([emoji, ...current].slice(0, 24)));
