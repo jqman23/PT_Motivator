@@ -1297,6 +1297,7 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
   const focusWorkoutIsUpcoming = Boolean(focusWorkoutStep && focusWorkoutStep !== currentWorkoutStep);
   const selectedWorkout = customWorkouts.find(workout => workout.id === selectedWorkoutId);
   const selectedWorkoutForDisplay = selectedWorkout ? refreshWorkoutExerciseDefaults(selectedWorkout, exercises ?? []) : undefined;
+  const workoutActionCue = cue.trim() === `${activeSequence.label} ready`.trim() ? '' : cue.trim();
   const openWorkoutInfo = (step?: TimerStep) => {
     if (!step?.exerciseId && !step?.exerciseName && !step?.label) return;
     setWorkoutInfoStep(step);
@@ -1534,10 +1535,9 @@ export default function QuickTimerWidget({ exercises, onSaveNote, onOpenNote }: 
                 </div>
               </div>
 
-              {(cue || sequenceLabel) && (
+              {workoutActionCue && (
                 <div className="rounded-2xl bg-[#E4ECE6] px-4 py-3 text-center text-[#283F30]">
-                  {sequenceLabel && <p className="text-[11px] font-bold uppercase tracking-widest opacity-70">{sequenceLabel}</p>}
-                  {cue && <p className="text-lg font-extrabold leading-tight">{cue}</p>}
+                  <p className="text-lg font-extrabold leading-tight">{workoutActionCue}</p>
                   {running && remaining <= 5 && <p className="mt-1 text-sm font-bold">Next cue in {remaining}</p>}
                 </div>
               )}
