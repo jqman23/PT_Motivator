@@ -6,6 +6,13 @@ type ExerciseImage = {
   id?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
+  timerPrescription?: {
+    sets: number;
+    amount: number;
+    unit: 'seconds' | 'reps';
+    targets?: string[];
+    scopeMultiplier?: 1 | 2 | 4;
+  };
 };
 
 type MetricRow = {
@@ -38,6 +45,22 @@ function metricLabel(metric: MetricRow | undefined) {
     return scope > 1 ? `${base} ×${scope} (${sets * reps * scope} total)` : base;
   }
   return seconds ? `${sets}×${seconds} ${seconds === 1 ? 'sec' : 'secs'}` : '';
+}
+
+function prescriptionLabel(exercise: ExerciseImage | undefined) {
+  const prescription = exercise?.timerPrescription;
+  if (!prescription) return '';
+  const sets = Math.max(1, Math.round(Number(prescription.sets) || 0));
+  const amount = Math.max(1, Math.round(Number(prescription.amount) || 0));
+  if (!sets || !amount) return '';
+  const namedTargetCount = (prescription.targets ?? []).map(target => target.trim()).filter(Boolean).length;
+  const targetCount = namedTargetCount || prescription.scopeMultiplier || 1;
+  if (prescription.unit === 'reps') {
+    const base = `${sets}×${amount} reps`;
+    return targetCount > 1 ? `${base} ×${targetCount} (${sets * amount * targetCount} total)` : base;
+  }
+  const base = `${sets}×${amount} ${amount === 1 ? 'sec' : 'secs'}`;
+  return targetCount > 1 ? `${base} ×${targetCount}` : base;
 }
 
 function cardIsDone(card: HTMLElement) {
@@ -261,6 +284,7 @@ function syncPrimaryImage(card: HTMLElement, imageUrls: string[] = []) {
 export default function ExerciseTileMetadataEnhancer() {
   useEffect(() => {
     let imageMap = new Map<string, string[]>();
+    let exerciseMap = new Map<string, ExerciseImage>();
     let metricMap = new Map<string, MetricRow>();
     let imageRevision = 0;
     let loadedMetricDate = '';
@@ -273,6 +297,7 @@ export default function ExerciseTileMetadataEnhancer() {
         const response = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
         const data = await response.json();
         const library: ExerciseImage[] = Array.isArray(data.value) ? data.value : [];
+        exerciseMap = new Map(library.filter(exercise => exercise.id).map(exercise => [exercise.id!, exercise]));
         const loadedMap = new Map(
           library
             .map(exercise => [exercise.id || '', Array.from(new Set([
@@ -297,7 +322,8 @@ export default function ExerciseTileMetadataEnhancer() {
         syncPrimaryImage(card, imageMap.get(exerciseId));
         const title = card.querySelector<HTMLElement>('.text-sm.font-semibold > span');
         if (!title) return;
-        const label = metricLabel(metricMap.get(exerciseId));
+        const recordedLabel = metricLabel(metricMap.get(exerciseId));
+        const label = recordedLabel || (cardIsDone(card) ? prescriptionLabel(exerciseMap.get(exerciseId)) : '');
         let badge = title.querySelector<HTMLElement>('[data-daily-exercise-metric="true"]');
         if (!label) {
           badge?.remove();
