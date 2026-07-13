@@ -17,7 +17,7 @@ type Props = {
 
 function LockIcon({ locked }: { locked: boolean }) {
   return (
-    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="4.5" y="8.5" width="11" height="8" rx="2" />
       {locked ? <path d="M7 8.5V6.7a3 3 0 0 1 6 0v1.8" /> : <path d="M7 8.5V6.7a3 3 0 0 1 5.3-1.9" />}
     </svg>
@@ -38,7 +38,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const editorRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const canResize = /\bresize-y\b/.test(className);
-  const compactInputBase = 'min-w-[8rem] flex-1 border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none';
+  const compactInputBase = 'min-w-[5rem] max-w-full flex-1 border-0 bg-transparent p-0 text-inherit placeholder-stone-300 focus:outline-none';
 
   useEffect(() => {
     const index = pendingSecretIndex.current;
@@ -159,16 +159,17 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: heightPx ?? style?.height }}
     >
       {blocks.map((block, index) => block.type === 'secret' ? (
-        <div key={index} className="inline-flex w-full flex-wrap items-center gap-1.5 align-baseline">
+        <span key={index} className="inline-flex max-w-full items-center gap-1 align-middle">
             <button
               type="button"
               onClick={() => toggleSecret(index, block)}
-              className="inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[10px] font-bold uppercase tracking-wide transition-colors"
+              className="inline-flex h-[1.125rem] items-center gap-0.5 rounded-full border px-1.5 text-[9px] font-bold uppercase tracking-wide transition-colors"
               style={{
                 background: block.locked ? '#1F2F46' : '#E4ECE6',
                 borderColor: block.locked ? '#162233' : '#cfded3',
                 color: block.locked ? '#ffffff' : '#476653',
                 touchAction: 'manipulation',
+                lineHeight: 1,
               }}
               title={block.locked ? 'Unlock secret note' : 'Lock secret note'}
             >
@@ -178,7 +179,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             <button
               type="button"
               onClick={() => removeBlock(index)}
-              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-500"
+              className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-500"
               style={{ touchAction: 'manipulation' }}
               aria-label="Remove secret note"
               title="Remove secret note"
@@ -186,7 +187,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               x
             </button>
           {block.locked && unlockingIndex === index && (
-            <span className="inline-flex min-w-[9.5rem] flex-1 items-center gap-1.5">
+            <span className="inline-flex min-w-[7rem] items-center gap-1">
               <input
                 value={unlockCode}
                 onChange={event => updateUnlockCode(index, event.target.value)}
@@ -199,14 +200,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 inputMode="numeric"
                 autoFocus
                 placeholder="9334"
-                className="h-6 w-16 rounded-full border border-stone-200 bg-white px-2 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
+                className="h-5 w-14 rounded-full border border-stone-200 bg-white px-2 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 aria-label="Secret unlock code"
               />
               <button
                 type="button"
                 onClick={() => submitUnlock(index)}
-                className="h-6 rounded-full px-2.5 text-[10px] font-bold text-white disabled:opacity-40"
+                className="h-5 rounded-full px-2 text-[9px] font-bold text-white disabled:opacity-40"
                 style={{ background: '#7E9B86', touchAction: 'manipulation' }}
                 disabled={unlockCode.length !== 4}
               >
@@ -225,7 +226,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
               style={textAreaStyle}
             />
           )}
-        </div>
+        </span>
       ) : (
         <textarea
           key={index}
