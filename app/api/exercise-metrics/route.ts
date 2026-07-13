@@ -101,26 +101,6 @@ export async function POST(req: NextRequest) {
   const add = body.add === true;
 
   try {
-    if (add) {
-      const existingRows = await sql`
-        SELECT reps_count, duration_seconds, scope_multiplier
-        FROM exercise_metrics
-        WHERE date = ${date}::date AND exercise_id = ${exerciseId}
-        LIMIT 1
-      `;
-      const existing = existingRows[0];
-      const sameMetric = !existing || (
-        (existing.reps_count == null ? null : Number(existing.reps_count)) === reps
-        && (existing.duration_seconds == null ? null : Number(existing.duration_seconds)) === durationSeconds
-        && Number(existing.scope_multiplier ?? 1) === scopeMultiplier
-      );
-      if (!sameMetric) {
-        return NextResponse.json({
-          error: 'Today already has a different metric for this exercise. Edit it with double tap before adding this timer result.',
-        }, { status: 409 });
-      }
-    }
-
     const rows = await sql`
       INSERT INTO exercise_metrics (
         date, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier, updated_at
@@ -150,8 +130,19 @@ export async function POST(req: NextRequest) {
         END,
         scope_multiplier = EXCLUDED.scope_multiplier,
         updated_at = NOW()
+      WHERE NOT ${add}
+        OR (
+          exercise_metrics.reps_count IS NOT DISTINCT FROM EXCLUDED.reps_count
+          AND exercise_metrics.duration_seconds IS NOT DISTINCT FROM EXCLUDED.duration_seconds
+          AND exercise_metrics.scope_multiplier = EXCLUDED.scope_multiplier
+        )
       RETURNING date::text, exercise_id, sets_count, reps_count, duration_seconds, weight_value, weight_unit, scope_multiplier
     `;
+    if (!rows[0]) {
+      return NextResponse.json({
+        error: 'Today already has a different metric for this exercise. Edit it with double tap before adding this timer result.',
+      }, { status: 409 });
+    }
     return NextResponse.json({ ok: true, metric: rows[0] });
   } catch (error) {
     console.error('Exercise metrics POST failed', error);
