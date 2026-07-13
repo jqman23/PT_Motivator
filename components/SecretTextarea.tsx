@@ -183,6 +183,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!selection?.isCollapsed || !editorRef.current) return -1;
     let node: Node | null = selection.anchorNode;
     let offset = selection.anchorOffset;
+
+    const element = node instanceof HTMLElement ? node : node?.parentElement;
+    const containingSecret = element?.closest<HTMLElement>('[data-secret="true"]');
+    if (containingSecret && editorRef.current.contains(containingSecret)) {
+      if (direction === -1 && offset > 0) return Number(containingSecret.dataset.secretIndex);
+      if (direction === 1 && offset === 0) return Number(containingSecret.dataset.secretIndex);
+    }
+
     if (node?.nodeType === Node.TEXT_NODE && direction === -1 && offset > 0) return -1;
     if (node?.nodeType === Node.TEXT_NODE && direction === 1 && offset < (node.textContent ?? '').length) return -1;
     if (node !== editorRef.current) {
