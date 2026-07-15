@@ -359,14 +359,14 @@ export default function ExerciseGestureEnhancer() {
                   setDraft(previous => ({ ...previous, mode, kindText: kindLabel(mode) }));
                 }}
                 placeholder="Reps"
-                className="min-w-[4.5rem] flex-1 bg-transparent text-sm font-semibold text-stone-700 outline-none"
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-stone-700 outline-none"
                 style={{ fontSize: 16 }}
               />
               {draft.mode === 'duration' && (
                 <button
                   type="button"
                   onClick={() => updateDraft({ durationUnit: draft.durationUnit === 'sec' ? 'min' : 'sec' })}
-                  className="shrink-0 text-[8px] font-bold text-stone-400"
+                  className="shrink-0 text-[8px] font-bold leading-none text-stone-400"
                   title="Toggle seconds or minutes"
                 >
                   {draft.durationUnit}
@@ -377,7 +377,7 @@ export default function ExerciseGestureEnhancer() {
                 onClick={() => updateDraft({
                   scopeMultiplier: draft.scopeMultiplier === 1 ? 2 : draft.scopeMultiplier === 2 ? 4 : 1,
                 })}
-                className="min-w-11 shrink-0 rounded-md bg-stone-100 px-2.5 py-1.5 text-center text-xs font-black leading-none text-stone-600"
+                className="min-w-8 shrink-0 rounded-md bg-stone-100 px-1.5 py-1 text-center text-[11px] font-black leading-none text-stone-600"
                 aria-label={`Scope multiplier ${draft.scopeMultiplier}. Tap for next multiplier.`}
                 title="×1 one side; ×2 both legs or directions; ×4 both legs and both directions"
               >
