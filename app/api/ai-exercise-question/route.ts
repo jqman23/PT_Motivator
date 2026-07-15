@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
-import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqApiKey, type GroqTask } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, GroqRouteError, hasAiApiKeyForTask, type GroqApiKey, type GroqTask } from '@/lib/groq';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
@@ -1091,7 +1091,17 @@ export async function POST(req: NextRequest) {
           ? 'wholeHistoryComparison contains one compact row for every loaded saved day. Use all of its rows for overall, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
         : rankedDays.length
           ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
-        : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
+          : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
+    };
+    // Gemini's unpaid quota is reserved for clearly public questions. Never include app state,
+    // personal history, private instructions, doctor notes, or user-specific exercise context in
+    // that payload. Personal tasks use the Groq/Cerebras/OpenRouter-ZDR route plan instead.
+    const modelPromptContext = personal ? promptContext : {
+      question: cleanQuestion,
+      today: appToday,
+      externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
+      visualizationRequested: false,
+      instructions: 'Answer the public, non-personal question directly. Do not infer any private app data.',
     };
     const deterministicAgentPlan = agentIntent ? buildDeterministicAgentFallback({
       question: cleanQuestion,
@@ -1099,18 +1109,41 @@ export async function POST(req: NextRequest) {
       selectedDate,
       explicitDates: currentQuestionDates,
       exercises,
+      categories: categoryContext,
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
       priorUserMessages: history.filter(message => message.role === 'user').map(message => message.content),
     }) : undefined;
 
-    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
+    if (!hasAiApiKeyForTask(groqTask, apiKeys)) {
+      if (deterministicAgentPlan) return NextResponse.json({
+        reply: {
+          answer: deterministicAgentPlan.actions.some(isAgentWriteAction)
+            ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+            : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`,
+          options: [],
+          dateLinks: [],
+          visualizations: [],
+          agentPlan: deterministicAgentPlan,
+          agentPlanningStatus: 'planned',
+        },
+        degraded: true,
+        model: 'deterministic',
+        attemptedModels: [],
+        usedPersonalHistory: false,
+        searchedDays: 0,
+        comparedDays: 0,
+        rerankerModel: '',
+        rerankedCandidates: 0,
+      });
+      return NextResponse.json({ error: 'Missing AI provider keys' }, { status: 500 });
+    }
 
     let result: Awaited<ReturnType<typeof callGroqChat>>;
     try {
       result = await callGroqChat(apiKeys, groqTask, {
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify(promptContext) },
+          { role: 'user', content: JSON.stringify(modelPromptContext) },
         ],
         temperature: agentIntent ? 0 : 0.22,
         max_completion_tokens: agentIntent ? 1_400 : 950,
@@ -1285,6 +1318,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('[ai-exercise-question]', err);
     const payload = groqErrorPayload(err);
-    return NextResponse.json({ ...payload, model: payload.model ?? DEFAULT_MODEL }, { status: payload.error === 'Groq request failed' ? 502 : 500 });
+    return NextResponse.json({ ...payload, model: payload.model ?? DEFAULT_MODEL }, { status: payload.error === 'AI request failed' ? 502 : 500 });
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Exercise } from '@/lib/exercises';
-import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, hasAiApiKeyForTask } from '@/lib/groq';
 
 function cleanText(value: unknown, limit = 1400) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -61,12 +61,12 @@ export async function POST(req: NextRequest) {
   let task: 'edit' | 'enhance' = 'edit';
   try {
     const apiKeys = getGroqApiKeys();
-    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
 
     const { instruction, exercise, mode } = await req.json();
     const cleanInstruction = cleanText(instruction, 1600);
     const isEnhance = mode === 'enhance';
     task = isEnhance ? 'enhance' : 'edit';
+    if (!hasAiApiKeyForTask(task, apiKeys)) return NextResponse.json({ error: 'Missing AI provider keys' }, { status: 500 });
 
     if (!cleanInstruction && !isEnhance) return NextResponse.json({ error: 'Instruction required' }, { status: 400 });
 
@@ -126,6 +126,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('[ai-exercise-edit]', err);
     const payload = groqErrorPayload(err);
-    return NextResponse.json({ ...payload, model: payload.model ?? getGroqModelChain(task)[0] }, { status: payload.error === 'Groq request failed' ? 502 : 500 });
+    return NextResponse.json({ ...payload, model: payload.model ?? getGroqModelChain(task)[0] }, { status: payload.error === 'AI request failed' ? 502 : 500 });
   }
 }

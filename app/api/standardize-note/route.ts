@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callGroqChat, getGroqApiKeys, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, groqErrorPayload, hasAiApiKeyForTask } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 type StandardizedFields = {
@@ -57,14 +57,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (!apiKeys.length) {
+    if (!hasAiApiKeyForTask('standardize', apiKeys)) {
       const fallback = localFallback(rawNote);
       return NextResponse.json({
         originalNote: rawNote,
         standardizedNote: fallback,
         fields: {},
         changed: false,
-        summary: ['AI standardization unavailable because no Groq API key is configured.'],
+        summary: ['AI standardization unavailable because no AI provider key is configured.'],
         questions: [],
         clarificationOptions: [],
       });

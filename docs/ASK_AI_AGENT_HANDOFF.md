@@ -197,7 +197,11 @@ Personal history and symptom questions use the personal model chain:
 
 Clearly public/non-personal questions may try `groq/compound-mini` and `groq/compound` before that chain. Compound models are intentionally excluded from personal-history requests because they may invoke external tools.
 
-The main Ask AI answer budget is currently 950 completion tokens. Model chains can be overridden with the bounded `GROQ_MODELS_PTMOTIVATOR_*` environment variables defined in `lib/groq.ts`. Each model is tried with `GROQ_KEY_PTMOTIVATOR`, then `GROQ_KEY2_PTMOTIVATOR`, `GROQ_KEY3_PTMOTIVATOR`, and `GROQ_KEY4_PTMOTIVATOR` before the cascade advances to the next model. Missing and duplicate keys are skipped.
+The main Ask AI answer budget is currently 950 completion tokens. Groq model chains can be overridden with the bounded `GROQ_MODELS_PTMOTIVATOR_*` environment variables defined in `lib/groq.ts`. Each Groq model is tried with `GROQ_KEY_PTMOTIVATOR`, then `GROQ_KEY2_PTMOTIVATOR`, `GROQ_KEY3_PTMOTIVATOR`, and `GROQ_KEY4_PTMOTIVATOR` before the cascade advances. Missing and duplicate keys are skipped.
+
+The same helper now provides task-aware cross-provider failover using `CEREBRAS_KEY_PTMOTIVATOR`, `GEMINI_KEY_PTMOTIVATOR`, and `OPENROUTER_KEY_PTMOTIVATOR` (with optional numbered key 2-4 variants). Personal tasks use Groq, Cerebras, and OpenRouter requests with ZDR plus data-collection denial. Gemini unpaid models are limited to sanitized `publicAsk` payloads that exclude conversation history, app state, private instructions, health history, and doctor notes. OpenRouter is hard-allowlisted to explicit `:free` models; its random free router is only a final public-question fallback. No unqualified paid OpenRouter model is called.
+
+Provider failures are classified. A 429 advances through quota pools and sets an in-memory cooldown; a rejected key is disabled for the process lifetime; and model/request validation failures are not repeated across every key. Every successful provider response is normalized to the existing OpenAI-compatible response shape so route-level validation remains identical.
 
 Operational context discussed during development: the available `gpt-oss-120b` limit was 8K TPM and 200K TPD. The retrieval architecture was designed so deterministic ranking and compact reranking reduce the amount of history sent to the main model.
 

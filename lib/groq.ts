@@ -6,6 +6,7 @@ export type GroqApiKey = {
 };
 
 type Attempt = {
+  provider: AiProvider;
   model: string;
   keyName: string;
   status: number;
@@ -16,6 +17,7 @@ type Attempt = {
 type GroqErrorPayload = {
   error: string;
   detail: string;
+  provider?: AiProvider;
   groqStatus?: number;
   groqStatusText?: string;
   model: string;
@@ -43,12 +45,55 @@ const ALLOWED_GROQ_MODELS = new Set([
   'whisper-large-v3-turbo',
 ]);
 
+type AiProvider = 'groq' | 'cerebras' | 'gemini' | 'openrouter';
+
+type AiRoute = {
+  provider: AiProvider;
+  model: string;
+  jsonMode: boolean;
+};
+
+const CEREBRAS_PRODUCTION_MODEL = 'gpt-oss-120b';
+const CEREBRAS_PREVIEW_MODEL = 'gemma-4-31b';
+const CEREBRAS_SHORT_CONTEXT_MODEL = 'zai-glm-4.7';
+
+const GEMINI_PUBLIC_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemma-4-31b-it',
+  'gemma-4-26b-it',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+
+// Every OpenRouter entry is deliberately free. Do not add a paid model or an unqualified
+// alias here: the account credit unlocks the higher free-model request allowance, but the
+// application must not consume that balance. Strong JSON-capable models lead the list.
+const OPENROUTER_FREE_MODELS: Array<{ model: string; jsonMode: boolean }> = [
+  { model: 'qwen/qwen3-next-80b-a3b-instruct:free', jsonMode: true },
+  { model: 'nvidia/nemotron-3-super-120b-a12b:free', jsonMode: true },
+  { model: 'google/gemma-4-31b-it:free', jsonMode: true },
+  { model: 'google/gemma-4-26b-a4b-it:free', jsonMode: true },
+  { model: 'openai/gpt-oss-20b:free', jsonMode: true },
+  { model: 'tencent/hy3:free', jsonMode: false },
+  { model: 'nvidia/nemotron-3-ultra-550b-a55b:free', jsonMode: false },
+  { model: 'meta-llama/llama-3.3-70b-instruct:free', jsonMode: false },
+  { model: 'nousresearch/hermes-3-llama-3.1-405b:free', jsonMode: false },
+  { model: 'poolside/laguna-m.1:free', jsonMode: false },
+  { model: 'nvidia/nemotron-3-nano-30b-a3b:free', jsonMode: false },
+];
+
+const PUBLIC_OPENROUTER_TAIL = { model: 'openrouter/free', jsonMode: false };
+const disabledKeys = new Set<string>();
+const cooldowns = new Map<string, number>();
+
 export class GroqRouteError extends Error {
   attempts: Attempt[];
   status: number;
   statusText: string;
   detail: string;
   model: string;
+  provider: AiProvider;
 
   constructor(message: string, attempts: Attempt[]) {
     super(message);
@@ -59,6 +104,7 @@ export class GroqRouteError extends Error {
     this.statusText = last?.statusText ?? '';
     this.detail = last?.detail ?? message;
     this.model = last?.model ?? '';
+    this.provider = last?.provider ?? 'groq';
   }
 }
 
@@ -162,6 +208,83 @@ export function getGroqApiKeys(): GroqApiKey[] {
   });
 }
 
+function providerKeys(provider: AiProvider, groqKeys: GroqApiKey[]) {
+  if (provider === 'groq') return groqKeys;
+  const prefix = provider === 'cerebras' ? 'CEREBRAS' : provider === 'gemini' ? 'GEMINI' : 'OPENROUTER';
+  const configured = [
+    `${prefix}_KEY_PTMOTIVATOR`,
+    `${prefix}_KEY2_PTMOTIVATOR`,
+    `${prefix}_KEY3_PTMOTIVATOR`,
+    `${prefix}_KEY4_PTMOTIVATOR`,
+  ].map(name => ({ name, value: process.env[name] }));
+  const seen = new Set<string>();
+  return configured.flatMap(({ name, value }) => {
+    const clean = value?.trim();
+    if (!clean || seen.has(clean)) return [];
+    seen.add(clean);
+    return [{ name, value: clean }];
+  });
+}
+
+export function hasAnyAiApiKey(groqKeys = getGroqApiKeys()) {
+  return (['groq', 'cerebras', 'gemini', 'openrouter'] as const)
+    .some(provider => providerKeys(provider, groqKeys).length > 0);
+}
+
+export function hasAiApiKeyForTask(task: GroqTask, groqKeys = getGroqApiKeys()) {
+  return getAiRoutePlan(task).some(route => providerKeys(route.provider, groqKeys).length > 0);
+}
+
+function groqRoute(model: string): AiRoute {
+  return { provider: 'groq', model, jsonMode: !model.startsWith('groq/compound') };
+}
+
+function uniqueRoutes(routes: AiRoute[]) {
+  const seen = new Set<string>();
+  return routes.filter(route => {
+    const key = `${route.provider}:${route.model}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function getAiRoutePlan(task: GroqTask): AiRoute[] {
+  const groqModels = getGroqModelChain(task);
+  const openRouter = OPENROUTER_FREE_MODELS.map(route => ({ provider: 'openrouter' as const, ...route }));
+  if (task === 'rerank') return groqModels.map(groqRoute);
+
+  if (task === 'publicAsk') return uniqueRoutes([
+    ...GEMINI_PUBLIC_MODELS.map(model => ({ provider: 'gemini' as const, model, jsonMode: true })),
+    ...groqModels.slice(0, 2).map(groqRoute),
+    { provider: 'cerebras', model: CEREBRAS_PRODUCTION_MODEL, jsonMode: true },
+    ...openRouter,
+    { provider: 'openrouter', ...PUBLIC_OPENROUTER_TAIL },
+    ...groqModels.slice(2).map(groqRoute),
+  ]);
+
+  const premiumGroqCount = task === 'ask' || task === 'enhance' || task === 'standardize' ? 3 : 2;
+  const premiumGroq = groqModels.slice(0, premiumGroqCount).map(groqRoute);
+  const remainingGroq = groqModels.slice(premiumGroqCount).map(groqRoute);
+  const cerebrasRoutes: AiRoute[] = [
+    { provider: 'cerebras', model: CEREBRAS_PRODUCTION_MODEL, jsonMode: true },
+    { provider: 'cerebras', model: CEREBRAS_PREVIEW_MODEL, jsonMode: true },
+  ];
+  const shortTaskCerebras: AiRoute[] = task === 'log' || task === 'edit' || task === 'standardize' || task === 'summary'
+    ? [{ provider: 'cerebras', model: CEREBRAS_SHORT_CONTEXT_MODEL, jsonMode: true }]
+    : [];
+
+  return uniqueRoutes([
+    ...premiumGroq.slice(0, 1),
+    cerebrasRoutes[0],
+    ...premiumGroq.slice(1),
+    ...shortTaskCerebras,
+    ...openRouter,
+    ...remainingGroq,
+    cerebrasRoutes[1],
+  ]);
+}
+
 function groqDetailFromText(text: string) {
   const fallback = cleanText(text, 600);
   try {
@@ -175,81 +298,187 @@ function groqDetailFromText(text: string) {
   }
 }
 
-function requestBodyForModel(body: Record<string, unknown>, model: string) {
+function requestBodyForModel(body: Record<string, unknown>, route: AiRoute) {
+  const { model, provider, jsonMode } = route;
   const next: Record<string, unknown> = { ...body, model };
 
-  // Compound is a system rather than a normal hosted model. It does not need structured-output
-  // enforcement; the route still validates and extracts the JSON response itself.
-  if (model.startsWith('groq/compound')) {
+  if (!jsonMode || model.startsWith('groq/compound')) {
     delete next.response_format;
+  }
+
+  if (provider === 'openrouter') {
+    if (next.max_completion_tokens !== undefined) {
+      next.max_tokens = next.max_completion_tokens;
+      delete next.max_completion_tokens;
+    }
+    next.provider = {
+      zdr: true,
+      data_collection: 'deny',
+      allow_fallbacks: true,
+    };
   }
 
   return next;
 }
 
+function geminiRequestBody(body: Record<string, unknown>, model: string) {
+  const messages = Array.isArray(body.messages) ? body.messages.flatMap(message => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return [];
+    const row = message as Record<string, unknown>;
+    const role = row.role === 'assistant' ? 'model' : row.role === 'system' ? 'system' : 'user';
+    const text = String(row.content ?? '').trim();
+    return text ? [{ role, text }] : [];
+  }) : [];
+  const systemText = messages.filter(message => message.role === 'system').map(message => message.text).join('\n\n');
+  const conversation = messages.filter(message => message.role !== 'system');
+  const contents = model.startsWith('gemma-')
+    ? [{ role: 'user', parts: [{ text: [systemText, ...conversation.map(message => `${message.role}: ${message.text}`)].filter(Boolean).join('\n\n') }] }]
+    : conversation.map(message => ({ role: message.role, parts: [{ text: message.text }] }));
+  const generationConfig: Record<string, unknown> = {};
+  if (typeof body.temperature === 'number') generationConfig.temperature = body.temperature;
+  const maxOutputTokens = Number(body.max_completion_tokens ?? body.max_tokens);
+  if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) generationConfig.maxOutputTokens = Math.min(65_536, Math.floor(maxOutputTokens));
+  if (body.response_format && typeof body.response_format === 'object') generationConfig.responseMimeType = 'application/json';
+  return {
+    ...(systemText && !model.startsWith('gemma-') ? { systemInstruction: { parts: [{ text: systemText }] } } : {}),
+    contents: contents.length ? contents : [{ role: 'user', parts: [{ text: 'Respond to the request.' }] }],
+    generationConfig,
+  };
+}
+
+function normalizeGeminiResponse(value: unknown) {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+  const first = candidates[0] && typeof candidates[0] === 'object' && !Array.isArray(candidates[0])
+    ? candidates[0] as Record<string, unknown>
+    : {};
+  const content = first.content && typeof first.content === 'object' && !Array.isArray(first.content)
+    ? first.content as Record<string, unknown>
+    : {};
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  const text = parts.flatMap(part => part && typeof part === 'object' && !Array.isArray(part)
+    ? [String((part as Record<string, unknown>).text ?? '')]
+    : []).join('').trim();
+  const usage = raw.usageMetadata && typeof raw.usageMetadata === 'object' && !Array.isArray(raw.usageMetadata)
+    ? raw.usageMetadata as Record<string, unknown>
+    : {};
+  return {
+    choices: text ? [{ message: { role: 'assistant', content: text }, finish_reason: first.finishReason ?? null }] : [],
+    usage: {
+      prompt_tokens: Number(usage.promptTokenCount ?? 0),
+      completion_tokens: Number(usage.candidatesTokenCount ?? 0),
+      total_tokens: Number(usage.totalTokenCount ?? 0),
+    },
+  };
+}
+
+function providerRequest(route: AiRoute, apiKey: GroqApiKey, body: Record<string, unknown>, signal: AbortSignal) {
+  if (route.provider === 'gemini') {
+    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(route.model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey.value, 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiRequestBody(body, route.model)),
+      signal,
+    });
+  }
+  const endpoint = route.provider === 'groq'
+    ? 'https://api.groq.com/openai/v1/chat/completions'
+    : route.provider === 'cerebras'
+      ? 'https://api.cerebras.ai/v1/chat/completions'
+      : 'https://openrouter.ai/api/v1/chat/completions';
+  return fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey.value}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBodyForModel(body, route)),
+    signal,
+  });
+}
+
+function modelLabel(route: AiRoute) {
+  return route.provider === 'groq' ? route.model : `${route.provider}/${route.model}`;
+}
+
+function retryDelayMs(response: Response) {
+  const seconds = Number(response.headers.get('retry-after'));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(300_000, seconds * 1000) : 30_000;
+}
+
 export async function callGroqChat(apiKeys: GroqApiKey[], task: GroqTask, body: Record<string, unknown>) {
-  const models = getGroqModelChain(task);
   const attempts: Attempt[] = [];
 
-  // Keep model as the outer loop: exhaust keys 1-4 for the best model before degrading quality.
-  for (const model of models) {
-    for (const apiKey of apiKeys) {
+  // This legacy-named entry point is now the provider router. Each Groq model still exhausts
+  // keys 1-4 before the route advances, while Cerebras, Gemini, and free OpenRouter capacity
+  // provide independent failover pools selected by task and sensitivity.
+  for (const route of getAiRoutePlan(task)) {
+    const keys = providerKeys(route.provider, apiKeys);
+    if (!keys.length) continue;
+    for (const apiKey of keys) {
+      const keyId = `${route.provider}:${apiKey.name}`;
+      const cooldownId = `${keyId}:${route.model}`;
+      if (disabledKeys.has(keyId) || (cooldowns.get(cooldownId) ?? 0) > Date.now()) continue;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), model.startsWith('groq/compound') ? 45000 : 30000);
+      const timeout = setTimeout(() => controller.abort(), route.model.startsWith('groq/compound') ? 45_000 : 30_000);
+      const label = modelLabel(route);
 
       try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey.value}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBodyForModel(body, model)),
-          signal: controller.signal,
-        });
+        const res = await providerRequest(route, apiKey, body, controller.signal);
 
         if (res.ok) {
-          const data = await res.json();
-          return { data, model, attemptedModels: attempts.map(item => item.model) };
+          const rawData = await res.json();
+          const data = route.provider === 'gemini' ? normalizeGeminiResponse(rawData) : rawData;
+          const candidate = data && typeof data === 'object' && !Array.isArray(data)
+            ? (data as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
+            : '';
+          if (String(candidate ?? '').trim()) {
+            return { data, model: label, attemptedModels: attempts.map(item => item.model) };
+          }
+          attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'EMPTY_RESPONSE', detail: 'Provider returned no assistant content.' });
+          continue;
         }
 
         const detail = groqDetailFromText(await res.text());
-        attempts.push({ model, keyName: apiKey.name, status: res.status, statusText: res.statusText, detail });
+        attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: res.status, statusText: res.statusText, detail });
+        if (res.status === 401 || res.status === 403) disabledKeys.add(keyId);
+        if (res.status === 429) cooldowns.set(cooldownId, Date.now() + retryDelayMs(res));
+        // A request/model validation failure will be identical across keys. Move to another
+        // model/provider instead of wasting every key on the same rejected payload.
+        if (res.status === 400 || res.status === 404 || res.status === 422) break;
       } catch (error) {
         const detail = error instanceof Error && error.name === 'AbortError'
           ? 'Request timed out'
           : error instanceof Error ? error.message : String(error ?? 'Network error');
-        attempts.push({ model, keyName: apiKey.name, status: 0, statusText: 'FETCH_ERROR', detail });
+        attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 0, statusText: 'FETCH_ERROR', detail });
       } finally {
         clearTimeout(timeout);
       }
     }
   }
 
-  throw new GroqRouteError('All Groq model attempts failed', attempts);
+  throw new GroqRouteError('All configured AI provider attempts failed', attempts);
 }
 
 export function groqErrorPayload(error: unknown): GroqErrorPayload {
   if (error instanceof GroqRouteError) {
     return {
-      error: 'Groq request failed',
+      error: 'AI request failed',
       detail: cleanText(error.detail, 1200),
+      provider: error.provider,
       groqStatus: error.status,
       groqStatusText: error.statusText,
       model: error.model,
       attemptedModels: error.attempts.map(item => item.model),
       attempts: error.attempts,
-      hint: error.status === 401 ? 'Likely bad or missing Groq API key.'
-        : error.status === 402 ? 'Groq account billing/quota issue.'
-        : error.status === 429 ? 'Groq rate limit or quota issue. The app tried fallback models before failing.'
-        : error.status === 400 ? 'Groq rejected the request body, model, or response format. The app tried fallback models before failing.'
-        : error.status === 0 ? 'Groq timed out or could not be reached. The app tried fallback models before failing.'
-        : 'Groq returned a non-OK response. The app tried fallback models before failing.',
+      hint: error.status === 401 ? 'A configured provider key was rejected.'
+        : error.status === 402 ? 'A provider reported a billing or quota issue.'
+        : error.status === 429 ? 'All eligible provider and model quota pools were exhausted.'
+        : error.status === 400 ? 'A provider rejected the request shape; the router tried compatible fallbacks.'
+        : error.status === 0 ? 'Providers timed out or could not be reached.'
+        : 'All eligible AI provider fallbacks returned errors.',
     };
   }
 
   return {
-    error: 'Groq request failed',
+    error: 'AI request failed',
     detail: error instanceof Error ? error.message : String(error ?? 'Unknown error'),
     model: '',
     attemptedModels: [],

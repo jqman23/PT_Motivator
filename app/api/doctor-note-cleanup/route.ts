@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callGroqChat, getGroqApiKeys, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, groqErrorPayload, hasAiApiKeyForTask } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 function cleanText(value: unknown, limit = 4000) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKeys = getGroqApiKeys();
-    if (!apiKeys.length) return NextResponse.json(localFallback({ title, body: noteBody }));
+    if (!hasAiApiKeyForTask('enhance', apiKeys)) return NextResponse.json(localFallback({ title, body: noteBody }));
 
     const system = [
       'You rewrite my notes for a doctor visit. Return compact JSON only.',
@@ -98,6 +98,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const payload = groqErrorPayload(error);
-    return NextResponse.json({ ...payload, ...localFallback({ title: fallbackTitle, body: fallbackBody }) }, { status: payload.error === 'Groq request failed' ? 502 : 500 });
+    return NextResponse.json({ ...payload, ...localFallback({ title: fallbackTitle, body: fallbackBody }) }, { status: payload.error === 'AI request failed' ? 502 : 500 });
   }
 }

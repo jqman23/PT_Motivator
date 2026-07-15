@@ -12,10 +12,24 @@ test('builds safe navigation plans for explicit destinations', () => {
 
 test('builds widget and app-title setting plans without depending on model JSON', () => {
   const widget = buildDeterministicAgentFallback({ question: 'Hide the daily summary widget', today: '2026-07-15' });
+  const timer = buildDeterministicAgentFallback({
+    question: 'Customize my app by [hiding the timer]. Exact change: hide timer',
+    today: '2026-07-15',
+  });
+  const calendar = buildDeterministicAgentFallback({ question: 'Turn off calendar', today: '2026-07-15' });
   const title = buildDeterministicAgentFallback({ question: 'Change the app title to Recovery Board', today: '2026-07-15' });
   assert.equal(widget?.actions[0]?.type, 'widget_set');
   assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].key : '', 'dailySummary');
   assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].enabled : true, false);
+  assert.deepEqual(timer?.actions[0], {
+    id: 'widget-1',
+    type: 'widget_set',
+    key: 'timer',
+    enabled: false,
+    reason: 'You asked to hide Timer.',
+  });
+  assert.equal(calendar?.actions[0]?.type === 'widget_set' ? calendar.actions[0].key : '', 'calendar');
+  assert.equal(calendar?.actions[0]?.type === 'widget_set' ? calendar.actions[0].enabled : true, false);
   assert.equal(title?.actions[0]?.type === 'app_title_set' ? title.actions[0].title : '', 'Recovery Board');
 });
 
@@ -145,4 +159,28 @@ test('builds doctor questions and exact-note follow-ups', () => {
   assert.equal(question?.actions[0]?.type === 'doctor_note_upsert' ? question.actions[0].mode : '', 'create');
   assert.equal(followUp?.actions[0]?.type === 'doctor_note_upsert' ? followUp.actions[0].noteId : '', 'doc-1');
   assert.equal(followUp?.actions[0]?.type === 'doctor_note_upsert' ? followUp.actions[0].patch.body : '', 'they recommended shorter walks');
+});
+
+test('builds category and photo actions without relying on a model', () => {
+  const rename = buildDeterministicAgentFallback({
+    question: 'Rename the category Lower Body to Ankle and Leg',
+    today: '2026-07-15',
+    categories: [{ id: 'lower', name: 'Lower Body' }],
+  });
+  const exercisePhoto = buildDeterministicAgentFallback({
+    question: 'Attach a photo to Standing Calf Stretch today',
+    today: '2026-07-15',
+    exercises: [{ id: 'calf', name: 'Standing Calf Stretch' }],
+  });
+  const doctorPhoto = buildDeterministicAgentFallback({
+    question: 'Add a photo to PT Questions',
+    today: '2026-07-15',
+    doctorNotes: [{ id: 'pt-questions', title: 'PT Questions' }],
+  });
+
+  assert.deepEqual(rename?.actions[0], {
+    id: 'category-rename-1', type: 'category_upsert', categoryId: 'lower', name: 'Ankle and Leg', color: undefined, reason: 'You asked to rename Lower Body.',
+  });
+  assert.equal(exercisePhoto?.actions[0]?.type === 'photo_attach' ? exercisePhoto.actions[0].exerciseId : '', 'calf');
+  assert.equal(doctorPhoto?.actions[0]?.type === 'photo_attach' ? doctorPhoto.actions[0].noteId : '', 'pt-questions');
 });

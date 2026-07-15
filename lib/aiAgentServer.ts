@@ -283,7 +283,9 @@ export function applyAgentConfigActions(config: AppAgentConfig, actions: AgentAc
       }
       changed.add('layout');
     } else if (action.type === 'category_remove') {
-      layout = layout.filter(category => category.id !== action.categoryId || category.exerciseIds.length > 0);
+      // Match the manual category editor: removing a category removes only that layout group.
+      // Its exercises remain safely in the library and can be organized again later.
+      layout = layout.filter(category => category.id !== action.categoryId);
       changed.add('layout');
     } else if (action.type === 'pt_session_upsert') {
       const index = ptSessions.findIndex(session => session.date === action.date && (session.kind || 'pt') === action.kind);

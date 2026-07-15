@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentNotes } from '@/lib/db';
-import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, hasAiApiKeyForTask } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 type ExerciseBrief = {
@@ -128,10 +128,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const apiKeys = getGroqApiKeys();
-    if (!apiKeys.length) {
+    if (!hasAiApiKeyForTask('log', apiKeys)) {
       return NextResponse.json({
-        error: 'Missing Groq API keys',
-        detail: 'No PT Motivator Groq API key is configured, so AI Add cannot call Groq.',
+        error: 'Missing AI provider keys',
+        detail: 'No PT Motivator AI provider key is configured.',
         model: DEFAULT_MODEL,
       }, { status: 500 });
     }
@@ -215,9 +215,9 @@ export async function POST(req: NextRequest) {
     attemptedModels = triedModels;
 
     const content = data?.choices?.[0]?.message?.content ?? '{}';
-    let parsed: any;
+    let parsed: Record<string, unknown>;
     try {
-      parsed = jsonFromText(content);
+      parsed = jsonFromText(content) as Record<string, unknown>;
     } catch (parseErr) {
       return NextResponse.json({
         error: 'AI returned invalid JSON',
@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error(err);
     const payload = groqErrorPayload(err);
-    if (payload.error === 'Groq request failed') {
+    if (payload.error === 'AI request failed') {
       return NextResponse.json({ ...payload, model: payload.model ?? activeModel }, { status: 502 });
     }
     return NextResponse.json({

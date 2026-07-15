@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getLogForRange, getNotesForDate, getHealthForDate, getConfigs, setConfigs } from '@/lib/db';
-import { callGroqChat, getGroqApiKeys, getGroqModelChain } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, hasAiApiKeyForTask } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
@@ -56,7 +56,7 @@ export async function POST() {
 
     // Do not cache configuration failures as a completed daily summary. That allows the next
     // tap to retry immediately after the environment is corrected.
-    if (!apiKeys.length) {
+    if (!hasAiApiKeyForTask('summary', apiKeys)) {
       return NextResponse.json({
         summary: UNAVAILABLE_SUMMARY,
         date: yesterday,

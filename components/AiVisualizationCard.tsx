@@ -1,11 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import type { AiChartVisualization, AiVisualization } from '@/lib/aiVisualizations';
 
 const SERIES_COLORS = ['#52705C', '#C17B4F', '#5B7F9B', '#8B668E'];
 const CHART_WIDTH = 440;
 const CHART_HEIGHT = 245;
 const PLOT = { left: 42, right: 14, top: 18, bottom: 44 };
+
+type VisualSelection =
+  | { kind: 'point'; label: string; series: string; value: number; unit?: string }
+  | { kind: 'cell'; label: string; column: string; value: string }
+  | { kind: 'column'; column: string; values: Array<{ label: string; value: string }> };
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
@@ -243,7 +249,7 @@ function downloadPng(visual: AiVisualization) {
   }, 'image/png');
 }
 
-function LineChart({ visual }: { visual: AiChartVisualization }) {
+function LineChart({ visual, selected, onSelect }: { visual: AiChartVisualization; selected: VisualSelection | null; onSelect: (selection: VisualSelection) => void }) {
   const scale = chartScale(visual);
   const indexes = labelIndexes(visual.labels.length);
   return (
@@ -259,14 +265,20 @@ function LineChart({ visual }: { visual: AiChartVisualization }) {
       {visual.series.map((series, seriesIndex) => (
         <g key={series.name}>
           {lineSegments(series.values).map((segment, segmentIndex) => <polyline key={segmentIndex} points={segment.map(point => `${xPosition(point.index, visual.labels.length)},${yPosition(point.value, scale)}`).join(' ')} fill="none" stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
-          {series.values.map((value, index) => value === null ? null : <g key={index}><circle cx={xPosition(index, visual.labels.length)} cy={yPosition(value, scale)} r="4.2" fill="white" stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.4" /><title>{`${visual.labels[index]} · ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`}</title></g>)}
+          {series.values.map((value, index) => {
+            if (value === null) return null;
+            const isSelected = selected?.kind === 'point' && selected.label === visual.labels[index] && selected.series === series.name;
+            const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit };
+            const ariaLabel = `${visual.labels[index]}, ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`;
+            return <g key={index} role="button" tabIndex={0} aria-label={ariaLabel} className="cursor-pointer outline-none" onClick={() => onSelect(selection)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selection); } }}><circle cx={xPosition(index, visual.labels.length)} cy={yPosition(value, scale)} r={isSelected ? 6.2 : 4.2} fill={isSelected ? SERIES_COLORS[seriesIndex] : 'white'} stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.4" /><title>{ariaLabel}</title></g>;
+          })}
         </g>
       ))}
     </svg>
   );
 }
 
-function BarChart({ visual }: { visual: AiChartVisualization }) {
+function BarChart({ visual, selected, onSelect }: { visual: AiChartVisualization; selected: VisualSelection | null; onSelect: (selection: VisualSelection) => void }) {
   const scale = chartScale(visual);
   const plotWidth = CHART_WIDTH - PLOT.left - PLOT.right;
   const groupWidth = plotWidth / visual.labels.length;
@@ -286,13 +298,26 @@ function BarChart({ visual }: { visual: AiChartVisualization }) {
         if (value === null) return null;
         const height = ((value - scale.min) / scale.span) * (CHART_HEIGHT - PLOT.top - PLOT.bottom);
         const x = PLOT.left + index * groupWidth + (groupWidth - barWidth * visual.series.length) / 2 + seriesIndex * barWidth;
-        return <rect key={`${series.name}-${index}`} x={x} y={CHART_HEIGHT - PLOT.bottom - height} width={Math.max(3, barWidth - 2)} height={height} rx="3" fill={SERIES_COLORS[seriesIndex]}><title>{`${visual.labels[index]} · ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`}</title></rect>;
+        const isSelected = selected?.kind === 'point' && selected.label === visual.labels[index] && selected.series === series.name;
+        const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit };
+        const ariaLabel = `${visual.labels[index]}, ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`;
+        return <rect key={`${series.name}-${index}`} role="button" tabIndex={0} aria-label={ariaLabel} className="cursor-pointer outline-none" onClick={() => onSelect(selection)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selection); } }} x={x} y={CHART_HEIGHT - PLOT.bottom - height} width={Math.max(3, barWidth - 2)} height={height} rx="3" fill={SERIES_COLORS[seriesIndex]} stroke={isSelected ? '#1F2F46' : 'none'} strokeWidth={isSelected ? 2 : 0}><title>{ariaLabel}</title></rect>;
       }))}
     </svg>
   );
 }
 
 export default function AiVisualizationCard({ visual }: { visual: AiVisualization }) {
+  const [selected, setSelected] = useState<VisualSelection | null>(null);
+  const selectColumn = (columnIndex: number) => {
+    if (visual.type !== 'table') return;
+    setSelected({
+      kind: 'column',
+      column: visual.columns[columnIndex],
+      values: visual.rows.map(row => ({ label: row[0] || 'Row', value: row[columnIndex] || '—' })),
+    });
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-[#D7DDD7] bg-white shadow-[0_10px_28px_rgba(71,59,43,0.08)]" aria-label={visual.title}>
       <div className="flex items-start justify-between gap-3 border-b border-stone-100 bg-gradient-to-br from-white to-[#F3F6F3] px-4 py-3.5">
@@ -309,16 +334,23 @@ export default function AiVisualizationCard({ visual }: { visual: AiVisualizatio
       {visual.type === 'table' ? (
         <div className="max-w-full overflow-x-auto">
           <table className="w-full min-w-[430px] border-collapse text-left">
-            <thead><tr className="bg-[#1F2F46] text-white">{visual.columns.map(column => <th key={column} scope="col" className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide">{column}</th>)}</tr></thead>
-            <tbody>{visual.rows.map((row, rowIndex) => <tr key={rowIndex} className={rowIndex % 2 ? 'bg-[#FAF8F3]' : 'bg-white'}>{row.map((cell, columnIndex) => <td key={columnIndex} className={`border-b border-stone-100 px-3 py-2.5 align-top text-[11px] leading-snug ${columnIndex === 0 ? 'font-bold text-stone-800' : 'text-stone-600'}`}>{cell || '—'}</td>)}</tr>)}</tbody>
+            <thead><tr className="bg-[#1F2F46] text-white">{visual.columns.map((column, columnIndex) => <th key={column} scope="col" className="px-2 py-1.5 text-left"><button type="button" onClick={() => selectColumn(columnIndex)} className="w-full rounded px-1 py-1 text-left text-[10px] font-bold uppercase tracking-wide hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" aria-label={`Inspect ${column} column`}>{column}</button></th>)}</tr></thead>
+            <tbody>{visual.rows.map((row, rowIndex) => <tr key={rowIndex} className={rowIndex % 2 ? 'bg-[#FAF8F3]' : 'bg-white'}>{row.map((cell, columnIndex) => <td key={columnIndex} className={`border-b border-stone-100 p-1.5 align-top text-[11px] leading-snug ${columnIndex === 0 ? 'font-bold text-stone-800' : 'text-stone-600'}`}><button type="button" onClick={() => setSelected({ kind: 'cell', label: row[0] || `Row ${rowIndex + 1}`, column: visual.columns[columnIndex], value: cell || '—' })} className="w-full rounded px-1.5 py-1 text-left hover:bg-[#EAF1EC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50">{cell || '—'}</button></td>)}</tr>)}</tbody>
           </table>
         </div>
       ) : (
         <div className="px-3 pb-2 pt-3">
-          {visual.type === 'line' ? <LineChart visual={visual} /> : <BarChart visual={visual} />}
+          {visual.type === 'line' ? <LineChart visual={visual} selected={selected} onSelect={setSelected} /> : <BarChart visual={visual} selected={selected} onSelect={setSelected} />}
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-2">
             {visual.series.map((series, index) => <span key={series.name} className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600"><span className="h-2 w-2 rounded-full" style={{ background: SERIES_COLORS[index] }} aria-hidden="true" />{series.name}{series.unit ? ` (${series.unit})` : ''}</span>)}
           </div>
+        </div>
+      )}
+      {selected && (
+        <div className="border-t border-[#DDE5DF] bg-[#F0F5F1] px-4 py-2.5" aria-live="polite">
+          {selected.kind === 'point' && <p className="text-xs font-bold text-stone-800"><span className="text-[#52705C]">{selected.label}</span> · {selected.series}: {formatNumber(selected.value)}{selected.unit ? ` ${selected.unit}` : ''}</p>}
+          {selected.kind === 'cell' && <p className="text-xs font-bold text-stone-800"><span className="text-[#52705C]">{selected.label}</span> · {selected.column}: {selected.value}</p>}
+          {selected.kind === 'column' && <div><p className="text-[10px] font-extrabold uppercase tracking-wide text-[#52705C]">{selected.column}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{selected.values.map((item, index) => <span key={`${item.label}-${index}`} className="rounded-full border border-[#CDD9D0] bg-white px-2 py-1 text-[10px] font-semibold text-stone-600">{item.label}: <span className="text-stone-800">{item.value}</span></span>)}</div></div>}
         </div>
       )}
       {visual.footnote && <p className="border-t border-stone-100 bg-[#FAF8F3] px-4 py-2.5 text-[10px] leading-snug text-stone-500">{visual.footnote}</p>}

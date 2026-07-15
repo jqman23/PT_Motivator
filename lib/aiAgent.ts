@@ -747,10 +747,11 @@ export function buildDeterministicAgentFallback(context: {
   selectedDate?: string | null;
   explicitDates?: string[];
   exercises?: Array<{ id: string; name: string }>;
+  categories?: Array<{ id: string; name: string }>;
   doctorNotes?: Array<{ id: string; title?: string }>;
   priorUserMessages?: string[];
 }): AgentPlan | undefined {
-  const { question, today, selectedDate, explicitDates = [], exercises = [], doctorNotes = [], priorUserMessages = [] } = context;
+  const { question, today, selectedDate, explicitDates = [], exercises = [], categories = [], doctorNotes = [], priorUserMessages = [] } = context;
   const shortApproval = /^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/i.test(question.trim());
   const instructionQuestion = shortApproval && priorUserMessages.length ? priorUserMessages.at(-1)! : question;
   if (/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(instructionQuestion)) {
@@ -765,7 +766,7 @@ export function buildDeterministicAgentFallback(context: {
   }
 
   const widgetVerb = instructionQuestion.match(/\b(show|hide|enable|disable|turn on|turn off)\b/i)?.[1]?.toLowerCase();
-  if (widgetVerb && /\b(?:widget|button|control|icon)\b/i.test(instructionQuestion)) {
+  if (widgetVerb) {
     const target = FALLBACK_WIDGET_TARGETS.find(item => item.pattern.test(instructionQuestion));
     if (target) {
       const enabled = widgetVerb === 'show' || widgetVerb === 'enable' || widgetVerb === 'turn on';
@@ -784,11 +785,41 @@ export function buildDeterministicAgentFallback(context: {
     actions: [{ id: 'app-title-1', type: 'app_title_set', title: titleMatch[1].trim(), reason: 'You asked to change the app title.' }],
   });
 
-  const normalizedQuestion = instructionQuestion.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const normalizedInstruction = instructionQuestion.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const category = [...categories]
+    .filter(item => item.id && item.name && normalizedInstruction.includes(item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (category && /\b(?:remove|delete)\b.{0,30}\bcategor(?:y|ies)\b|\bcategor(?:y|ies)\b.{0,30}\b(?:remove|delete)\b/i.test(instructionQuestion)) return normalizeAgentPlan({
+    version: 1,
+    summary: `Remove ${category.name} category`,
+    actions: [{ id: 'category-remove-1', type: 'category_remove', categoryId: category.id, reason: `You explicitly asked to remove ${category.name}.` }],
+  });
+  const categoryRename = instructionQuestion.match(/\brename\s+(?:the\s+)?categor(?:y|ies)\s+.+?\s+to\s+["“]?(.+?)["”]?[.!?]*$/i);
+  if (category && categoryRename?.[1]?.trim()) return normalizeAgentPlan({
+    version: 1,
+    summary: `Rename ${category.name} to ${categoryRename[1].trim()}`,
+    actions: [{ id: 'category-rename-1', type: 'category_upsert', categoryId: category.id, name: categoryRename[1].trim(), reason: `You asked to rename ${category.name}.` }],
+  });
+  const categoryAdd = instructionQuestion.match(/\b(?:add|create|make)\s+(?:a\s+)?(?:new\s+)?categor(?:y|ies)(?:\s+(?:called|named))?\s+["“]?(.+?)["”]?[.!?]*$/i);
+  if (!category && categoryAdd?.[1]?.trim() && !/[\[\]/]/.test(categoryAdd[1])) return normalizeAgentPlan({
+    version: 1,
+    summary: `Add ${categoryAdd[1].trim()} category`,
+    actions: [{ id: 'category-add-1', type: 'category_upsert', name: categoryAdd[1].trim(), reason: `You asked to add a category named ${categoryAdd[1].trim()}.` }],
+  });
+
+  const normalizedQuestion = normalizedInstruction;
   const exercise = [...exercises]
     .filter(item => item.id && item.name && normalizedQuestion.includes(item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
     .sort((a, b) => b.name.length - a.name.length)[0];
   if (exercise) {
+    if (/\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) {
+      const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+      return normalizeAgentPlan({
+        version: 1,
+        summary: `Choose a photo for ${exercise.name} on ${actionDate}`,
+        actions: [{ id: 'photo-exercise-1', type: 'photo_attach', target: 'exercise_note', date: actionDate, exerciseId: exercise.id, reason: `You asked to attach a photo to ${exercise.name}.` }],
+      });
+    }
     const notePattern = /\b(?:add|append|save|record|write|make)\s+(?:a\s+)?note(?:\s+(?:to|for)\s+.{1,180}?)?\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i;
     const noteMatch = instructionQuestion.match(notePattern);
     const beforeNote = noteMatch?.index === undefined ? instructionQuestion : instructionQuestion.slice(0, noteMatch.index);
@@ -870,10 +901,14 @@ export function buildDeterministicAgentFallback(context: {
     });
   }
 
-  const normalizedInstruction = instructionQuestion.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const doctorNote = [...doctorNotes]
     .filter(item => item.id && item.title && normalizedInstruction.includes(item.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
     .sort((a, b) => (b.title?.length ?? 0) - (a.title?.length ?? 0))[0];
+  if (doctorNote && /\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) return normalizeAgentPlan({
+    version: 1,
+    summary: `Choose a photo for ${doctorNote.title || 'doctor note'}`,
+    actions: [{ id: 'photo-doctor-1', type: 'photo_attach', target: 'doctor_note', noteId: doctorNote.id, reason: `You asked to attach a photo to ${doctorNote.title || 'this doctor note'}.` }],
+  });
   if (doctorNote && /\b(?:add|append|record|save|write|update)\b.{0,24}\b(?:follow[- ]?up|response|next steps?|note)\b/i.test(instructionQuestion)) {
     const followUpText = instructionQuestion.match(/\b(?:follow[- ]?up|response|next steps?|note)\b[\s\S]*?\b(?:that|saying|reading|as)\b\s*["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim()
       ?? instructionQuestion.match(/:\s*["“]?(.+?)["”]?[.!?]*$/)?.[1]?.trim()
@@ -927,6 +962,14 @@ export function buildDeterministicAgentFallback(context: {
   }
 
   const healthNoteMatch = instructionQuestion.match(/\b(pain|general|health|treatment|sleep quality|sleep|energy|mood)\s+notes?\b/i);
+  if (healthNoteMatch && /\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) {
+    const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+    return normalizeAgentPlan({
+      version: 1,
+      summary: `Choose a photo for the health note on ${actionDate}`,
+      actions: [{ id: 'photo-health-1', type: 'photo_attach', target: 'health_general', date: actionDate, reason: 'You asked to attach a photo to the health note.' }],
+    });
+  }
   if (healthNoteMatch && /\b(?:add|append|record|write|save|update|change|replace|rewrite|clear|overwrite)\b/i.test(instructionQuestion)) {
     const key = healthNoteMatch[1].toLowerCase();
     const field = key === 'pain' ? 'pain_notes'

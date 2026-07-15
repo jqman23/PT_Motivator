@@ -1033,7 +1033,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               <button type="button" onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
             </div>
           </div>
-          <p className="mt-2 w-full text-xs leading-snug text-stone-500">
+          <p className={`${actionsOpen ? 'mt-1' : 'mt-2'} w-full text-xs leading-snug text-stone-500`}>
             {actionsOpen
               ? 'Choose a starting point below. I’ll place an editable request in chat for you.'
               : historyOpen
@@ -1044,40 +1044,39 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
         {actionsOpen ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(36rem, calc(94dvh - 9rem))' }}>
-            <div className="relative overflow-hidden border-b border-[#D4DDD6] bg-gradient-to-br from-[#F8FBF8] via-[#EEF4EF] to-[#E8EFF2] px-5 py-4">
+            <div className="relative overflow-hidden border-b border-[#D4DDD6] bg-gradient-to-br from-[#F8FBF8] via-[#EEF4EF] to-[#E8EFF2] px-4 py-2.5">
               <div className="absolute -right-7 -top-8 h-24 w-24 rounded-full bg-white/60 blur-sm" aria-hidden="true" />
-              <div className="relative flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/80 bg-white/75 text-[#476653] shadow-[0_8px_24px_rgba(71,102,83,0.12)]" aria-hidden="true">
-                  <span className="text-xl leading-none">✦</span>
+              <div className="relative flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/80 bg-white/75 text-[#476653] shadow-[0_6px_18px_rgba(71,102,83,0.1)]" aria-hidden="true">
+                  <span className="text-base leading-none">✦</span>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-stone-800">Pick an action. Make it yours.</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-stone-500">Tap any card, replace the words in [brackets], then send when you’re ready.</p>
+                  <p className="text-xs font-extrabold text-stone-800">Pick, personalize, send.</p>
+                  <p className="text-[10px] leading-snug text-stone-500">Tap a card and replace its [brackets].</p>
                 </div>
-              </div>
-              <div className="relative mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#C8D8CC] bg-white/70 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-[#52705C]">
-                <span className="text-xs" aria-hidden="true">✓</span>
-                App changes always wait for your review
+                <div className="ml-auto hidden shrink-0 items-center gap-1 rounded-full border border-[#C8D8CC] bg-white/70 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-[#52705C] min-[390px]:flex">
+                  <span aria-hidden="true">✓</span> Review first
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5 p-3 sm:p-4">
+            <div className="grid grid-cols-2 gap-2 p-2.5 sm:p-3">
               {AI_ACTION_STARTERS.map(action => (
                 <button
                   key={action.id}
                   type="button"
                   onClick={() => handleActionStarter(action.prompt)}
-                  className="group min-h-[9.4rem] rounded-2xl border border-stone-200/80 bg-white/85 p-3 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_10px_24px_rgba(71,59,43,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
+                  className="group min-h-[7.15rem] rounded-xl border border-stone-200/80 bg-white/85 p-2.5 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_8px_20px_rgba(71,59,43,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
                   style={{ touchAction: 'manipulation' }}
                   aria-label={`${action.title}. ${action.description}`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-xl text-base font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
-                    <span className="pt-1 text-sm text-stone-300 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-500" aria-hidden="true">›</span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
+                    <span className="text-sm text-stone-300 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-500" aria-hidden="true">›</span>
                   </div>
-                  <p className="mt-2.5 text-[8px] font-extrabold uppercase tracking-[0.14em]" style={{ color: action.accent }}>{action.label}</p>
-                  <h3 className="mt-0.5 text-[13px] font-bold leading-tight text-stone-800">{action.title}</h3>
-                  <p className="mt-1 text-[10px] leading-snug text-stone-500">{action.description}</p>
+                  <p className="mt-1.5 text-[7px] font-extrabold uppercase tracking-[0.13em]" style={{ color: action.accent }}>{action.label}</p>
+                  <h3 className="text-[12px] font-bold leading-tight text-stone-800">{action.title}</h3>
+                  <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-stone-500">{action.description}</p>
                 </button>
               ))}
             </div>
