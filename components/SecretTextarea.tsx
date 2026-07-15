@@ -17,7 +17,7 @@ type Props = {
 
 function LockIcon({ locked }: { locked: boolean }) {
   return (
-    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-2 w-2" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="4.5" y="8.5" width="11" height="8" rx="2" />
       {locked ? <path d="M7 8.5V6.7a3 3 0 0 1 6 0v1.8" /> : <path d="M7 8.5V6.7a3 3 0 0 1 5.3-1.9" />}
     </svg>
@@ -91,7 +91,6 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [unlockCode, setUnlockCode] = useState('');
   const [expanded, setExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const textRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
   const secretRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const pillRefs = useRef<Record<number, HTMLButtonElement | null>>({});
   const focusedRef = useRef(false);
@@ -105,8 +104,9 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const expandedHeight = rows >= 3 ? 240 : 200;
   const textareaHeight = canResize && expanded ? expandedHeight : style?.height;
   const secretClassName = className
-    .replace(/\bpy-2\.5\b/g, 'py-1.5')
-    .replace(/\bpy-2\b/g, 'py-1.5');
+    .replace(/\bpy-2\.5\b/g, 'py-1')
+    .replace(/\bpy-2\b/g, 'py-1')
+    .replace(/\brounded-xl\b/g, 'rounded-lg');
 
   useEffect(() => {
     if (focusedRef.current || value === serialized) return;
@@ -137,11 +137,11 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     const pending = pendingTextFocus.current;
     if (!pending) return;
     pendingTextFocus.current = null;
-    const textarea = textRefs.current[pending.index];
-    if (!textarea) return;
-    const position = pending.position === 'start' ? 0 : textarea.value.length;
-    textarea.focus();
-    textarea.setSelectionRange(position, position);
+    const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-secret-inline-text="${pending.index}"]`);
+    if (!input) return;
+    const position = pending.position === 'start' ? 0 : input.value.length;
+    input.focus();
+    input.setSelectionRange(position, position);
   }, [blocks]);
 
   const commit = (next: SecretNoteBlock[]) => {
@@ -226,11 +226,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       key={`${index}-${side}`}
       value=""
       onChange={event => insertTextNearSecret(index, side, event.target.value)}
-      onFocus={() => {
-        focusedRef.current = true;
-      }}
       aria-label={side === 'before' ? 'Type before secret' : 'Type after secret'}
-      className="w-3 shrink-0 border-0 bg-transparent p-0 text-inherit outline-none"
+      className="h-5 w-[1.35rem] shrink-0 rounded border-0 bg-transparent p-0 text-center text-inherit outline-none focus:bg-white/60"
       style={{ fontSize: 16, colorScheme: 'light' }}
     />
   );
@@ -273,7 +270,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         role="textbox"
         aria-multiline="true"
         className={`${secretClassName} secret-note-editor overflow-auto resize-none ${canResize ? 'pr-7 sm:resize-y sm:pr-3' : ''}`}
-        style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.4 + 1}rem`, height: textareaHeight, whiteSpace: 'pre-wrap' }}
+        style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.25 + 0.9}rem`, height: textareaHeight, whiteSpace: 'pre-wrap' }}
         onFocus={event => {
           focusedRef.current = true;
           onFocus?.(event as unknown as React.FocusEvent<HTMLTextAreaElement>);
@@ -284,7 +281,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         }}
       >
         {blocks.map((block, index) => block.type === 'secret' ? (
-          <div key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="my-0.5 flex min-h-[1.3rem] w-full max-w-full flex-wrap items-center gap-1">
+          <span key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="inline-flex max-w-full items-center gap-0.5 align-baseline">
             {blocks[index - 1]?.type !== 'text' && edgeInput(index, 'before')}
             <button
               ref={node => {
@@ -298,7 +295,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                   removeBlock(index);
                 }
               }}
-              className="inline-flex h-4 shrink-0 items-center gap-0.5 rounded-full border px-1.5 text-[8px] font-bold uppercase tracking-wide"
+              className="inline-flex h-3.5 shrink-0 items-center gap-0.5 rounded-full border px-1 text-[7px] font-bold uppercase tracking-wide align-baseline"
               style={{
                 background: block.locked ? '#1F2F46' : '#E4ECE6',
                 borderColor: block.locked ? '#162233' : '#cfded3',
@@ -317,7 +314,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 inputMode="numeric"
                 autoFocus
                 placeholder=""
-                className="h-5 w-14 rounded-full border border-stone-200 bg-white px-2 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
+                className="h-5 w-12 rounded-full border border-stone-200 bg-white px-1.5 text-xs font-semibold tracking-widest text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#7E9B86]/30"
                 style={{ fontSize: 16, colorScheme: 'light' }}
                 aria-label="Secret unlock code"
               />
@@ -342,26 +339,42 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                   }
                 }}
                 placeholder=""
-                className="min-w-[8ch] flex-1 border-0 bg-transparent p-0 text-inherit outline-none"
-                style={{ fontSize: 16, colorScheme: 'light' }}
+                className="min-w-[3ch] max-w-full border-0 bg-transparent p-0 text-inherit outline-none"
+                style={{
+                  width: `${Math.max(3, Math.min(18, block.text.length || 8))}ch`,
+                  fontSize: 16,
+                  colorScheme: 'light',
+                }}
                 aria-label="Secret note text"
               />
             )}
             {blocks[index + 1]?.type !== 'text' && edgeInput(index, 'after')}
-          </div>
+          </span>
         ) : isNewlineSpacer(block.text) ? (
           <div
             key={index}
             aria-hidden="true"
             className="block w-full border-0 bg-transparent p-0"
-            style={{ minHeight: `${textRows(block.text) * 1.35}rem` }}
+            style={{ minHeight: `${textRows(block.text) * 1.2}rem` }}
+          />
+        ) : (blocks[index - 1]?.type === 'secret' || blocks[index + 1]?.type === 'secret') && !block.text.includes('\n') ? (
+          <input
+            key={index}
+            data-secret-inline-text={index}
+            value={block.text}
+            onChange={event => patchBlock(index, { type: 'text', text: event.target.value })}
+            className="inline-block min-w-[1.35rem] max-w-full border-0 bg-transparent p-0 text-inherit outline-none"
+            style={{
+              width: `${Math.max(1.35, Math.min(22, block.text.length || 1.35))}ch`,
+              fontSize: 16,
+              colorScheme: 'light',
+            }}
+            aria-label="Note text"
           />
         ) : (
           <textarea
             key={index}
-            ref={node => {
-              textRefs.current[index] = node;
-            }}
+            data-secret-inline-text={index}
             value={block.text}
             onChange={event => patchBlock(index, { type: 'text', text: event.target.value })}
             rows={textRows(block.text)}
