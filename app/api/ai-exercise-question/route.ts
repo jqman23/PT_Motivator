@@ -82,11 +82,51 @@ function actionFamilyWasRequested(action: AgentAction, question: string) {
     case 'doctor_note_remove': return /\b(?:doctor|provider|medical note|question|follow[- ]?up|next steps?|response)\b/i.test(question);
     case 'pt_session_upsert':
     case 'pt_session_remove': return /\b(?:session|appointment)\b/i.test(question) && /\b(?:pt|physical therapy|training)\b/i.test(question);
-    case 'widget_set': return /\b(?:widget|button|control|icon)\b/i.test(question);
+    case 'widget_set': {
+      const widgetPatterns: Partial<Record<Extract<AgentAction, { type: 'widget_set' }>['key'], RegExp>> = {
+        timer: /\btimer\b/i,
+        library: /\b(?:exercise )?library\b/i,
+        aiCoach: /\b(?:ask ai|ai coach|ai assistant)\b/i,
+        info: /\b(?:exercise guide|info)\b/i,
+        manage: /\bmanage exercises?\b/i,
+        calendar: /\bcalendar\b/i,
+        doctorNotes: /\bdoctor(?:'s)? notes?\b/i,
+        treatments: /\b(?:treatments?|medications?|meds)\b/i,
+        ptSessions: /\b(?:pt|physical therapy) sessions?\b/i,
+        reporting: /\b(?:progress report|reporting)\b/i,
+        ptReport: /\b(?:pt report|data export)\b/i,
+        dailySummary: /\bdaily summary\b/i,
+        masterDatabase: /\bmaster database\b/i,
+      };
+      return Boolean(widgetPatterns[action.key]?.test(question));
+    }
     case 'app_title_set': return /\b(?:app|application)\s+title\b/i.test(question);
     case 'photo_attach': return /\b(?:photo|picture|image)\b/i.test(question);
     case 'bulk_completion_from_note': return /\b(?:anytime|every time|whenever|all days|across)\b/i.test(question);
-    case 'navigate': return /\b(?:open|go to|take me to|bring me to|show me)\b/i.test(question);
+    case 'navigate': {
+      if (!/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(question)) return false;
+      const destinationPatterns: Partial<Record<Extract<AgentAction, { type: 'navigate' }>['destination'], RegExp>> = {
+        settings: /\bsettings?\b/i,
+        doctorNotes: /\bdoctor(?:'s)? notes?\b/i,
+        exerciseTypes: /\bexercise types?\b/i,
+        library: /\b(?:exercise )?library\b/i,
+        calendar: /\bcalendar\b/i,
+        ptSessions: /\b(?:pt|physical therapy) sessions?\b/i,
+        treatments: /\btreatments?\b/i,
+        progressReport: /\b(?:progress|pt) reports?\b/i,
+        dataExport: /\b(?:data export|export (?:my )?data|pt report)\b/i,
+        exerciseGuide: /\bexercise guides?\b/i,
+        manageExercises: /\bmanage exercises?\b/i,
+        masterDatabase: /\bmaster database\b/i,
+        timer: /\btimer\b/i,
+        health: /\bhealth(?: tracker)?\b/i,
+        date: /\b(?:day|date|today|yesterday|tomorrow)\b|\d{1,4}[/-]\d{1,2}/i,
+        exercise: /\b(?:exercise|stretch|movement|drill)\b/i,
+        doctorNote: /\bdoctor(?:'s)? note\b/i,
+        top: /\b(?:top|home)\b/i,
+      };
+      return Boolean(destinationPatterns[action.destination]?.test(question));
+    }
   }
 }
 
@@ -860,8 +900,10 @@ export async function POST(req: NextRequest) {
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
     };
     const modelAgentPlan = agentIntent ? normalizeModelAgentPlan(raw, modelPlanContext) : undefined;
+    const deterministicDoctorCreate = deterministicAgentPlan?.actions.some(action => action.type === 'doctor_note_upsert' && action.mode === 'create');
     const relevantModelActions = deterministicAgentPlan && modelAgentPlan
-      ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, cleanQuestion))
+      ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, cleanQuestion)
+        && !(deterministicDoctorCreate && action.type === 'doctor_note_upsert' && action.mode === 'create'))
       : modelAgentPlan?.actions ?? [];
     const deterministicTargets = new Set(deterministicAgentPlan?.actions.map(agentActionTarget) ?? []);
     const combinedActions = deterministicAgentPlan && modelAgentPlan
