@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { applyNoteSlashCommand } from '@/lib/noteCommands';
 import { SECRET_UNLOCK_CODE, SecretNoteBlock, parseSecretNote, serializeSecretNote } from '@/lib/secretNotes';
 
@@ -390,12 +391,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     onChange(serialized);
   };
 
-  const replaceEditor = (blocks: EditorBlock[], caret?: PendingCaret, notify = true) => {
+  const replaceEditor = (blocks: EditorBlock[], caret?: PendingCaret, notify = true, immediate = false) => {
     const clean = mergeEditorText(blocks);
     modelRef.current = clean;
     currentValueRef.current = serializeEditorBlocks(clean);
     pendingCaretRef.current = caret ?? null;
-    setRenderState(previous => ({ blocks: clean, revision: previous.revision + 1 }));
+    const updateRender = () => setRenderState(previous => ({ blocks: clean, revision: previous.revision + 1 }));
+    if (immediate) flushSync(updateRender);
+    else updateRender();
     if (notify) onChange(currentValueRef.current);
   };
 
@@ -469,14 +472,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         && !previousById.get(block.id)?.text);
       if (separated && separated.type !== 'text') {
         const next = current.map(block => block === separated ? { ...block, text: block.text.slice(1) } : block);
-        replaceEditor(next, { blockId: separated.id, position: 'inside-end' });
+        replaceEditor(next, { blockId: separated.id, position: 'inside-end' }, true, true);
         return;
       }
       const command = applyNoteSlashCommand(current);
       if (command.changed) {
         const next = ensureCommandIds(command.blocks, `${editorId}-${renderState.revision + 1}`);
         const target = command.insertedBlockIndex === undefined ? undefined : next[command.insertedBlockIndex];
-        replaceEditor(next, target && target.type !== 'text' ? { blockId: target.id, position: 'inside-end' } : undefined);
+        replaceEditor(next, target && target.type !== 'text' ? { blockId: target.id, position: 'inside-end' } : undefined, true, true);
         return;
       }
     }
@@ -655,11 +658,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   };
 
   const handleEnter = () => {
-    if (lockOpenSecretAtCaret()) return;
-    if (exitAiAtCaret()) {
-      handlePlainTextInsertion('\n');
-      return;
-    }
+    if (lockOpenSecretAtCaret() || exitAiAtCaret()) return;
     handlePlainTextInsertion('\n');
   };
 

@@ -291,7 +291,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col" style={{ maxHeight: '94dvh' }} onClick={event => event.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-stone-200 flex items-start justify-between gap-3">
+        <div className="px-5 py-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PT Motivator assistant</p>
             <h2 className="font-serif text-xl font-semibold text-stone-800">Ask anything about your PT</h2>
@@ -305,7 +305,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           </div>
         </div>
 
-        <div ref={scrollRef} className="overflow-y-auto px-5 py-4 flex-1 space-y-3">
+        <div ref={scrollRef} className={`${messages.length || loading || error ? 'block' : 'hidden'} overflow-y-auto px-5 py-4 flex-1 space-y-3`}>
           {messages.map(message => {
             if (message.role === 'user') {
               return (
@@ -400,13 +400,13 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 whitespace-pre-wrap">{error}</p>}
         </div>
 
-        <div ref={composerRef} className="px-5 py-4 border-t border-stone-200">
+        <div ref={composerRef} className="px-5 pb-4 pt-1">
           <SecretTextarea
             value={input}
             onChange={setInput}
             placeholder="Ask about a past day, a symptom pattern, an exercise, or follow up on the answer…"
             rows={2}
-            className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
+            className="ai-coach-composer-editor w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
             style={{ fontSize: 16, colorScheme: 'light' }}
           />
           <button onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>

@@ -58,3 +58,24 @@ test('turns /ai guidance in the middle of a sentence into an editable instructio
     { type: 'ai', text: 'look at pain and general notes' },
   ]);
 });
+
+test('converts /ai on any line of a longer draft and preserves later lines', () => {
+  const result = applyNoteSlashCommand([{ type: 'text', text: 'A long first line\nPain summary /ai focus on pain notes\nKeep this final line' }]);
+
+  assert.deepEqual(result.blocks, [
+    { type: 'text', text: 'A long first line\nPain summary ' },
+    { type: 'ai', text: 'focus on pain notes' },
+    { type: 'text', text: '\nKeep this final line' },
+  ]);
+});
+
+test('recognizes a command after punctuation but not inside a word', () => {
+  const punctuation = applyNoteSlashCommand([{ type: 'text', text: 'Pain was worse./ai review general notes' }]);
+  const insideWord = [{ type: 'text' as const, text: 'plain/ai text' }];
+
+  assert.deepEqual(punctuation.blocks, [
+    { type: 'text', text: 'Pain was worse.' },
+    { type: 'ai', text: 'review general notes' },
+  ]);
+  assert.deepEqual(applyNoteSlashCommand(insideWord), { blocks: insideWord, changed: false });
+});

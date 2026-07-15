@@ -155,7 +155,7 @@ main > div > div.mb-6 > div.flex.items-center.justify-between:first-child > inpu
   max-width: 320px;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 639px), (pointer: coarse) {
   main {
     padding-top: 3.65rem !important;
     padding-bottom: calc(env(safe-area-inset-bottom) + 5.25rem) !important;
@@ -293,4 +293,10 @@ select {
 button, a[role="button"] {
   touch-action: manipulation;
   min-height: 36px;
+}
+
+@media (max-width: 639px) {
+  .ai-coach-composer-editor {
+    min-height: 6.5rem !important;
+  }
 }

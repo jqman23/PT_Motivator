@@ -25,7 +25,8 @@ export const NOTE_SLASH_COMMANDS: readonly NoteSlashCommand[] = [
 ];
 
 const commandByName = new Map(NOTE_SLASH_COMMANDS.map(command => [command.name, command]));
-const commandPattern = /(^|[\t \n])\/([a-z][a-z0-9-]*)(?:[\t ]+([^\n]*))?$/i;
+const commandNames = NOTE_SLASH_COMMANDS.map(command => command.name).sort((a, b) => b.length - a.length).join('|');
+const commandPattern = new RegExp(`(^|[^a-z0-9_/])\\/(${commandNames})(?=$|[\\t \\n])`, 'i');
 
 export function applyNoteSlashCommand(blocks: readonly SecretNoteBlock[]): NoteSlashCommandResult {
   for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
@@ -36,15 +37,24 @@ export function applyNoteSlashCommand(blocks: readonly SecretNoteBlock[]): NoteS
     if (!match || match.index === undefined) continue;
 
     const commandName = match[2].toLowerCase();
-    const command = commandByName.get(commandName);
-    if (!command) return { blocks: [...blocks], changed: false };
+    const command = commandByName.get(commandName)!;
 
     const commandStart = match.index + match[1].length;
+    const commandEnd = match.index + match[0].length;
     const textBeforeCommand = block.text.slice(0, commandStart);
-    const inserted = command.createBlocks(match[3] ?? '');
+    const suffix = block.text.slice(commandEnd);
+    const separator = suffix.match(/^[\t ]+/)?.[0] ?? '';
+    const argumentAndAfter = suffix.slice(separator.length);
+    const lineEnd = argumentAndAfter.indexOf('\n');
+    const argument = separator ? argumentAndAfter.slice(0, lineEnd < 0 ? undefined : lineEnd) : '';
+    const textAfterCommand = separator
+      ? lineEnd < 0 ? '' : argumentAndAfter.slice(lineEnd)
+      : suffix;
+    const inserted = command.createBlocks(argument);
     const replacement: SecretNoteBlock[] = [
       ...(textBeforeCommand ? [{ type: 'text' as const, text: textBeforeCommand }] : []),
       ...inserted,
+      ...(textAfterCommand ? [{ type: 'text' as const, text: textAfterCommand }] : []),
     ];
     const insertedBlockIndex = blockIndex + (textBeforeCommand ? 1 : 0);
 
