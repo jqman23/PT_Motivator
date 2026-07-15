@@ -32,10 +32,12 @@ export type StoredAiReply = {
   confirmedExercise?: StoredAiExerciseDraft;
   model?: string;
   searchedDays?: number;
+  comparedDays?: number;
   rerankerModel?: string;
   rerankedCandidates?: number;
   degraded?: boolean;
   agentPlan?: PreviewedAgentPlan;
+  agentPlanningStatus?: 'planned' | 'missing' | 'invalid';
 };
 
 export type StoredAiChatMessage = {
@@ -140,10 +142,14 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     confirmedExercise,
     model: cleanText(raw.model, 120) || undefined,
     searchedDays: cleanNumber(raw.searchedDays),
+    comparedDays: cleanNumber(raw.comparedDays),
     rerankerModel: cleanText(raw.rerankerModel, 120) || undefined,
     rerankedCandidates: cleanNumber(raw.rerankedCandidates),
     degraded: raw.degraded === true,
     agentPlan,
+    agentPlanningStatus: raw.agentPlanningStatus === 'planned' || raw.agentPlanningStatus === 'missing' || raw.agentPlanningStatus === 'invalid'
+      ? raw.agentPlanningStatus
+      : undefined,
   };
 }
 

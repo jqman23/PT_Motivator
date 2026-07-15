@@ -6,6 +6,8 @@ import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { normalizeAgentPlan } from '@/lib/aiAgent';
+import { isAgentRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { buildWholeHistoryComparison, strongFallbackDays, supportedDateLinkDates } from '@/lib/aiHistoryScope';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -158,11 +160,6 @@ function isPersonalQuestion(value: string) {
 
 function exerciseQuestion(value: string) {
   return /exercise|movement|stretch|drill|band|raise|curl|squat|lunge|bridge|balance|mobility|strength|reps|sets|form|construct|build|add a|identify/i.test(value);
-}
-
-function isAgentRequest(value: string) {
-  return /\b(add|append|attach|change|check|clear|complete|create|delete|disable|edit|enable|hide|mark|move|open|pin|remove|rename|replace|reorder|set|show|uncheck|update)\b|\b(anytime|every time|whenever)\b/i.test(value)
-    && !/\bhow (?:can|do|would) (?:i|you)\b|\bwhat (?:can|would) you\b|\bcould you explain\b|\bcan you imagine\b/i.test(value);
 }
 
 function normalizeExercises(value: unknown): ExerciseContext[] {
@@ -497,7 +494,7 @@ function buildAnalytics(records: DayRecord[]) {
   };
 }
 
-function cleanDateLinks(raw: unknown, allowedDates: Set<string>, today: string): DateLink[] {
+function cleanDateLinks(raw: unknown, allowedDates: Set<string>, supportedDates: Set<string>, today: string): DateLink[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
   const links: DateLink[] = [];
@@ -505,7 +502,7 @@ function cleanDateLinks(raw: unknown, allowedDates: Set<string>, today: string):
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
     const date = validDate(row.date);
-    if (!date || date > today || !allowedDates.has(date) || seen.has(date)) continue;
+    if (!date || date > today || !allowedDates.has(date) || !supportedDates.has(date) || seen.has(date)) continue;
     seen.add(date);
     links.push({
       date,
@@ -558,10 +555,13 @@ export async function POST(req: NextRequest) {
     const explicitDates = extractDates(conversationText, appToday, selectedDate);
     const agentIntent = isAgentRequest(cleanQuestion)
       || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
+    const priorUserQuestion = history.toReversed().find(message => message.role === 'user')?.content ?? '';
+    const wholeHistoryIntent = isWholeHistoryComparisonRequest(cleanQuestion)
+      || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion));
     const historyIntent = isHistoryQuestion(cleanQuestion) || explicitDates.length > 0;
     const patternIntent = isPatternQuestion(cleanQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
-    const shouldLoadHistory = historyIntent || patternIntent || bulkAgentIntent || questionAiInstructions.length > 0;
+    const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || questionAiInstructions.length > 0;
 
     let dayRecords: DayRecord[] = [];
     let rankedDays: RankedHistoryDay<DayRecord>[] = [];
@@ -587,12 +587,13 @@ export async function POST(req: NextRequest) {
       rankedDays = reranked.days;
       rerankerModel = reranked.model;
       rerankedCandidates = reranked.candidateCount;
-      analytics = patternIntent ? buildAnalytics(dayRecords) : null;
+      analytics = patternIntent || wholeHistoryIntent ? buildAnalytics(dayRecords) : null;
     }
 
     const matchedExerciseContext = rankExercises(cleanQuestion, exercises);
     const allowedDates = new Set([
       ...rankedDays.map(day => day.date),
+      ...(wholeHistoryIntent ? dayRecords.map(day => day.date) : []),
       ...explicitDates,
     ].filter(date => date <= appToday));
 
@@ -628,6 +629,7 @@ export async function POST(req: NextRequest) {
       'You can answer normal follow-up questions, explain or construct exercises, reason over the supplied app history, compare logged patterns, and help the user find a remembered date.',
       'The supplied day records are authoritative. Never invent a completed exercise, symptom, metric, appointment, or date. If the records do not support the memory, say that clearly.',
       'When answering which-day or when questions, cite the best supported date in the answer and include it in dateLinks so the user can tap it.',
+      'Return a dateLink only when that exact date is materially discussed in the answer or explicitly requested by the user. Otherwise return an empty dateLinks array. Never add merely related or nearby days.',
       'Write every specific calendar date in answer as YYYY-MM-DD. The interface will display it in the user-friendly local format.',
       'When several days are plausible, explain the distinction briefly and return up to five dateLinks.',
       'For exercise construction, preserve the user-described setup and motion. Produce confirmedExercise only when enough detail exists; otherwise ask one useful clarifying question.',
@@ -637,6 +639,7 @@ export async function POST(req: NextRequest) {
       'Keep the response conversational and direct. Follow the thread instead of restarting the interview on every turn.',
       'Ask at most one clarifying question at a time, and put that question only in answer.',
       'When and only when the user clearly asks to change the app or open a destination, also return agentPlan. A plan proposes actions for user review; it does not claim they already happened.',
+      'agentPlanningRequested is decided by the server. When it is true, you MUST either return a valid agentPlan with at least one supported action or ask one specific clarification question in answer. Never respond as though an app change happened without a plan.',
       'Do not return agentPlan for hypothetical questions, capability questions, explanations, medical advice, or ambiguous requests. Ask one clarification instead when the target, date, note, or intended value is unclear.',
       'Default note edits to append. Use replace only when the user explicitly says replace, rewrite, clear, or set the whole note. Never infer a health score or completion from ambiguous language.',
       'Use exact exercise IDs from relevantExercisesInApp. Use exact doctor-note IDs from doctorNotes. Use currentlySelectedDate when the user says this day or does not specify a date for a clearly day-specific command.',
@@ -658,6 +661,7 @@ export async function POST(req: NextRequest) {
       today: appToday,
       currentlySelectedDate: selectedDate,
       candidateDays: rankedDays.map(dayForPrompt),
+      wholeHistoryComparison: wholeHistoryIntent ? buildWholeHistoryComparison(dayRecords) : null,
       historyAnalytics: analytics,
       relevantExercisesInApp: matchedExerciseContext,
       externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
@@ -670,8 +674,13 @@ export async function POST(req: NextRequest) {
       },
       doctorNotes: doctorNotesContext,
       agentPlanningRequested: agentIntent,
-      instructions: rankedDays.length
-        ? 'Use candidateDays to answer memory questions. Only return dateLinks from those dates or an explicitly requested date.'
+      agentPlanningDirective: agentIntent
+        ? 'This request is a direct app command. Return a valid non-empty agentPlan for review, or ask exactly one clarification question if a required target or value is missing. Do not merely explain how the user could do it manually.'
+        : null,
+      instructions: wholeHistoryIntent
+        ? 'wholeHistoryComparison contains one compact row for every loaded saved day. Use all of its rows for overall, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
+        : rankedDays.length
+          ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
         : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
     };
 
@@ -687,21 +696,29 @@ export async function POST(req: NextRequest) {
         response_format: { type: 'json_object' },
       });
     } catch (error) {
-      const fallbackLinks = rankedDays.slice(0, 4).map(day => ({
+      const fallbackLinks = strongFallbackDays(rankedDays, explicitDates).slice(0, 4).map(day => ({
         date: day.date,
         label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
         reason: reasonForDay(day, cleanQuestion),
       }));
-      if (fallbackLinks.length && error instanceof GroqRouteError) {
+      if (error instanceof GroqRouteError) {
         return NextResponse.json({
           reply: {
-            answer: 'The AI response failed, but I still found the closest matching days in your saved history. Tap one to open it.',
+            answer: agentIntent
+              ? 'I recognized this as an app command, but the AI response failed before it could prepare a safe reviewable action plan. Please try again.'
+              : fallbackLinks.length
+                ? 'The AI response failed, but I found these strongly supported dates in your saved history.'
+                : 'The AI response failed, and I could not identify a strongly supported date without risking an irrelevant suggestion.',
             options: [],
             dateLinks: fallbackLinks,
+            agentPlanningStatus: agentIntent ? 'missing' : undefined,
           },
           degraded: true,
           model: '',
           attemptedModels: error.attempts.map(attempt => attempt.model),
+          usedPersonalHistory: shouldLoadHistory,
+          searchedDays: shouldLoadHistory ? dayRecords.length : 0,
+          comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
           rerankerModel,
           rerankedCandidates,
         });
@@ -711,18 +728,18 @@ export async function POST(req: NextRequest) {
 
     const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
     const raw = jsonFromText(rawContent);
-    let dateLinks = cleanDateLinks(raw.dateLinks, allowedDates, appToday);
-    if (!dateLinks.length && historyIntent && rankedDays.length) {
-      dateLinks = rankedDays.slice(0, 3).map(day => ({
-        date: day.date,
-        label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-        reason: reasonForDay(day, cleanQuestion),
-      }));
-    }
-
-    const answer = cleanMultiline(raw.answer, 1500) || (rankedDays.length
+    const normalizedAgentPlan = agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined;
+    const agentPlanningStatus = !agentIntent ? undefined
+      : normalizedAgentPlan ? 'planned' as const
+        : raw.agentPlan ? 'invalid' as const : 'missing' as const;
+    const baseAnswer = cleanMultiline(raw.answer, 1500) || (rankedDays.length
       ? 'These are the closest matching days I found in your saved history.'
       : 'I need one more detail to answer that accurately.');
+    const answer = agentIntent && !normalizedAgentPlan && !/\?\s*$/.test(baseAnswer)
+      ? `${baseAnswer}\n\nI recognized this as an app command, but I could not prepare a safe reviewable action plan. Please specify the exact item, date, and change.`
+      : baseAnswer;
+    const supportedDates = supportedDateLinkDates(answer, explicitDates);
+    const dateLinks = cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
 
     return NextResponse.json({
@@ -732,12 +749,14 @@ export async function POST(req: NextRequest) {
         dateLinks,
         dateSummaries,
         confirmedExercise: cleanExerciseDraft(raw.confirmedExercise),
-        agentPlan: agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined,
+        agentPlan: normalizedAgentPlan,
+        agentPlanningStatus,
       },
       model: result.model,
       attemptedModels: result.attemptedModels,
       usedPersonalHistory: shouldLoadHistory,
       searchedDays: shouldLoadHistory ? dayRecords.length : 0,
+      comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
       rerankerModel,
       rerankedCandidates,
     });

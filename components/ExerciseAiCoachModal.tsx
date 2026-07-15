@@ -667,11 +667,13 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
       let agentPlan: PreviewedAgentPlan | undefined;
       let agentPlanError = '';
+      let agentPlanningStatus: AiReply['agentPlanningStatus'] = data.reply?.agentPlanningStatus;
       if (data.reply?.agentPlan) {
         try {
           agentPlan = await previewAgentPlan(data.reply.agentPlan);
         } catch (planError) {
           agentPlanError = planError instanceof Error ? planError.message : 'The proposed changes could not be prepared.';
+          agentPlanningStatus = 'invalid';
         }
       }
 
@@ -688,10 +690,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         confirmedExercise: data.reply?.confirmedExercise,
         model: data.model,
         searchedDays: Number.isFinite(Number(data.searchedDays)) ? Number(data.searchedDays) : undefined,
+        comparedDays: Number.isFinite(Number(data.comparedDays)) && Number(data.comparedDays) > 0 ? Number(data.comparedDays) : undefined,
         rerankerModel: typeof data.rerankerModel === 'string' ? data.rerankerModel : undefined,
         rerankedCandidates: Number.isFinite(Number(data.rerankedCandidates)) ? Number(data.rerankedCandidates) : undefined,
         degraded: data.degraded === true,
         agentPlan,
+        agentPlanningStatus,
       };
 
       const assistantMessage: ChatMessage = {
@@ -841,7 +845,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-coach-title"
-        className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col"
+        className="w-full max-w-lg overflow-hidden rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col"
         style={{ maxHeight: '94dvh' }}
         onPointerDown={event => event.stopPropagation()}
       >
@@ -867,7 +871,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                 )}
               </button>
               {!historyOpen && messages.length > 0 && (
-                <button onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
+                <button type="button" onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
               )}
               <button type="button" onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
             </div>
@@ -876,7 +880,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         {historyOpen ? (
-          <div className="min-h-0 flex-1 overflow-y-auto border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-200/70 bg-[#F6F1E7]/95 px-5 py-3 backdrop-blur">
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-stone-800">Chat history</h3>
@@ -904,13 +908,13 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               </div>
             )}
 
-            <div>
+            <div className="space-y-2.5 px-3 pb-4 pt-3">
               {chatSessions.map(session => {
                 const isCurrent = session.id === conversationId;
                 const awaitingDelete = pendingDeleteId === session.id;
                 return (
-                  <div key={session.id} className={`flex items-stretch border-b border-stone-200/70 transition-colors ${isCurrent ? 'bg-[#E9F0EB]' : 'bg-transparent hover:bg-white/30'}`}>
-                    <button type="button" onClick={() => void openSavedConversation(session)} disabled={Boolean(openingChatId)} className="min-w-0 flex-1 px-5 py-3.5 text-left disabled:opacity-60" style={{ touchAction: 'manipulation' }}>
+                  <div key={session.id} className={`flex items-stretch overflow-hidden rounded-2xl border shadow-[0_1px_2px_rgba(71,59,43,0.04)] transition-colors ${isCurrent ? 'border-[#C8D8CC] bg-[#E9F0EB]' : 'border-stone-200/80 bg-white/75 hover:border-stone-300 hover:bg-white'}`}>
+                    <button type="button" onClick={() => void openSavedConversation(session)} disabled={Boolean(openingChatId)} className="min-w-0 flex-1 px-4 py-3.5 text-left disabled:opacity-60" style={{ touchAction: 'manipulation' }}>
                       <div className="flex items-start justify-between gap-3">
                         <p className="min-w-0 truncate text-sm font-semibold text-stone-800">{session.title || 'Untitled conversation'}</p>
                         <span className="shrink-0 text-[10px] font-medium text-stone-400">{openingChatId === session.id ? 'Opening...' : formatChatTimestamp(session.updatedAt)}</span>
@@ -926,7 +930,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                         type="button"
                         onClick={() => awaitingDelete ? void deleteSavedConversation(session.id) : setPendingDeleteId(session.id)}
                         onBlur={() => { if (awaitingDelete) setPendingDeleteId(''); }}
-                        className={`flex w-16 shrink-0 items-center justify-center border-l border-stone-100 text-[10px] font-bold ${awaitingDelete ? 'bg-red-50 text-red-600' : 'text-stone-300'}`}
+                        className={`flex w-14 shrink-0 items-center justify-center border-l border-stone-200/70 text-[10px] font-bold transition-colors ${awaitingDelete ? 'bg-red-50 text-red-600' : 'text-stone-300 hover:bg-stone-50 hover:text-stone-500'}`}
                         style={{ touchAction: 'manipulation' }}
                         aria-label={awaitingDelete ? `Confirm delete ${session.title}` : `Delete ${session.title}`}
                       >
@@ -941,7 +945,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             </div>
 
             {historyCursor && (
-              <div className="p-4 text-center">
+              <div className="px-4 pb-5 pt-1 text-center">
                 <button type="button" onClick={() => void loadChatHistory(false)} disabled={historyLoading} className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-xs font-semibold text-stone-500 disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
                   {historyLoading ? 'Loading...' : 'Load older'}
                 </button>
@@ -977,8 +981,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                   <InlineAnswerDates text={message.content} today={today} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} />
                   {(reply?.model || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
-                      {reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
-                      {reply?.rerankerModel ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates</span> : null}
+                      {reply?.comparedDays ? <span>Compared all {reply.comparedDays} saved days</span> : reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
+                      {reply?.rerankerModel && !reply?.comparedDays ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates</span> : null}
                       {reply?.model ? <span>{reply.degraded ? 'Fallback result' : reply.model}</span> : null}
                     </div>
                   )}
@@ -1005,6 +1009,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
                 {!reply?.agentPlan && agentErrors[message.id] && (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{agentErrors[message.id]}</p>
+                )}
+
+                {!reply?.agentPlan && !agentErrors[message.id] && (reply?.agentPlanningStatus === 'missing' || reply?.agentPlanningStatus === 'invalid') && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Agent mode recognized this as a command, but no safe action plan was produced. Specify the exact item, date, and change so it can prepare an Apply card.
+                  </p>
                 )}
 
                 {!!reply?.dateLinks?.length && (

@@ -31,6 +31,8 @@ The interaction model is deliberately split into four stages:
 
 The AI is not trusted as an executor. It can only propose data that passes the server-owned protocol.
 
+Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
+
 ## Work Leading to the Current State
 
 The current feature was built incrementally across these commits, newest first:
@@ -157,6 +159,8 @@ The query planner adds:
 
 The deterministic stage returns at most 24 plausible candidates and does not pad the result with unrelated days.
 
+Whole-history comparisons are handled separately from targeted retrieval. When the conversation asks for all/every/overall history or a global best/worst day, the main model receives one compact structured row for every loaded saved day, including the core health metrics, session kind, activity/note counts, and a bounded notable-context excerpt. Scout may still choose detailed candidate records, but those candidates no longer define the comparison scope. The UI reports `Compared all N saved days` for this path instead of implying that Scout's candidate count was the full history.
+
 ### Scout Reranking
 
 If deterministic ranking returns more than eight candidates, a compact Scout-style reranking request selects up to eight date IDs.
@@ -212,6 +216,8 @@ Dates mentioned inline are parsed by `lib/aiDatePresentation.ts`. When a determi
 
 Suggested-day tiles open the selected day normally and close the overlay instead of leaving Ask AI floating above the destination. The active conversation is kept in browser session storage so reopening Ask AI resumes where the user left off.
 
+Suggested-day tiles are server-gated. A model-supplied tile survives only when its exact date is materially cited in the answer or was explicitly requested by the user. The route does not auto-fill tiles from the top retrieval candidates. If the AI request fails, only explicit dates or dates backed by high-confidence deterministic evidence may be shown; merely related-looking days are omitted.
+
 Inline date links use normal line-height and inline flow. They must not introduce vertical margins or extra line spacing.
 
 ### Suggested Replies
@@ -244,7 +250,7 @@ Behavior and limits:
 - Closing Ask AI intentionally clears the active browser session, but the database chat remains available in history.
 - Navigating from Ask AI preserves the active browser session so returning to Ask AI resumes the same conversation.
 
-The history UI is an un-nested, full-width list inside the modal. Exercise/date surfaces should not visually bleed beyond the popup background.
+The history UI uses inset, rounded conversation cards inside a clipped modal shell. Keep bottom spacing beneath the final card, and do not let exercise/date surfaces visually bleed beyond the popup background.
 
 ## AI Agent Protocol
 
@@ -480,7 +486,7 @@ Verified properties:
 The final handoff state passed:
 
 ```bash
-node --test lib/aiAgent.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/modalInteraction.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
+node --test lib/aiAgent.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/aiHistoryScope.test.ts lib/aiRequestIntent.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/modalInteraction.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
 npx tsc --noEmit
 npx eslint components/ExerciseAiCoachModal.tsx lib/aiAgent.ts lib/aiAgentServer.ts lib/aiChatHistory.ts app/api/ai-agent/route.ts app/api/ai-agent/preview/route.ts app/api/ai-agent/undo/route.ts app/api/ai-exercise-question/route.ts
 npm run build
