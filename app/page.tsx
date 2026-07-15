@@ -134,6 +134,7 @@ function IconButton({ title, onClick, children, active, label, accent, highlight
   const lblStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 };
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className="w-9 h-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm flex-shrink-0 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-35 disabled:hover:shadow-sm disabled:hover:translate-y-0"
@@ -932,7 +933,7 @@ export default function Home() {
               )}
             </button>
             {widgetPrefs.aiCoach !== false && (
-              <button onClick={() => setShowAiCoach(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#F3F8FA', border: '1px solid #C6DCE9', color: '#648399', touchAction: 'manipulation' }} title="Ask AI" aria-label="Ask AI">
+              <button type="button" onClick={() => setShowAiCoach(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#F3F8FA', border: '1px solid #C6DCE9', color: '#648399', touchAction: 'manipulation' }} title="Ask AI" aria-label="Ask AI">
                 <AiSparkleIcon className="h-4 w-4 -translate-x-px" />
               </button>
             )}

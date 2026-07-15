@@ -480,7 +480,7 @@ Verified properties:
 The final handoff state passed:
 
 ```bash
-node --test lib/aiAgent.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
+node --test lib/aiAgent.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/modalInteraction.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
 npx tsc --noEmit
 npx eslint components/ExerciseAiCoachModal.tsx lib/aiAgent.ts lib/aiAgentServer.ts lib/aiChatHistory.ts app/api/ai-agent/route.ts app/api/ai-agent/preview/route.ts app/api/ai-agent/undo/route.ts app/api/ai-exercise-question/route.ts
 npm run build

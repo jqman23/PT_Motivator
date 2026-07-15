@@ -6,6 +6,7 @@ import { SmartDbMatch } from '@/components/SmartAddTypes';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import SecretTextarea from './SecretTextarea';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
+import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
 import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 import {
   normalizeAiChatMessages,
@@ -830,13 +831,25 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4" onClick={closeModal}>
-      <div className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col" style={{ maxHeight: '94dvh' }} onClick={event => event.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4"
+      onPointerDown={event => {
+        if (isDirectBackdropInteraction(event.target, event.currentTarget)) closeModal();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-coach-title"
+        className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col"
+        style={{ maxHeight: '94dvh' }}
+        onPointerDown={event => event.stopPropagation()}
+      >
         <div className="px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PT Motivator assistant</p>
-              <h2 className="font-serif text-xl font-semibold text-stone-800">Ask anything</h2>
+              <h2 id="ai-coach-title" className="font-serif text-xl font-semibold text-stone-800">Ask anything</h2>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
@@ -856,7 +869,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               {!historyOpen && messages.length > 0 && (
                 <button onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
               )}
-              <button onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
+              <button type="button" onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
             </div>
           </div>
           <p className="mt-2 w-full text-xs leading-snug text-stone-500">Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.</p>
@@ -1065,7 +1078,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             className="ai-coach-composer-editor w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
             style={{ fontSize: 16, colorScheme: 'light' }}
           />
-          <button onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
+          <button type="button" onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
             {loading ? 'Thinking…' : messages.length ? 'Send follow-up' : 'Ask AI'}
           </button>
           {historySaveError && <p className="mt-2 text-center text-[10px] font-semibold text-red-500">The answer is here, but chat history could not save.</p>}
