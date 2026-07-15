@@ -626,7 +626,7 @@ export default function Home() {
           {!isToday && <span className="text-xs text-stone-400">{selectedDate}</span>}
         </span>
         {!bottom && saving && (
-          <span className="absolute left-[calc(50%+4.25rem)] top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] animate-pulse sm:text-xs" style={{ color: '#7E9B86' }}>
+          <span className="absolute left-[calc(50%+4.25rem)] top-1/2 hidden -translate-y-1/2 whitespace-nowrap text-xs animate-pulse sm:inline" style={{ color: '#7E9B86' }}>
             Saving...
           </span>
         )}
@@ -645,6 +645,15 @@ export default function Home() {
         <div className="mb-6">
           <div className="flex items-center justify-between gap-2">
             <input value={appTitle} onChange={e => setAppTitle(e.target.value)} onBlur={e => updateAppTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="hidden sm:block font-serif text-3xl font-semibold text-stone-800 bg-transparent border border-transparent hover:border-stone-200 focus:border-stone-300 focus:bg-white/60 rounded-lg px-1 -ml-1 focus:outline-none max-w-[220px]" style={{ fontSize: 30, colorScheme: 'light' }} title="Edit app title" />
+            <span
+              className="pointer-events-none absolute right-4 inline-block w-[3.75rem] text-right text-[10px] font-bold text-[#7E9B86] sm:hidden"
+              style={{ visibility: saving ? 'visible' : 'hidden' }}
+              role="status"
+              aria-live="polite"
+              aria-hidden={!saving}
+            >
+              Saving...
+            </span>
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
               {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} metricDate={selectedDate} />}
               <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>

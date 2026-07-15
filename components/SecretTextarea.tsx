@@ -19,6 +19,12 @@ type Props = {
 type EditorSecretBlock = Extract<SecretNoteBlock, { type: 'secret' }> & { id: string };
 type EditorBlock = Extract<SecretNoteBlock, { type: 'text' }> | EditorSecretBlock;
 type PendingCaret = { secretId: string; position: 'inside-end' | 'before' | 'after' };
+type TypingScrollSnapshot = {
+  pageX: number;
+  pageY: number;
+  restorePage: boolean;
+  containers: Array<{ element: HTMLElement; left: number; top: number }>;
+};
 
 const CARET_ANCHOR = '\u200b';
 const BLOCK_ELEMENTS = new Set(['DIV', 'LI', 'P']);
@@ -164,6 +170,104 @@ function insertTextAtSelection(root: HTMLDivElement, text: string) {
   return true;
 }
 
+function directEditorChild(root: HTMLDivElement, node: Node) {
+  let current: Node | null = node;
+  while (current?.parentNode && current.parentNode !== root) current = current.parentNode;
+  return current?.parentNode === root ? current : null;
+}
+
+function skipCaretAnchors(node: Node | null, direction: 'backward' | 'forward') {
+  let current = node;
+  while (current?.nodeType === Node.TEXT_NODE && !cleanText(current.textContent ?? '')) {
+    current = direction === 'backward' ? current.previousSibling : current.nextSibling;
+  }
+  return current;
+}
+
+function secretAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 'forward') {
+  const selection = window.getSelection();
+  if (!selection?.isCollapsed || !selection.anchorNode) return null;
+
+  const anchorElement = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode.parentElement;
+  const secretContent = anchorElement?.closest<HTMLElement>('[data-secret-content="true"]');
+  if (secretContent && root.contains(secretContent) && !cleanText(secretContent.textContent ?? '')) {
+    return secretContent.closest<HTMLElement>('[data-secret="true"]')?.dataset.secretId ?? null;
+  }
+
+  let candidate: Node | null;
+  if (selection.anchorNode === root) {
+    candidate = root.childNodes[selection.anchorOffset + (direction === 'backward' ? -1 : 0)] ?? null;
+  } else {
+    if (selection.anchorNode.nodeType === Node.TEXT_NODE) {
+      const text = selection.anchorNode.textContent ?? '';
+      const adjacentText = direction === 'backward'
+        ? text.slice(0, selection.anchorOffset)
+        : text.slice(selection.anchorOffset);
+      if (cleanText(adjacentText)) return null;
+    }
+    const directChild = directEditorChild(root, selection.anchorNode);
+    candidate = direction === 'backward' ? directChild?.previousSibling ?? null : directChild?.nextSibling ?? null;
+  }
+
+  candidate = skipCaretAnchors(candidate, direction);
+  if (!(candidate instanceof HTMLElement)) return null;
+  const expectedBoundary = direction === 'backward' ? 'after' : 'before';
+  return candidate.dataset.secretBoundary === expectedBoundary ? candidate.dataset.secretId ?? null : null;
+}
+
+function captureTypingScroll(root: HTMLDivElement): TypingScrollSnapshot | null {
+  if (!window.matchMedia('(max-width: 639px) and (pointer: coarse)').matches) return null;
+
+  const visualViewport = window.visualViewport;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportBottom = viewportTop + (visualViewport?.height ?? window.innerHeight);
+  const selection = window.getSelection();
+  const caretRect = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : root.getBoundingClientRect();
+  const restorePage = caretRect.height === 0
+    || (caretRect.top >= viewportTop + 24 && caretRect.bottom <= viewportBottom - 24);
+  const containers: TypingScrollSnapshot['containers'] = [];
+
+  let parent = root.parentElement;
+  while (parent && parent !== document.body) {
+    if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
+      containers.push({ element: parent, left: parent.scrollLeft, top: parent.scrollTop });
+    }
+    parent = parent.parentElement;
+  }
+
+  return {
+    pageX: window.scrollX,
+    pageY: window.scrollY,
+    restorePage,
+    containers,
+  };
+}
+
+function restoreSmallTypingShift(snapshot: TypingScrollSnapshot) {
+  const restore = () => {
+    for (const container of snapshot.containers) {
+      if (!container.element.isConnected) continue;
+      const deltaX = Math.abs(container.element.scrollLeft - container.left);
+      const deltaY = Math.abs(container.element.scrollTop - container.top);
+      if (deltaX <= 48) container.element.scrollLeft = container.left;
+      if (deltaY <= 48) container.element.scrollTop = container.top;
+    }
+
+    if (!snapshot.restorePage) return;
+    const deltaX = Math.abs(window.scrollX - snapshot.pageX);
+    const deltaY = Math.abs(window.scrollY - snapshot.pageY);
+    if (deltaX <= 48 && deltaY <= 48 && (deltaX || deltaY)) window.scrollTo(snapshot.pageX, snapshot.pageY);
+  };
+
+  restore();
+  window.requestAnimationFrame(() => {
+    restore();
+    window.requestAnimationFrame(restore);
+  });
+}
+
 export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onFocus, onBlur }: Props) {
   const editorId = useId();
   const [renderState, setRenderState] = useState(() => ({ blocks: makeEditorBlocks(value, editorId), revision: 0 }));
@@ -180,6 +284,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const focusedRef = useRef(false);
   const composingRef = useRef(false);
   const pendingCaretRef = useRef<PendingCaret | null>(null);
+  const typingScrollRef = useRef<TypingScrollSnapshot | null>(null);
   const canResize = /\bresize-y\b/.test(className);
   const expandedHeight = rows >= 3 ? 240 : 200;
   const editorHeight = canResize && expanded ? expandedHeight : style?.height;
@@ -279,11 +384,72 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     emit(current);
   };
 
+  const captureScrollBeforeTyping = () => {
+    const editor = editorRef.current;
+    if (editor) typingScrollRef.current = captureTypingScroll(editor);
+  };
+
+  const stabilizeScrollAfterTyping = () => {
+    const snapshot = typingScrollRef.current;
+    typingScrollRef.current = null;
+    if (snapshot) restoreSmallTypingShift(snapshot);
+  };
+
+  const handleEditorInput = () => {
+    syncFromEditor();
+    stabilizeScrollAfterTyping();
+  };
+
   const handlePlainTextInsertion = (text: string) => {
     const editor = editorRef.current;
     if (!editor || !insertTextAtSelection(editor, text)) return false;
     syncFromEditor();
     return true;
+  };
+
+  const removeSecretWithoutRemount = (secretId: string) => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    const before = editor.querySelector<HTMLElement>(`[data-secret-boundary="before"][data-secret-id="${secretId}"]`);
+    const secret = editor.querySelector<HTMLElement>(`[data-secret="true"][data-secret-id="${secretId}"]`);
+    const after = editor.querySelector<HTMLElement>(`[data-secret-boundary="after"][data-secret-id="${secretId}"]`);
+    if (!before || !secret || !after) return false;
+
+    const pageScroll = { x: window.scrollX, y: window.scrollY };
+    const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
+    const range = document.createRange();
+    range.setStartBefore(before);
+    range.setEndAfter(after);
+    range.deleteContents();
+    const caret = document.createTextNode(CARET_ANCHOR);
+    range.insertNode(caret);
+    range.setStart(caret, CARET_ANCHOR.length);
+    range.collapse(true);
+
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    setUnlockingId(null);
+    setUnlockCode('');
+    setUnlockError(false);
+    emit(readEditorBlocks(editor, modelRef.current));
+
+    const restoreScroll = () => {
+      editor.scrollLeft = editorScroll.left;
+      editor.scrollTop = editorScroll.top;
+      if (window.scrollX !== pageScroll.x || window.scrollY !== pageScroll.y) window.scrollTo(pageScroll.x, pageScroll.y);
+    };
+    restoreScroll();
+    window.requestAnimationFrame(restoreScroll);
+    return true;
+  };
+
+  const handleBoundaryDeletion = (direction: 'backward' | 'forward') => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    const secretId = secretAtDeletionBoundary(editor, direction);
+    return secretId ? removeSecretWithoutRemount(secretId) : false;
   };
 
   const lockSecret = (secretId: string) => {
@@ -338,6 +504,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const finalizeBlur = (event: React.FocusEvent<HTMLElement>) => {
     const nextTarget = event.relatedTarget;
     if (nextTarget instanceof Node && wrapperRef.current?.contains(nextTarget)) return;
+    typingScrollRef.current = null;
     focusedRef.current = false;
     setUnlockingId(null);
     setUnlockCode('');
@@ -375,21 +542,47 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           userSelect: 'text',
         }}
         spellCheck
-        onInput={syncFromEditor}
+        onInput={handleEditorInput}
         onBeforeInput={event => {
+          captureScrollBeforeTyping();
           const inputType = (event.nativeEvent as InputEvent).inputType;
+          if (inputType === 'deleteContentBackward' && handleBoundaryDeletion('backward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
+          if (inputType === 'deleteContentForward' && handleBoundaryDeletion('forward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
           if (inputType !== 'insertParagraph' && inputType !== 'insertLineBreak') return;
           event.preventDefault();
           handlePlainTextInsertion('\n');
+          stabilizeScrollAfterTyping();
         }}
         onKeyDown={event => {
+          if (!typingScrollRef.current) captureScrollBeforeTyping();
+          if (event.key === 'Backspace' && handleBoundaryDeletion('backward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
+          if (event.key === 'Delete' && handleBoundaryDeletion('forward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
           if (event.key !== 'Enter') return;
           event.preventDefault();
           handlePlainTextInsertion('\n');
+          stabilizeScrollAfterTyping();
         }}
         onPaste={event => {
+          captureScrollBeforeTyping();
           event.preventDefault();
           handlePlainTextInsertion(event.clipboardData.getData('text/plain'));
+          stabilizeScrollAfterTyping();
         }}
         onDrop={event => event.preventDefault()}
         onCompositionStart={() => {
@@ -397,7 +590,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         }}
         onCompositionEnd={() => {
           composingRef.current = false;
-          syncFromEditor();
+          handleEditorInput();
         }}
         onFocus={event => {
           focusedRef.current = true;
@@ -433,6 +626,11 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                     onPointerDown={event => event.preventDefault()}
                     onClick={event => handleSecretControl(event, block)}
                     onKeyDown={event => {
+                      if (event.key === 'Backspace' || event.key === 'Delete') {
+                        event.preventDefault();
+                        removeSecretWithoutRemount(block.id);
+                        return;
+                      }
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
                       showUnlock(block.id, event.currentTarget);
@@ -454,6 +652,11 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                       onPointerDown={event => event.preventDefault()}
                       onClick={event => handleSecretControl(event, block)}
                       onKeyDown={event => {
+                        if (event.key === 'Backspace' || event.key === 'Delete') {
+                          event.preventDefault();
+                          removeSecretWithoutRemount(block.id);
+                          return;
+                        }
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
                         lockSecret(block.id);

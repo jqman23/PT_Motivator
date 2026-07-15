@@ -27,11 +27,16 @@ test('accepts pasted command content as the initial secret text', () => {
   assert.deepEqual(result.blocks, [{ type: 'secret', locked: false, text: 'private detail' }]);
 });
 
-test('does not convert commands in the middle of a line or unknown commands', () => {
-  const middle = [{ type: 'text' as const, text: 'before /secret' }];
+test('converts commands after sentence whitespace but leaves slash text inside words alone', () => {
+  const middle = applyNoteSlashCommand([{ type: 'text' as const, text: 'before /secret' }]);
+  const insideWord = [{ type: 'text' as const, text: 'before/secret' }];
   const unknown = [{ type: 'text' as const, text: '/future-command' }];
 
-  assert.deepEqual(applyNoteSlashCommand(middle), { blocks: middle, changed: false });
+  assert.deepEqual(middle.blocks, [
+    { type: 'text', text: 'before ' },
+    { type: 'secret', locked: false, text: '' },
+  ]);
+  assert.deepEqual(applyNoteSlashCommand(insideWord), { blocks: insideWord, changed: false });
   assert.deepEqual(applyNoteSlashCommand(unknown), { blocks: unknown, changed: false });
 });
 

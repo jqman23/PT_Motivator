@@ -577,7 +577,14 @@ export default function HealthTracker({ today }: Props) {
           <p className="text-[10px] text-stone-400 mt-0.5">Hold a metric to view its trend, then toggle 3wk or 6wk.</p>
         </div>
         <div className="flex items-center gap-2">
-          {saved && <span className="text-xs font-medium" style={{ color: '#7E9B86' }}>Saved ✓</span>}
+          <span
+            className="w-[3.75rem] text-right text-xs font-medium"
+            style={{ color: '#7E9B86', visibility: saved ? 'visible' : 'hidden' }}
+            aria-live="polite"
+            aria-hidden={!saved}
+          >
+            Saved ✓
+          </span>
           {loading && <span className="text-xs" style={{ color: '#a8a29e' }}>Loading…</span>}
           {confirmReset ? (
             <div className="flex items-center gap-1.5">

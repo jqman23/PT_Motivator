@@ -21,7 +21,7 @@ export const NOTE_SLASH_COMMANDS: readonly NoteSlashCommand[] = [
 ];
 
 const commandByName = new Map(NOTE_SLASH_COMMANDS.map(command => [command.name, command]));
-const commandPattern = /(^|\n)\/([a-z][a-z0-9-]*)(?:[\t ]+([^\n]*))?$/i;
+const commandPattern = /(^|[\t \n])\/([a-z][a-z0-9-]*)(?:[\t ]+([^\n]*))?$/i;
 
 export function applyNoteSlashCommand(blocks: readonly SecretNoteBlock[]): NoteSlashCommandResult {
   for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
