@@ -126,7 +126,7 @@ export default function ExerciseGestureEnhancer() {
       if (!card) return;
       const title = card.querySelector('.text-sm.font-semibold');
       const rect = (title || card).getBoundingClientRect();
-      const halfWidth = 113;
+      const halfWidth = 125;
       const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, event.detail?.clientX || rect.left + rect.width / 2));
       const placeBelow = rect.top < 130;
       const y = placeBelow ? rect.bottom + 5 : rect.top - 5;
@@ -138,7 +138,6 @@ export default function ExerciseGestureEnhancer() {
         x,
         y,
         placeBelow,
-        mobile: window.matchMedia('(max-width: 639px)').matches,
         prescription: event.detail?.prescription || null,
       });
     };
@@ -150,36 +149,36 @@ export default function ExerciseGestureEnhancer() {
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
-    dirtyRef.current = false;
-    setLoading(true);
-    setSaving(false);
-    setError('');
-    setHasCurrent(false);
-    setSeededFromLast(false);
-    const programmed = draftFromPrescription(active.prescription);
-    setDraft(programmed.draft);
-    setPlaceholders(programmed.placeholders);
 
-    fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
-      cache: 'no-store',
-    })
-      .then(async response => {
+    const loadMetric = async () => {
+      dirtyRef.current = false;
+      setLoading(true);
+      setSaving(false);
+      setError('');
+      setHasCurrent(false);
+      setSeededFromLast(false);
+      const programmed = draftFromPrescription(active.prescription);
+      setDraft(programmed.draft);
+      setPlaceholders(programmed.placeholders);
+
+      try {
+        const response = await fetch(`/api/exercise-metrics?date=${encodeURIComponent(active.date)}&exerciseId=${encodeURIComponent(active.exerciseId)}`, {
+          cache: 'no-store',
+        });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not load.');
-        return data;
-      })
-      .then(data => {
         if (cancelled) return;
         setHasCurrent(Boolean(data.current));
         setSeededFromLast(!data.current && Boolean(active.prescription));
         if (!dirtyRef.current && data.current) setDraft(draftFromMetric(data.current));
-      })
-      .catch(loadError => {
+      } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Could not load.');
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    void loadMetric();
 
     return () => { cancelled = true; };
   }, [active]);
@@ -270,10 +269,10 @@ export default function ExerciseGestureEnhancer() {
         data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
-          width: 'min(340px, calc(100vw - 16px))',
-          left: active.mobile ? '50%' : active.x,
-          top: active.mobile ? 'max(4.5rem, env(safe-area-inset-top))' : active.y,
-          transform: active.mobile ? 'translateX(-50%)' : active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+          width: 'min(250px, calc(100vw - 16px))',
+          left: active.x,
+          top: active.y,
+          transform: active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
         }}
         onClick={event => event.stopPropagation()}
         onPointerDown={event => event.stopPropagation()}
@@ -299,7 +298,7 @@ export default function ExerciseGestureEnhancer() {
           </button>
         </div>
 
-        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        <div className="mt-1.5 grid grid-cols-[46px_58px_1fr] gap-1">
           <label className="rounded-lg bg-white px-1.5 py-1">
             <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Sets</span>
             <input
@@ -339,7 +338,7 @@ export default function ExerciseGestureEnhancer() {
             />
           </label>
 
-          <label className="col-span-2 min-w-0 rounded-lg bg-white px-2 py-1.5">
+          <label className="min-w-0 rounded-lg bg-white px-1.5 py-1">
             <span className="block text-[8px] font-black uppercase tracking-wider text-stone-400">Type</span>
             <div className="flex items-center gap-1">
               <input
