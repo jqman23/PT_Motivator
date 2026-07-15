@@ -2,6 +2,10 @@
 
 A personal physical therapy tracker for ankle recovery. Check off exercises daily, add notes per exercise, watch video demos, and review your weekly progress — all saved to a Vercel Postgres database.
 
+## Engineering Handoffs
+
+- [Ask AI and agent architecture, rollout state, verification, and continuation guide](docs/ASK_AI_AGENT_HANDOFF.md)
+
 ## Features
 
 - **Two categories**: Daily mobility & balance (most days) + Strength day (~3× per week)
