@@ -7,7 +7,7 @@ type WidgetKey = CoreWidgetKey | ExtraWidgetKey;
 const OPTIONS: { key: WidgetKey; label: string; description: string }[] = [
   { key: 'timer', label: 'Timer', description: 'Quick countdown timer.' },
   { key: 'library', label: 'Exercise library', description: 'Browse, add, and import exercises.' },
-  { key: 'aiCoach', label: 'Ask AI', description: 'Ask questions about exercises and form.' },
+  { key: 'aiCoach', label: 'Ask AI', description: 'Ask about saved days, patterns, and exercises.' },
   { key: 'info', label: 'Exercise guide', description: 'Consolidated exercise instructions.' },
   { key: 'manage', label: 'Reorder & edit', description: 'Reorder categories and exercises.' },
   { key: 'calendar', label: 'Calendar', description: 'Date picker and calendar view.' },

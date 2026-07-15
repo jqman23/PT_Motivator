@@ -134,6 +134,19 @@ export async function initDb() {
     )
   `;
   await sql`ALTER TABLE doctor_notes ADD COLUMN IF NOT EXISTS note_color TEXT NOT NULL DEFAULT 'none'`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      preview TEXT NOT NULL DEFAULT '',
+      messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS ai_chat_sessions_updated_idx ON ai_chat_sessions (updated_at DESC, id DESC)`;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {

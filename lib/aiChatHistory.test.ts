@@ -1,0 +1,47 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { aiChatPreview, aiChatTitle, normalizeAiChatMessages } from './aiChatHistory.ts';
+
+test('normalizes a restorable AI conversation and removes oversized fields', () => {
+  const messages = normalizeAiChatMessages([
+    { id: 'one', role: 'user', content: '  When did my ankle hurt?  ', aiInstructions: ['focus on pain'] },
+    {
+      id: 'two',
+      role: 'assistant',
+      content: 'It was worse on 2026-06-21.',
+      reply: {
+        answer: 'It was worse on 2026-06-21.',
+        options: ['In the morning'],
+        dateLinks: [{ date: '2026-06-21', label: 'June 21' }, { date: 'not-a-date', label: 'Bad' }],
+      },
+    },
+    { id: 'bad', role: 'system', content: 'Do not store this.' },
+  ]);
+
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].content, 'When did my ankle hurt?');
+  assert.deepEqual(messages[1].reply?.dateLinks.map(link => link.date), ['2026-06-21']);
+});
+
+test('builds useful history titles and previews', () => {
+  const messages = normalizeAiChatMessages([
+    { id: 'one', role: 'user', content: 'Describe my pain this week' },
+    { id: 'two', role: 'assistant', content: 'Pain was highest after PT.' },
+  ]);
+
+  assert.equal(aiChatTitle(messages), 'Describe my pain this week');
+  assert.equal(aiChatPreview(messages), 'Pain was highest after PT.');
+});
+
+test('bounds long conversations to the most recent 100 messages', () => {
+  const messages = normalizeAiChatMessages(Array.from({ length: 105 }, (_, index) => ({
+    id: String(index),
+    role: index % 2 ? 'assistant' : 'user',
+    content: `Message ${index}`,
+  })));
+
+  assert.equal(messages.length, 100);
+  assert.equal(messages[0].id, '5');
+  assert.equal(messages.at(-1)?.id, '104');
+});

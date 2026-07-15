@@ -118,7 +118,16 @@ function displayForDate(ds: string) {
   return new Date(ds + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function IconButton({ title, onClick, children, active, label, accent, disabled }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean; label?: string; accent?: boolean; disabled?: boolean }) {
+function AiSparkleIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 2.8l1.15 3.25L14.4 7.2l-3.25 1.15L10 11.6 8.85 8.35 5.6 7.2l3.25-1.15L10 2.8Z" />
+      <path d="M15.2 12.1l.62 1.73 1.73.62-1.73.62-.62 1.73-.62-1.73-1.73-.62 1.73-.62.62-1.73Z" />
+    </svg>
+  );
+}
+
+function IconButton({ title, onClick, children, active, label, accent, highlight, disabled }: { title: string; onClick: () => void; children: React.ReactNode; active?: boolean; label?: string; accent?: boolean; highlight?: boolean; disabled?: boolean }) {
   const lblStyle: React.CSSProperties = { fontSize: '6.5px', lineHeight: 1, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.85 };
   return (
     <button
@@ -127,9 +136,9 @@ function IconButton({ title, onClick, children, active, label, accent, disabled 
       className="w-9 h-9 rounded-xl border flex flex-col items-center justify-center gap-0.5 shadow-sm flex-shrink-0 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-35 disabled:hover:shadow-sm disabled:hover:translate-y-0"
       style={{
         touchAction: 'manipulation',
-        background: accent ? '#1F2F46' : active ? '#FBF5E8' : 'white',
-        borderColor: accent ? '#162233' : active ? '#D9A94B' : '#e7e5e4',
-        color: accent ? '#ffffff' : active ? '#D9A94B' : '#78716c',
+        background: accent ? '#1F2F46' : highlight ? '#F3F8FA' : active ? '#FBF5E8' : 'white',
+        borderColor: accent ? '#162233' : highlight ? '#C6DCE9' : active ? '#D9A94B' : '#e7e5e4',
+        color: accent ? '#ffffff' : highlight ? '#648399' : active ? '#D9A94B' : '#78716c',
       }}
       title={title}
     >
@@ -664,7 +673,6 @@ export default function Home() {
             <div className="flex items-center gap-1.5 overflow-x-auto flex-1 justify-end [-ms-overflow-style:none] [scrollbar-width:none]">
               {widgetPrefs.timer && <TimerWidget exercises={layoutExercises} metricDate={selectedDate} />}
               <IconButton title="Exercise library" label="library" onClick={() => { setLibraryCatId(null); setShowLibrary(true); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M4 3h5a2 2 0 0 1 2 2v11a1.5 1.5 0 0 0-1.5-1.5H4z"/><path d="M16 3h-3a2 2 0 0 0-2 2v11a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></IconButton>
-              <IconButton title="Ask AI about exercise" label="Ask" onClick={() => setShowAiCoach(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M7.8 7.4A2.4 2.4 0 0 1 10.2 5c1.4 0 2.5.9 2.5 2.2 0 1.1-.6 1.7-1.7 2.4-.8.5-1 1-1 1.9"/><path d="M10 14.6h.01"/></svg></IconButton>
               {widgetPrefs.info && <IconButton title="Exercise guide" label="guide" onClick={() => setShowInfo(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="8"/><path d="M10 9v5M10 6h.01"/></svg></IconButton>}
               <IconButton title="Reorder & edit" label="edit" onClick={() => setShowManage(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="3.5" cy="15" r="1" fill="currentColor" stroke="none"/></svg></IconButton>
               {widgetPrefs.calendar && <IconButton title="Calendar" label="cal" onClick={() => setShowCalendar(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><rect x="2" y="3" width="16" height="16" rx="2"/><path d="M2 8h16"/><path d="M6 1v4M14 1v4"/><rect x="5.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="9" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/><rect x="12.5" y="11" width="2" height="2" rx="0.5" fill="currentColor" stroke="none"/></svg></IconButton>}
@@ -674,6 +682,7 @@ export default function Home() {
               {widgetPrefs.reporting && <IconButton title="Progress report" label="stats" onClick={() => setShowReporting(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 15l3.5-5.5 3.5 3 4-6"/><path d="M2 17.5h16"/><path d="M2 3v14.5"/></svg></IconButton>}
               {widgetPrefs.ptReport && <IconButton title="Reports & exports" label="DATA" onClick={() => setShowPTReport(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M5 2.5h7l3 3V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M12 2.5V6h3"/><path d="M7 10h6M7 13h6M7 16h4"/></svg></IconButton>}
               {widgetPrefs.masterDatabase && <span className="hidden sm:inline-flex"><IconButton title="Master database" label="DB" onClick={() => setShowMasterDatabase(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><ellipse cx="10" cy="4" rx="6" ry="2.2"/><path d="M4 4v8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V4"/><path d="M4 8c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/><path d="M4 12c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg></IconButton></span>}
+              {widgetPrefs.aiCoach !== false && <IconButton title="Ask AI about exercise" label="AI" highlight onClick={() => setShowAiCoach(true)}><AiSparkleIcon /></IconButton>}
               <IconButton title="Widget settings" label="settings" accent onClick={() => setShowWidgetSettings(true)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><circle cx="10" cy="10" r="3"/><path d="M10 1.8v2M10 16.2v2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M1.8 10h2M16.2 10h2M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg></IconButton>
             </div>
           </div>
@@ -691,7 +700,7 @@ export default function Home() {
         </div>
 
         <div className="sticky top-[2.65rem] z-[60] -mt-4 mb-4 flex justify-center py-1 sm:relative sm:top-auto sm:mt-2 sm:mb-6 sm:py-0">
-          <div className="flex max-w-full items-center gap-1.5 overflow-visible rounded-full bg-white/75 p-1.5 shadow-sm ring-1 ring-stone-200/70 backdrop-blur">
+          <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-white/75 p-1.5 shadow-sm ring-1 ring-stone-200/70 backdrop-blur [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:overflow-visible">
             {!isToday && <button onClick={() => changeDate(today)} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold" style={{ color: '#7E9B86', background: '#E4ECE6', touchAction: 'manipulation' }}>Today</button>}
             <div ref={exerciseFilterRef} className="relative flex shrink-0 items-center gap-1.5">
               <button onClick={toggleHiddenDone} disabled={!isDayHidden && !doneIdsForDay.length} className="h-7 shrink-0 rounded-full px-2.5 text-[11px] font-medium disabled:opacity-40" style={{ color: isDayHidden ? '#7E9B86' : '#a8a29e', background: isDayHidden ? '#E4ECE6' : '#f5f5f4', touchAction: 'manipulation' }}>{isDayHidden ? 'Unhide' : 'Hide'}</button>
@@ -784,6 +793,11 @@ export default function Home() {
                   </div>
               )}
             </div>
+            {widgetPrefs.aiCoach !== false && (
+              <button onClick={() => setShowAiCoach(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#F3F8FA', border: '1px solid #C6DCE9', color: '#648399', touchAction: 'manipulation' }} title="Ask AI" aria-label="Ask AI">
+                <AiSparkleIcon />
+              </button>
+            )}
             {widgetPrefs.doctorNotes !== false && (
               <button onClick={() => { setDoctorNotesStartNew(false); setShowDoctorNotes(true); }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#E4ECE6', border: '1px solid #CAD9CF', color: '#476653', touchAction: 'manipulation' }} title="Doctor notes" aria-label="Doctor notes">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="block h-4 w-4" aria-hidden="true">
@@ -811,7 +825,19 @@ export default function Home() {
         {showWidgetSettings && <WidgetSettingsModal prefs={widgetPrefs} onChange={updateWidgetPrefs} onOpenTypes={() => { setShowTypeSettings(true); }} onClose={() => setShowWidgetSettings(false)} />}
         {showTypeSettings && <TypeSettingsModal types={typeOptions} meta={typeMeta} onChange={updateTypeMeta} onClose={() => setShowTypeSettings(false)} />}
         {showMasterDatabase && <MasterDatabaseModal exercises={allExercises} layout={layout} programMeta={programMeta} onLibraryChange={updateExerciseLibrary} onLayoutChange={updateLayout} onProgramMetaChange={updateProgramMeta} onClose={() => setShowMasterDatabase(false)} />}
-        {showAiCoach && <ExerciseAiCoachModal exercises={allExercises} selectedDate={selectedDate} today={today} onClose={() => setShowAiCoach(false)} />}
+        {showAiCoach && (
+          <ExerciseAiCoachModal
+            exercises={allExercises}
+            selectedDate={selectedDate}
+            today={today}
+            onClose={() => setShowAiCoach(false)}
+            onOpenDate={date => {
+              changeDate(date);
+              setShowAiCoach(false);
+              window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+            }}
+          />
+        )}
         <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={changeDate} open={showDoctorNotes} startInNew={doctorNotesStartNew} onClose={() => { setShowDoctorNotes(false); setDoctorNotesStartNew(false); }} />
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
