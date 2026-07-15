@@ -856,6 +856,18 @@ export function buildDeterministicAgentFallback(context: {
         actions,
       });
     }
+
+    const exerciseRemovalRequested = /\b(?:remove|delete)\b/i.test(instructionQuestion)
+      && /\b(?:exercise|movement|stretch|drill|library)\b/i.test(instructionQuestion)
+      && !/\b(?:note|metrics?|sets?|reps?|weight|duration|photo|image)\b/i.test(instructionQuestion);
+    if (exerciseRemovalRequested) return normalizeAgentPlan({
+      version: 1,
+      summary: `Remove ${exercise.name} from the exercise library`,
+      actions: [{
+        id: 'exercise-remove-1', type: 'exercise_remove', exerciseId: exercise.id,
+        reason: `You explicitly asked to remove ${exercise.name}.`,
+      }],
+    });
   }
 
   const normalizedInstruction = instructionQuestion.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

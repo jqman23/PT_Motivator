@@ -106,6 +106,18 @@ test('builds exercise metric set and clear plans from natural values', () => {
   assert.equal(clear?.actions[0]?.type, 'metrics_clear');
 });
 
+test('builds an exact-name destructive exercise removal only for the exercise itself', () => {
+  const exercise = { id: 'calf-1', name: 'Standing Calf Stretch' };
+  const removeExercise = buildDeterministicAgentFallback({
+    question: 'Remove the exercise Standing Calf Stretch', today: '2026-07-15', exercises: [exercise],
+  });
+  const removeMetrics = buildDeterministicAgentFallback({
+    question: 'Remove the metrics for Standing Calf Stretch', today: '2026-07-15', exercises: [exercise],
+  });
+  assert.equal(removeExercise?.actions[0]?.type, 'exercise_remove');
+  assert.equal(removeMetrics?.actions[0]?.type, 'metrics_clear');
+});
+
 test('builds append and clear plans for health note fields', () => {
   const append = buildDeterministicAgentFallback({
     question: 'Add to my pain note that my heel burned after walking', today: '2026-07-15',
