@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Exercise } from '@/lib/exercises';
 import { SmartDbMatch } from '@/components/SmartAddTypes';
+import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
+import SecretTextarea from './SecretTextarea';
 
 type DateLink = {
   date: string;
@@ -22,6 +24,8 @@ type AiReply = {
   confirmedExercise?: ExerciseDraft;
   model?: string;
   searchedDays?: number;
+  rerankerModel?: string;
+  rerankedCandidates?: number;
   degraded?: boolean;
 };
 
@@ -29,6 +33,7 @@ type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  aiInstructions?: string[];
   reply?: AiReply;
 };
 
@@ -156,6 +161,7 @@ function historyForApi(messages: ChatMessage[]) {
     return {
       role: message.role,
       content: `${message.content}${dates}`.slice(0, 900),
+      aiInstructions: message.aiInstructions?.slice(0, 4).map(instruction => instruction.slice(0, 300)),
     };
   });
 }
@@ -197,7 +203,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [error, setError] = useState('');
   const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fn = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -212,10 +218,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const apiHistory = useMemo(() => historyForApi(messages), [messages]);
 
   const ask = async (text: string) => {
-    const clean = text.trim();
+    const serialized = text.trim();
+    const clean = stripSecretNotes(serialized).trim();
+    const aiInstructions = extractAiInstructions(serialized).slice(0, 4);
     if (!clean || loading) return;
 
-    const userMessage: ChatMessage = { id: makeId(), role: 'user', content: clean };
+    const userMessage: ChatMessage = { id: makeId(), role: 'user', content: clean, aiInstructions };
     const historyBeforeQuestion = apiHistory;
     setMessages(previous => [...previous, userMessage]);
     setInput('');
@@ -228,7 +236,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: clean,
+          question: serialized,
           history: historyBeforeQuestion,
           sourceMatches,
           selectedDate,
@@ -253,6 +261,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         confirmedExercise: data.reply?.confirmedExercise,
         model: data.model,
         searchedDays: Number.isFinite(Number(data.searchedDays)) ? Number(data.searchedDays) : undefined,
+        rerankerModel: typeof data.rerankerModel === 'string' ? data.rerankerModel : undefined,
+        rerankedCandidates: Number.isFinite(Number(data.rerankedCandidates)) ? Number(data.rerankedCandidates) : undefined,
         degraded: data.degraded === true,
       };
 
@@ -266,7 +276,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       setError(err instanceof Error ? err.message : 'Ask AI failed');
     } finally {
       setLoading(false);
-      window.setTimeout(() => inputRef.current?.focus(), 100);
+      window.setTimeout(() => composerRef.current?.querySelector<HTMLElement>('[role="textbox"]')?.focus(), 100);
     }
   };
 
@@ -315,7 +325,21 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
           {messages.map(message => {
             if (message.role === 'user') {
-              return <div key={message.id} className="ml-8 rounded-2xl px-3 py-2.5 text-sm leading-snug bg-[#1F2F46] text-white whitespace-pre-wrap">{message.content}</div>;
+              return (
+                <div key={message.id} className="ml-8 rounded-2xl px-3 py-2.5 text-sm leading-snug bg-[#1F2F46] text-white whitespace-pre-wrap">
+                  {message.content}
+                  {!!message.aiInstructions?.length && (
+                    <div className="mt-2 border-t border-white/15 pt-1.5 text-[11px] leading-snug text-[#C6DCE9]">
+                      {message.aiInstructions.map((instruction, index) => (
+                        <div key={`${message.id}-ai-${index}`} className="flex items-start gap-1">
+                          <span className="font-bold uppercase">AI</span>
+                          <span className="border-b border-[#C6DCE9]/50">{instruction}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
             }
 
             const reply = message.reply;
@@ -323,9 +347,10 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               <div key={message.id} className="space-y-2">
                 <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm leading-relaxed text-stone-700 whitespace-pre-wrap">
                   {message.content}
-                  {(reply?.model || reply?.searchedDays) && (
+                  {(reply?.model || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
                       {reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
+                      {reply?.rerankerModel ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates</span> : null}
                       {reply?.model ? <span>{reply.degraded ? 'Fallback result' : reply.model}</span> : null}
                     </div>
                   )}
@@ -392,23 +417,17 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 whitespace-pre-wrap">{error}</p>}
         </div>
 
-        <div className="px-5 py-4 border-t border-stone-200">
-          <textarea
-            ref={inputRef}
+        <div ref={composerRef} className="px-5 py-4 border-t border-stone-200">
+          <SecretTextarea
             value={input}
-            onChange={event => setInput(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void ask(input);
-              }
-            }}
+            onChange={setInput}
+            onSubmit={() => void ask(input)}
             placeholder="Ask about a past day, a symptom pattern, an exercise, or follow up on the answer…"
             rows={2}
-            className="w-full text-sm border border-stone-200 rounded-2xl px-3 py-3 focus:outline-none resize-none bg-white"
+            className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-none bg-white"
             style={{ fontSize: 16, colorScheme: 'light' }}
           />
-          <button onClick={() => void ask(input)} disabled={loading || !input.trim()} className="mt-2 w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
+          <button onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
             {loading ? 'Thinking…' : messages.length ? 'Send follow-up' : 'Ask AI'}
           </button>
           <p className="mt-2 text-center text-[10px] leading-snug text-stone-400">It can use your saved logs, but its health interpretations are not a diagnosis.</p>

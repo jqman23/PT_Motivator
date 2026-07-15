@@ -47,3 +47,14 @@ test('keeps existing block object identity for future command metadata', () => {
   assert.equal(result.blocks[0], existing);
   assert.equal(NOTE_SLASH_COMMANDS.some(command => command.name === 'secret'), true);
 });
+
+test('turns /ai guidance in the middle of a sentence into an editable instruction block', () => {
+  const result = applyNoteSlashCommand([{ type: 'text', text: 'Describe my pain the past 7 days /ai look at pain and general notes' }]);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.commandName, 'ai');
+  assert.deepEqual(result.blocks, [
+    { type: 'text', text: 'Describe my pain the past 7 days ' },
+    { type: 'ai', text: 'look at pain and general notes' },
+  ]);
+});

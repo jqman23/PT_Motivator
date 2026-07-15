@@ -15,6 +15,7 @@ export type HistoryDayRecord = {
   exerciseNotes: HistoryExerciseNote[];
   health: Record<string, unknown> | null;
   session: HistorySession | null;
+  aiInstructions?: string[];
 };
 
 export type RankedHistoryDay<T extends HistoryDayRecord = HistoryDayRecord> = T & {

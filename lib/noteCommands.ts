@@ -18,6 +18,10 @@ export const NOTE_SLASH_COMMANDS: readonly NoteSlashCommand[] = [
     name: 'secret',
     createBlocks: argument => [{ type: 'secret', locked: false, text: argument }],
   },
+  {
+    name: 'ai',
+    createBlocks: argument => [{ type: 'ai', text: argument }],
+  },
 ];
 
 const commandByName = new Map(NOTE_SLASH_COMMANDS.map(command => [command.name, command]));

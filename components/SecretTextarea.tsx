@@ -12,13 +12,16 @@ type Props = {
   className?: string;
   style?: React.CSSProperties;
   autoFocus?: boolean;
+  onSubmit?: () => void;
   onFocus?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
   onBlur?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
 };
 
 type EditorSecretBlock = Extract<SecretNoteBlock, { type: 'secret' }> & { id: string };
-type EditorBlock = Extract<SecretNoteBlock, { type: 'text' }> | EditorSecretBlock;
-type PendingCaret = { secretId: string; position: 'inside-end' | 'before' | 'after' };
+type EditorAiBlock = Extract<SecretNoteBlock, { type: 'ai' }> & { id: string };
+type EditorCommandBlock = EditorSecretBlock | EditorAiBlock;
+type EditorBlock = Extract<SecretNoteBlock, { type: 'text' }> | EditorCommandBlock;
+type PendingCaret = { blockId: string; position: 'inside-end' | 'before' | 'after' };
 type TypingScrollSnapshot = {
   pageX: number;
   pageY: number;
@@ -34,6 +37,15 @@ function LockIcon({ locked }: { locked: boolean }) {
     <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="4.5" y="8.5" width="11" height="8" rx="2" />
       {locked ? <path d="M7 8.5V6.7a3 3 0 0 1 6 0v1.8" /> : <path d="M7 8.5V6.7a3 3 0 0 1 5.3-1.9" />}
+    </svg>
+  );
+}
+
+function AiIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 2.8l1.15 3.25L14.4 7.2l-3.25 1.15L10 11.6 8.85 8.35 5.6 7.2l3.25-1.15L10 2.8Z" />
+      <path d="M15.2 12.1l.62 1.73 1.73.62-1.73.62-.62 1.73-.62-1.73-1.73-.62 1.73-.62.62-1.73Z" />
     </svg>
   );
 }
@@ -58,31 +70,33 @@ function mergeEditorText(blocks: readonly EditorBlock[]): EditorBlock[] {
 }
 
 function makeEditorBlocks(value: string, idPrefix: string): EditorBlock[] {
-  let secretIndex = 0;
+  let commandIndex = 0;
   return mergeEditorText(parseSecretNote(value).map(block => {
-    if (block.type !== 'secret') return block;
-    const next = { ...block, id: `${idPrefix}-initial-${secretIndex}` };
-    secretIndex += 1;
+    if (block.type === 'text') return block;
+    const next = { ...block, id: `${idPrefix}-initial-${commandIndex}` };
+    commandIndex += 1;
     return next;
   }));
 }
 
-function ensureSecretIds(blocks: readonly SecretNoteBlock[], idPrefix: string): EditorBlock[] {
-  let newSecretIndex = 0;
+function ensureCommandIds(blocks: readonly SecretNoteBlock[], idPrefix: string): EditorBlock[] {
+  let newCommandIndex = 0;
   return mergeEditorText(blocks.map(block => {
-    if (block.type !== 'secret') return block;
-    const possibleId = (block as Partial<EditorSecretBlock>).id;
+    if (block.type === 'text') return block;
+    const possibleId = (block as Partial<EditorCommandBlock>).id;
     if (typeof possibleId === 'string') return { ...block, id: possibleId };
-    const next = { ...block, id: `${idPrefix}-new-${newSecretIndex}` };
-    newSecretIndex += 1;
+    const next = { ...block, id: `${idPrefix}-new-${newCommandIndex}` };
+    newCommandIndex += 1;
     return next;
   }));
 }
 
 function serializeEditorBlocks(blocks: readonly EditorBlock[]) {
-  return serializeSecretNote(blocks.map(block => block.type === 'secret'
-    ? { type: 'secret', locked: block.locked, text: block.text }
-    : block));
+  return serializeSecretNote(blocks.map(block => {
+    if (block.type === 'secret') return { type: 'secret', locked: block.locked, text: block.text };
+    if (block.type === 'ai') return { type: 'ai', text: block.text };
+    return block;
+  }));
 }
 
 function isEditorEmpty(blocks: readonly EditorBlock[]) {
@@ -100,6 +114,7 @@ function compactFieldClassName(className: string) {
 
 function readEditorBlocks(root: HTMLDivElement, previous: readonly EditorBlock[]): EditorBlock[] {
   const secretById = new Map(previous.filter((block): block is EditorSecretBlock => block.type === 'secret').map(block => [block.id, block]));
+  const aiById = new Map(previous.filter((block): block is EditorAiBlock => block.type === 'ai').map(block => [block.id, block]));
   const blocks: EditorBlock[] = [];
 
   const appendText = (text: string) => {
@@ -137,6 +152,14 @@ function readEditorBlocks(root: HTMLDivElement, previous: readonly EditorBlock[]
       return;
     }
 
+    if (node.dataset.ai === 'true') {
+      const id = node.dataset.commandId;
+      if (!id || !aiById.has(id)) return;
+      const content = node.querySelector<HTMLElement>('[data-ai-content="true"]');
+      blocks.push({ type: 'ai', id, text: cleanText(content?.textContent ?? '') });
+      return;
+    }
+
     if (node.tagName === 'BR') {
       appendText('\n');
       return;
@@ -147,9 +170,9 @@ function readEditorBlocks(root: HTMLDivElement, previous: readonly EditorBlock[]
   };
 
   Array.from(root.childNodes).forEach(child => visit(child, BLOCK_ELEMENTS.has((child as HTMLElement).tagName)));
-  const hasSecret = blocks.some(block => block.type === 'secret');
+  const hasCommand = blocks.some(block => block.type !== 'text');
   const hasTextNodeContent = cleanText(root.textContent ?? '').length > 0;
-  if (!hasSecret && !hasTextNodeContent && root.querySelector('br')) return [{ type: 'text', text: '' }];
+  if (!hasCommand && !hasTextNodeContent && root.querySelector('br')) return [{ type: 'text', text: '' }];
   return mergeEditorText(blocks);
 }
 
@@ -189,16 +212,16 @@ function isCaretScaffolding(node: Node | null) {
     || (node?.nodeType === Node.TEXT_NODE && !cleanText(node.textContent ?? ''));
 }
 
-function secretAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 'forward') {
+function commandAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 'forward') {
   const selection = window.getSelection();
   if (!selection?.isCollapsed || !selection.anchorNode) return null;
 
   const anchorElement = selection.anchorNode instanceof HTMLElement
     ? selection.anchorNode
     : selection.anchorNode.parentElement;
-  const secretContent = anchorElement?.closest<HTMLElement>('[data-secret-content="true"]');
-  if (secretContent && root.contains(secretContent) && !cleanText(secretContent.textContent ?? '')) {
-    return secretContent.closest<HTMLElement>('[data-secret="true"]')?.dataset.secretId ?? null;
+  const commandContent = anchorElement?.closest<HTMLElement>('[data-command-content="true"]');
+  if (commandContent && root.contains(commandContent) && !cleanText(commandContent.textContent ?? '')) {
+    return commandContent.closest<HTMLElement>('[data-command="true"]')?.dataset.commandId ?? null;
   }
 
   let candidate: Node | null;
@@ -219,7 +242,7 @@ function secretAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 
   candidate = skipCaretAnchors(candidate, direction);
   if (!(candidate instanceof HTMLElement)) return null;
   const expectedBoundary = direction === 'backward' ? 'after' : 'before';
-  return candidate.dataset.secretBoundary === expectedBoundary ? candidate.dataset.secretId ?? null : null;
+  return candidate.dataset.commandBoundary === expectedBoundary ? candidate.dataset.commandId ?? null : null;
 }
 
 function openSecretAtCaret(root: HTMLDivElement) {
@@ -232,15 +255,35 @@ function openSecretAtCaret(root: HTMLDivElement) {
   return secret && root.contains(secret) ? secret.dataset.secretId ?? null : null;
 }
 
-function openSecretContentEmptiedByDeletion(root: HTMLDivElement, direction: 'backward' | 'forward') {
+function aiAtCaret(root: HTMLDivElement) {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return null;
+  const anchorElement = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode.parentElement;
+  const ai = anchorElement?.closest<HTMLElement>('[data-ai="true"]');
+  return ai && root.contains(ai) ? ai.dataset.commandId ?? null : null;
+}
+
+function emptyCommandAtCaret(root: HTMLDivElement) {
+  const selection = window.getSelection();
+  if (!selection?.isCollapsed || !selection.anchorNode) return false;
+  const anchorElement = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode.parentElement;
+  const content = anchorElement?.closest<HTMLElement>('[data-command-content="true"]');
+  return Boolean(content && root.contains(content) && !cleanText(content.textContent ?? ''));
+}
+
+function commandContentEmptiedByDeletion(root: HTMLDivElement, direction: 'backward' | 'forward') {
   const selection = window.getSelection();
   if (!selection?.rangeCount || !selection.anchorNode) return null;
   const anchorElement = selection.anchorNode instanceof HTMLElement
     ? selection.anchorNode
     : selection.anchorNode.parentElement;
-  const content = anchorElement?.closest<HTMLElement>('[data-secret-content="true"]');
-  const secret = content?.closest<HTMLElement>('[data-secret="true"][data-locked="false"]');
-  if (!content || !secret || !root.contains(secret)) return null;
+  const content = anchorElement?.closest<HTMLElement>('[data-command-content="true"]');
+  const command = content?.closest<HTMLElement>('[data-command="true"]');
+  if (!content || !command || !root.contains(command)) return null;
 
   const fullText = cleanText(content.textContent ?? '');
   if (!fullText) return null;
@@ -314,7 +357,7 @@ function restoreSmallTypingShift(snapshot: TypingScrollSnapshot) {
   });
 }
 
-export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onFocus, onBlur }: Props) {
+export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onSubmit, onFocus, onBlur }: Props) {
   const editorId = useId();
   const [renderState, setRenderState] = useState(() => ({ blocks: makeEditorBlocks(value, editorId), revision: 0 }));
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
@@ -386,12 +429,12 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!pending) return;
     pendingCaretRef.current = null;
     const editor = editorRef.current;
-    const secret = editor?.querySelector<HTMLElement>(`[data-secret="true"][data-secret-id="${pending.secretId}"]`);
-    if (!editor || !secret) return;
+    const command = editor?.querySelector<HTMLElement>(`[data-command="true"][data-command-id="${pending.blockId}"]`);
+    if (!editor || !command) return;
 
     const target = pending.position === 'inside-end'
-      ? secret.querySelector<HTMLElement>('[data-secret-content="true"]')
-      : editor.querySelector<HTMLElement>(`[data-secret-boundary="${pending.position}"][data-secret-id="${pending.secretId}"]`);
+      ? command.querySelector<HTMLElement>('[data-command-content="true"]')
+      : editor.querySelector<HTMLElement>(`[data-command-boundary="${pending.position}"][data-command-id="${pending.blockId}"]`);
     if (!target) return;
 
     editor.focus({ preventScroll: true });
@@ -419,11 +462,22 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const syncFromEditor = () => {
     const current = readCurrent();
     if (!composingRef.current) {
+      const previousById = new Map(modelRef.current
+        .filter((block): block is EditorCommandBlock => block.type !== 'text')
+        .map(block => [block.id, block]));
+      const separated = current.find(block => block.type !== 'text'
+        && /^ /.test(block.text)
+        && !previousById.get(block.id)?.text);
+      if (separated && separated.type !== 'text') {
+        const next = current.map(block => block === separated ? { ...block, text: block.text.slice(1) } : block);
+        replaceEditor(next, { blockId: separated.id, position: 'inside-end' });
+        return;
+      }
       const command = applyNoteSlashCommand(current);
       if (command.changed) {
-        const next = ensureSecretIds(command.blocks, `${editorId}-${renderState.revision + 1}`);
+        const next = ensureCommandIds(command.blocks, `${editorId}-${renderState.revision + 1}`);
         const target = command.insertedBlockIndex === undefined ? undefined : next[command.insertedBlockIndex];
-        replaceEditor(next, target?.type === 'secret' ? { secretId: target.id, position: 'inside-end' } : undefined);
+        replaceEditor(next, target && target.type !== 'text' ? { blockId: target.id, position: 'inside-end' } : undefined);
         return;
       }
     }
@@ -453,13 +507,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     return true;
   };
 
-  const removeSecretWithoutRemount = (secretId: string) => {
+  const removeCommandWithoutRemount = (blockId: string) => {
     const editor = editorRef.current;
     if (!editor) return false;
-    const before = editor.querySelector<HTMLElement>(`[data-secret-boundary="before"][data-secret-id="${secretId}"]`);
-    const secret = editor.querySelector<HTMLElement>(`[data-secret="true"][data-secret-id="${secretId}"]`);
-    const after = editor.querySelector<HTMLElement>(`[data-secret-boundary="after"][data-secret-id="${secretId}"]`);
-    if (!before || !secret || !after) return false;
+    const before = editor.querySelector<HTMLElement>(`[data-command-boundary="before"][data-command-id="${blockId}"]`);
+    const command = editor.querySelector<HTMLElement>(`[data-command="true"][data-command-id="${blockId}"]`);
+    const after = editor.querySelector<HTMLElement>(`[data-command-boundary="after"][data-command-id="${blockId}"]`);
+    if (!before || !command || !after) return false;
 
     const pageScroll = { x: window.scrollX, y: window.scrollY };
     const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
@@ -520,10 +574,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     return true;
   };
 
-  const preserveEmptyOpenSecret = (direction: 'backward' | 'forward') => {
+  const preserveEmptyCommand = (direction: 'backward' | 'forward') => {
     const editor = editorRef.current;
     if (!editor) return false;
-    const content = openSecretContentEmptiedByDeletion(editor, direction);
+    const content = commandContentEmptiedByDeletion(editor, direction);
     if (!content) return false;
 
     const pageScroll = { x: window.scrollX, y: window.scrollY };
@@ -555,8 +609,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const handleBoundaryDeletion = (direction: 'backward' | 'forward') => {
     const editor = editorRef.current;
     if (!editor) return false;
-    const secretId = secretAtDeletionBoundary(editor, direction);
-    return secretId ? removeSecretWithoutRemount(secretId) : false;
+    const blockId = commandAtDeletionBoundary(editor, direction);
+    return blockId ? removeCommandWithoutRemount(blockId) : false;
   };
 
   const lockSecret = (secretId: string) => {
@@ -567,7 +621,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     setUnlockingId(null);
     setUnlockCode('');
     setUnlockError(false);
-    replaceEditor(next, { secretId, position: 'after' });
+    replaceEditor(next, { blockId: secretId, position: 'after' });
   };
 
   const lockOpenSecretAtCaret = () => {
@@ -577,6 +631,29 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!secretId) return false;
     lockSecret(secretId);
     return true;
+  };
+
+  const exitAiAtCaret = () => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    const blockId = aiAtCaret(editor);
+    if (!blockId) return false;
+    const boundary = editor.querySelector<HTMLElement>(`[data-command-boundary="after"][data-command-id="${blockId}"]`);
+    if (!boundary) return false;
+    const range = document.createRange();
+    range.setStartAfter(boundary);
+    range.collapse(true);
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return true;
+  };
+
+  const handleEnter = (submit: boolean) => {
+    if (lockOpenSecretAtCaret() || exitAiAtCaret()) return;
+    if (submit && onSubmit) onSubmit();
+    else handlePlainTextInsertion('\n');
   };
 
   const showUnlock = (secretId: string, control: HTMLElement) => {
@@ -600,7 +677,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     setUnlockingId(null);
     setUnlockCode('');
     setUnlockError(false);
-    replaceEditor(next, { secretId, position: 'inside-end' });
+    replaceEditor(next, { blockId: secretId, position: 'inside-end' });
   };
 
   const updateUnlockCode = (raw: string) => {
@@ -661,13 +738,19 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         onInput={handleEditorInput}
         onBeforeInput={event => {
           captureScrollBeforeTyping();
-          const inputType = (event.nativeEvent as InputEvent).inputType;
+          const nativeEvent = event.nativeEvent as InputEvent;
+          const inputType = nativeEvent.inputType;
+          if (inputType === 'insertText' && nativeEvent.data === ' ' && editorRef.current && emptyCommandAtCaret(editorRef.current)) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
           if (inputType === 'deleteContentBackward' && handleBoundaryDeletion('backward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
           }
-          if (inputType === 'deleteContentBackward' && preserveEmptyOpenSecret('backward')) {
+          if (inputType === 'deleteContentBackward' && preserveEmptyCommand('backward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
@@ -677,14 +760,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             typingScrollRef.current = null;
             return;
           }
-          if (inputType === 'deleteContentForward' && preserveEmptyOpenSecret('forward')) {
+          if (inputType === 'deleteContentForward' && preserveEmptyCommand('forward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
           }
           if (inputType !== 'insertParagraph' && inputType !== 'insertLineBreak') return;
           event.preventDefault();
-          if (!lockOpenSecretAtCaret()) handlePlainTextInsertion('\n');
+          handleEnter(inputType === 'insertParagraph');
           stabilizeScrollAfterTyping();
         }}
         onKeyDown={event => {
@@ -694,7 +777,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             typingScrollRef.current = null;
             return;
           }
-          if (event.key === 'Backspace' && preserveEmptyOpenSecret('backward')) {
+          if (event.key === 'Backspace' && preserveEmptyCommand('backward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
@@ -704,14 +787,14 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             typingScrollRef.current = null;
             return;
           }
-          if (event.key === 'Delete' && preserveEmptyOpenSecret('forward')) {
+          if (event.key === 'Delete' && preserveEmptyCommand('forward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
           }
           if (event.key !== 'Enter') return;
           event.preventDefault();
-          if (!lockOpenSecretAtCaret()) handlePlainTextInsertion('\n');
+          handleEnter(!event.shiftKey);
           stabilizeScrollAfterTyping();
         }}
         onPaste={event => {
@@ -735,21 +818,47 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         onBlur={finalizeBlur}
       >
         {renderState.blocks.map((block, index) => (
-          <Fragment key={block.type === 'secret' ? block.id : `text-${index}`}>
+          <Fragment key={block.type !== 'text' ? block.id : `text-${index}`}>
             {block.type === 'text' ? block.text : (
               <>
                 {CARET_ANCHOR}
                 <span
+                  data-command-boundary="before"
+                  data-command-id={block.id}
                   data-secret-boundary="before"
-                  data-secret-id={block.id}
+                  data-secret-id={block.type === 'secret' ? block.id : undefined}
                   contentEditable={false}
                   aria-hidden="true"
                   className="inline-block w-0 overflow-hidden align-baseline leading-none"
                 >
                   {CARET_ANCHOR}
                 </span>
-                {block.locked ? (
+                {block.type === 'ai' ? (
                   <span
+                    data-command="true"
+                    data-command-id={block.id}
+                    data-ai="true"
+                    className="ai-note-instruction mx-0.5 inline align-baseline text-[#4D6678]"
+                  >
+                    <span
+                      contentEditable={false}
+                      aria-hidden="true"
+                      className="mr-0.5 inline-flex h-4 w-4 items-center justify-center align-[-0.12em] text-[#648399]"
+                    >
+                      <AiIcon />
+                    </span>
+                    <span
+                      data-command-content="true"
+                      data-ai-content="true"
+                      className="ai-note-instruction-content outline-none"
+                    >
+                      {block.text || CARET_ANCHOR}
+                    </span>
+                  </span>
+                ) : block.locked ? (
+                  <span
+                    data-command="true"
+                    data-command-id={block.id}
                     data-secret="true"
                     data-secret-id={block.id}
                     data-locked="true"
@@ -764,7 +873,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                     onKeyDown={event => {
                       if (event.key === 'Backspace' || event.key === 'Delete') {
                         event.preventDefault();
-                        removeSecretWithoutRemount(block.id);
+                        removeCommandWithoutRemount(block.id);
                         return;
                       }
                       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -777,7 +886,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                     secret
                   </span>
                 ) : (
-                  <span data-secret="true" data-secret-id={block.id} data-locked="false" className="secret-note-open">
+                  <span data-command="true" data-command-id={block.id} data-secret="true" data-secret-id={block.id} data-locked="false" className="secret-note-open">
                     <span
                       data-secret-control="true"
                       contentEditable={false}
@@ -790,7 +899,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                       onKeyDown={event => {
                         if (event.key === 'Backspace' || event.key === 'Delete') {
                           event.preventDefault();
-                          removeSecretWithoutRemount(block.id);
+                          removeCommandWithoutRemount(block.id);
                           return;
                         }
                         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -802,6 +911,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                       <LockIcon locked={false} />
                     </span>
                     <span
+                      data-command-content="true"
                       data-secret-content="true"
                       className="secret-note-open-content outline-none"
                       style={{ boxShadow: 'inset 0 -0.32em rgb(126 155 134 / 0.16)' }}
@@ -811,8 +921,10 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                   </span>
                 )}
                 <span
+                  data-command-boundary="after"
+                  data-command-id={block.id}
                   data-secret-boundary="after"
-                  data-secret-id={block.id}
+                  data-secret-id={block.type === 'secret' ? block.id : undefined}
                   contentEditable={false}
                   aria-hidden="true"
                   className="inline-block w-0 overflow-hidden align-baseline leading-none"

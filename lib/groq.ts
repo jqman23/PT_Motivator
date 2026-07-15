@@ -1,4 +1,4 @@
-export type GroqTask = 'ask' | 'publicAsk' | 'log' | 'edit' | 'enhance' | 'summary';
+export type GroqTask = 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'summary';
 
 type Attempt = {
   model: string;
@@ -77,6 +77,9 @@ const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
   // external tools, so it is reserved for clearly non-personal public/general questions.
   ask: PERSONAL_ASSISTANT_CHAIN,
   publicAsk: PUBLIC_ASSISTANT_CHAIN,
+
+  // Scout receives only compact, preselected history candidates and returns date IDs.
+  rerank: ['meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.3-70b-versatile'],
 
   // Smart Add needs good JSON and decent reasoning, but it runs more often than Enhance.
   log: ['openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
