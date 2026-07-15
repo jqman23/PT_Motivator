@@ -31,7 +31,7 @@ The interaction model is deliberately split into four stages:
 
 The AI is not trusted as an executor. It can only propose data that passes the server-owned protocol.
 
-Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
+Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. Explicit navigation and numeric health commands also have deterministic, server-normalized plan fallbacks when model JSON is malformed. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
 
 ## Work Leading to the Current State
 
@@ -486,7 +486,7 @@ Verified properties:
 The final handoff state passed:
 
 ```bash
-node --test lib/aiAgent.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/aiHistoryScope.test.ts lib/aiRequestIntent.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/modalInteraction.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
+node --test lib/aiAgent.test.ts lib/aiAgentFallback.test.ts lib/aiChatHistory.test.ts lib/aiDatePresentation.test.ts lib/aiHistoryScope.test.ts lib/aiRequestIntent.test.ts lib/historyRanking.test.ts lib/aiReplyOptions.test.ts lib/modalInteraction.test.ts lib/noteCommands.test.ts lib/secretNotes.test.ts
 npx tsc --noEmit
 npx eslint components/ExerciseAiCoachModal.tsx lib/aiAgent.ts lib/aiAgentServer.ts lib/aiChatHistory.ts app/api/ai-agent/route.ts app/api/ai-agent/preview/route.ts app/api/ai-agent/undo/route.ts app/api/ai-exercise-question/route.ts
 npm run build

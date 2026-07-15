@@ -5,7 +5,7 @@ import { getConfig } from '@/lib/db';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
-import { normalizeAgentPlan } from '@/lib/aiAgent';
+import { buildDeterministicAgentFallback, normalizeAgentPlan } from '@/lib/aiAgent';
 import { isAgentRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildWholeHistoryComparison, strongFallbackDays, supportedDateLinkDates } from '@/lib/aiHistoryScope';
 
@@ -552,6 +552,7 @@ export async function POST(req: NextRequest) {
       ...history.flatMap(message => message.aiInstructions),
       ...questionAiInstructions,
     ], 8, 300);
+    const currentQuestionDates = extractDates(cleanQuestion, appToday, selectedDate);
     const explicitDates = extractDates(conversationText, appToday, selectedDate);
     const agentIntent = isAgentRequest(cleanQuestion)
       || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
@@ -696,7 +697,7 @@ export async function POST(req: NextRequest) {
         response_format: { type: 'json_object' },
       });
     } catch (error) {
-      const fallbackLinks = strongFallbackDays(rankedDays, explicitDates).slice(0, 4).map(day => ({
+      const fallbackLinks = strongFallbackDays(rankedDays, currentQuestionDates).slice(0, 4).map(day => ({
         date: day.date,
         label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
         reason: reasonForDay(day, cleanQuestion),
@@ -728,7 +729,13 @@ export async function POST(req: NextRequest) {
 
     const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
     const raw = jsonFromText(rawContent);
-    const normalizedAgentPlan = agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined;
+    const modelAgentPlan = agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined;
+    const normalizedAgentPlan = modelAgentPlan ?? (agentIntent ? buildDeterministicAgentFallback({
+      question: cleanQuestion,
+      today: appToday,
+      selectedDate,
+      explicitDates: currentQuestionDates,
+    }) : undefined);
     const agentPlanningStatus = !agentIntent ? undefined
       : normalizedAgentPlan ? 'planned' as const
         : raw.agentPlan ? 'invalid' as const : 'missing' as const;
@@ -738,7 +745,7 @@ export async function POST(req: NextRequest) {
     const answer = agentIntent && !normalizedAgentPlan && !/\?\s*$/.test(baseAnswer)
       ? `${baseAnswer}\n\nI recognized this as an app command, but I could not prepare a safe reviewable action plan. Please specify the exact item, date, and change.`
       : baseAnswer;
-    const supportedDates = supportedDateLinkDates(answer, explicitDates);
+    const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
     const dateLinks = cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
 

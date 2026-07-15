@@ -317,7 +317,7 @@ export function normalizeAgentActions(value: unknown): AgentAction[] {
       const endDate = date(raw.endDate);
       if (exerciseId && phrase.length >= 2 && NOTE_FIELD_SET.has(field) && startDate && endDate && startDate <= endDate && typeof raw.completed === 'boolean') action = { ...base, type, exerciseId, phrase, field, startDate, endDate, completed: raw.completed };
     } else if (type === 'navigate') {
-      const destination = text(raw.destination, 40) as AgentNavigationDestination;
+      const destination = text(raw.destination ?? raw.target, 40) as AgentNavigationDestination;
       const cleanDate = date(raw.date) || undefined;
       const exerciseId = text(raw.exerciseId, 180) || undefined;
       const noteId = text(raw.noteId, 100) || undefined;
@@ -346,6 +346,61 @@ export function normalizeAgentPlan(value: unknown): AgentPlan | undefined {
     summary: text(raw.summary, 240) || 'Review the proposed app changes',
     actions,
   };
+}
+
+const FALLBACK_NAVIGATION_TARGETS = [
+  { destination: 'doctorNotes', pattern: /\bdoctor(?:'s)? notes?\b/i, label: 'Doctor Notes' },
+  { destination: 'exerciseTypes', pattern: /\bexercise types?\b/i, label: 'Exercise Types' },
+  { destination: 'progressReport', pattern: /\b(?:progress|pt) reports?\b/i, label: 'Progress Report' },
+  { destination: 'dataExport', pattern: /\bdata export\b|\bexport (?:my )?data\b/i, label: 'Data Export' },
+  { destination: 'exerciseGuide', pattern: /\bexercise guides?\b/i, label: 'Exercise Guide' },
+  { destination: 'manageExercises', pattern: /\bmanage exercises?\b/i, label: 'Manage Exercises' },
+  { destination: 'masterDatabase', pattern: /\bmaster database\b/i, label: 'Master Database' },
+  { destination: 'ptSessions', pattern: /\b(?:pt|physical therapy) sessions?\b/i, label: 'PT Sessions' },
+  { destination: 'settings', pattern: /\bsettings?\b/i, label: 'Settings' },
+  { destination: 'calendar', pattern: /\bcalendar\b/i, label: 'Calendar' },
+  { destination: 'treatments', pattern: /\btreatments?\b/i, label: 'Treatments' },
+  { destination: 'library', pattern: /\b(?:exercise )?library\b/i, label: 'Library' },
+  { destination: 'timer', pattern: /\btimer\b/i, label: 'Timer' },
+  { destination: 'health', pattern: /\bhealth(?: tracker)?\b/i, label: 'Health' },
+] as const;
+
+export function buildDeterministicAgentFallback(context: {
+  question: string;
+  today: string;
+  selectedDate?: string | null;
+  explicitDates?: string[];
+}): AgentPlan | undefined {
+  const { question, today, selectedDate, explicitDates = [] } = context;
+  if (/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(question)) {
+    const target = FALLBACK_NAVIGATION_TARGETS.find(item => item.pattern.test(question));
+    if (target) {
+      return normalizeAgentPlan({
+        version: 1,
+        summary: `Open ${target.label}`,
+        actions: [{ id: 'navigate-1', type: 'navigate', destination: target.destination, reason: `You asked to open ${target.label}.` }],
+      });
+    }
+  }
+
+  if (!/\b(?:set|record|log|change|update|put|save|track|mark)\b/i.test(question)) return undefined;
+  const metric = question.match(/\b(sleep quality|sleep hours?|hours slept|pain|energy|mood)\b/i)?.[1]?.toLowerCase();
+  if (!metric) return undefined;
+  const metricPattern = metric.replace(/\s+/g, '\\s+');
+  const afterMetric = question.match(new RegExp(`${metricPattern}[^0-9-]{0,32}(-?\\d+(?:\\.\\d+)?)`, 'i'))?.[1];
+  const beforeMetric = question.match(new RegExp(`(-?\\d+(?:\\.\\d+)?)[^a-z0-9]{0,18}${metricPattern}`, 'i'))?.[1];
+  const value = Number(afterMetric ?? beforeMetric);
+  if (!Number.isFinite(value)) return undefined;
+
+  const field = metric === 'sleep quality' ? 'sleep_quality'
+    : metric === 'sleep hours' || metric === 'sleep hour' || metric === 'hours slept' ? 'sleep_hours'
+      : metric;
+  const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+  return normalizeAgentPlan({
+    version: 1,
+    summary: `Set ${metric} for ${actionDate}`,
+    actions: [{ id: 'health-1', type: 'health_change', date: actionDate, field, mode: 'replace', value, reason: `You asked to record ${metric} as ${value}.` }],
+  });
 }
 
 export function agentActionNeedsPhoto(action: AgentAction) {

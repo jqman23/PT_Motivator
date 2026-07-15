@@ -67,9 +67,11 @@ test('requires a meaningful doctor-note patch and an exact navigation destinatio
     { type: 'navigate', destination: 'doctorNote' },
     { type: 'navigate', destination: 'date' },
     { type: 'navigate', destination: 'arbitrary-css-selector' },
+    { type: 'navigate', target: 'settings' },
   ]);
 
-  assert.deepEqual(actions.map(action => action.type), ['doctor_note_upsert', 'navigate']);
+  assert.deepEqual(actions.map(action => action.type), ['doctor_note_upsert', 'navigate', 'navigate']);
+  assert.equal(actions[2].type === 'navigate' ? actions[2].destination : '', 'settings');
 });
 
 test('bounds colors and media URLs to values the app can render', () => {
