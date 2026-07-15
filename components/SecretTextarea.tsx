@@ -60,7 +60,7 @@ function convertSecretTriggers(blocks: SecretNoteBlock[]) {
   let changed = false;
   const next = blocks.flatMap(block => {
     if (block.type !== 'text') return [block];
-    const match = block.text.match(/(^|\n)\/secret\s([^\n]*)$/);
+    const match = block.text.match(/(^|\n)\/secret(?:\s([^\n]*))?$/);
     if (!match || match.index === undefined) return [block];
     changed = true;
     const lineStart = match.index + match[1].length;
@@ -91,17 +91,22 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
   const [unlockCode, setUnlockCode] = useState('');
   const [expanded, setExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const textRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
   const secretRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const pillRefs = useRef<Record<number, HTMLButtonElement | null>>({});
   const focusedRef = useRef(false);
   const pendingSecretIndex = useRef<number | null>(null);
   const pendingPillIndex = useRef<number | null>(null);
+  const pendingTextFocus = useRef<{ index: number; position: 'start' | 'end' } | null>(null);
   const canResize = /\bresize-y\b/.test(className);
   const serialized = useMemo(() => serializeSecretNote(blocks), [blocks]);
   const hasSecretBlock = blocks.some(block => block.type === 'secret');
   const plainText = useMemo(() => blocks.map(block => block.type === 'text' ? block.text : '').join(''), [blocks]);
   const expandedHeight = rows >= 3 ? 240 : 200;
   const textareaHeight = canResize && expanded ? expandedHeight : style?.height;
+  const secretClassName = className
+    .replace(/\bpy-2\.5\b/g, 'py-1.5')
+    .replace(/\bpy-2\b/g, 'py-1.5');
 
   useEffect(() => {
     if (focusedRef.current || value === serialized) return;
@@ -128,6 +133,17 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     pillRefs.current[index]?.focus();
   }, [blocks]);
 
+  useEffect(() => {
+    const pending = pendingTextFocus.current;
+    if (!pending) return;
+    pendingTextFocus.current = null;
+    const textarea = textRefs.current[pending.index];
+    if (!textarea) return;
+    const position = pending.position === 'start' ? 0 : textarea.value.length;
+    textarea.focus();
+    textarea.setSelectionRange(position, position);
+  }, [blocks]);
+
   const commit = (next: SecretNoteBlock[]) => {
     const clean = mergeText(next.length ? next : [{ type: 'text', text: '' }]);
     setBlocks(clean);
@@ -149,6 +165,15 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
 
   const patchBlock = (index: number, block: SecretNoteBlock) => {
     commit(blocks.map((current, i) => i === index ? block : current));
+  };
+
+  const insertTextNearSecret = (index: number, side: 'before' | 'after', text: string) => {
+    if (!text) return;
+    const insertionIndex = side === 'before' ? index : index + 1;
+    pendingTextFocus.current = { index: insertionIndex, position: 'end' };
+    const next = [...blocks];
+    next.splice(insertionIndex, 0, { type: 'text', text });
+    commit(next);
   };
 
   const removeBlock = (index: number) => {
@@ -196,6 +221,20 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     </button>
   );
 
+  const edgeInput = (index: number, side: 'before' | 'after') => (
+    <input
+      key={`${index}-${side}`}
+      value=""
+      onChange={event => insertTextNearSecret(index, side, event.target.value)}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      aria-label={side === 'before' ? 'Type before secret' : 'Type after secret'}
+      className="w-3 shrink-0 border-0 bg-transparent p-0 text-inherit outline-none"
+      style={{ fontSize: 16, colorScheme: 'light' }}
+    />
+  );
+
   if (!hasSecretBlock) {
     const textarea = (
       <textarea
@@ -233,8 +272,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
       <div
         role="textbox"
         aria-multiline="true"
-        className={`${className} secret-note-editor overflow-auto resize-none ${canResize ? 'pr-7 sm:resize-y sm:pr-3' : ''}`}
-        style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.55 + 1.4}rem`, height: textareaHeight, whiteSpace: 'pre-wrap' }}
+        className={`${secretClassName} secret-note-editor overflow-auto resize-none ${canResize ? 'pr-7 sm:resize-y sm:pr-3' : ''}`}
+        style={{ ...style, minHeight: style?.minHeight ?? `${Math.max(rows, 1) * 1.4 + 1}rem`, height: textareaHeight, whiteSpace: 'pre-wrap' }}
         onFocus={event => {
           focusedRef.current = true;
           onFocus?.(event as unknown as React.FocusEvent<HTMLTextAreaElement>);
@@ -245,7 +284,8 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
         }}
       >
         {blocks.map((block, index) => block.type === 'secret' ? (
-          <div key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="my-1 flex min-h-[1.55rem] w-full max-w-full flex-wrap items-center gap-1">
+          <div key={index} data-secret="true" data-secret-index={index} data-locked={block.locked ? 'true' : 'false'} className="my-0.5 flex min-h-[1.3rem] w-full max-w-full flex-wrap items-center gap-1">
+            {blocks[index - 1]?.type !== 'text' && edgeInput(index, 'before')}
             <button
               ref={node => {
                 pillRefs.current[index] = node;
@@ -307,17 +347,21 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                 aria-label="Secret note text"
               />
             )}
+            {blocks[index + 1]?.type !== 'text' && edgeInput(index, 'after')}
           </div>
         ) : isNewlineSpacer(block.text) ? (
           <div
             key={index}
             aria-hidden="true"
             className="block w-full border-0 bg-transparent p-0"
-            style={{ minHeight: `${textRows(block.text) * 1.55}rem` }}
+            style={{ minHeight: `${textRows(block.text) * 1.35}rem` }}
           />
         ) : (
           <textarea
             key={index}
+            ref={node => {
+              textRefs.current[index] = node;
+            }}
             value={block.text}
             onChange={event => patchBlock(index, { type: 'text', text: event.target.value })}
             rows={textRows(block.text)}
