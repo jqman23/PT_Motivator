@@ -184,6 +184,11 @@ function skipCaretAnchors(node: Node | null, direction: 'backward' | 'forward') 
   return current;
 }
 
+function isCaretScaffolding(node: Node | null) {
+  return node?.nodeType === Node.COMMENT_NODE
+    || (node?.nodeType === Node.TEXT_NODE && !cleanText(node.textContent ?? ''));
+}
+
 function secretAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 'forward') {
   const selection = window.getSelection();
   if (!selection?.isCollapsed || !selection.anchorNode) return null;
@@ -225,6 +230,37 @@ function openSecretAtCaret(root: HTMLDivElement) {
     : selection.anchorNode.parentElement;
   const secret = anchorElement?.closest<HTMLElement>('[data-secret="true"][data-locked="false"]');
   return secret && root.contains(secret) ? secret.dataset.secretId ?? null : null;
+}
+
+function openSecretContentEmptiedByDeletion(root: HTMLDivElement, direction: 'backward' | 'forward') {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !selection.anchorNode) return null;
+  const anchorElement = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode.parentElement;
+  const content = anchorElement?.closest<HTMLElement>('[data-secret-content="true"]');
+  const secret = content?.closest<HTMLElement>('[data-secret="true"][data-locked="false"]');
+  if (!content || !secret || !root.contains(secret)) return null;
+
+  const fullText = cleanText(content.textContent ?? '');
+  if (!fullText) return null;
+  const selectedRange = selection.getRangeAt(0);
+  if (!selectedRange.collapsed) {
+    return cleanText(selectedRange.toString()) === fullText ? content : null;
+  }
+
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(content);
+  beforeRange.setEnd(selection.anchorNode, selection.anchorOffset);
+  const afterRange = document.createRange();
+  afterRange.selectNodeContents(content);
+  afterRange.setStart(selection.anchorNode, selection.anchorOffset);
+  const before = cleanText(beforeRange.toString());
+  const after = cleanText(afterRange.toString());
+  const deletesLastCharacter = direction === 'backward'
+    ? Array.from(before).length === 1 && !after
+    : !before && Array.from(after).length === 1;
+  return deletesLastCharacter ? content : null;
 }
 
 function captureTypingScroll(root: HTMLDivElement): TypingScrollSnapshot | null {
@@ -427,13 +463,42 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
 
     const pageScroll = { x: window.scrollX, y: window.scrollY };
     const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
+    let firstRemoved: Node = before;
+    while (isCaretScaffolding(firstRemoved.previousSibling)) {
+      firstRemoved = firstRemoved.previousSibling!;
+    }
+    let lastRemoved: Node = after;
+    while (isCaretScaffolding(lastRemoved.nextSibling)) {
+      lastRemoved = lastRemoved.nextSibling!;
+    }
+    if (firstRemoved.previousSibling instanceof Text) {
+      firstRemoved.previousSibling.data = firstRemoved.previousSibling.data.replace(/\u200b+$/g, '');
+    }
+    if (lastRemoved.nextSibling instanceof Text) {
+      lastRemoved.nextSibling.data = lastRemoved.nextSibling.data.replace(/^\u200b+/g, '');
+    }
+    const previousText = firstRemoved.previousSibling?.nodeType === Node.TEXT_NODE
+      && cleanText(firstRemoved.previousSibling.textContent ?? '')
+      ? firstRemoved.previousSibling as Text
+      : null;
+    const nextText = lastRemoved.nextSibling?.nodeType === Node.TEXT_NODE
+      && cleanText(lastRemoved.nextSibling.textContent ?? '')
+      ? lastRemoved.nextSibling as Text
+      : null;
+
     const range = document.createRange();
-    range.setStartBefore(before);
-    range.setEndAfter(after);
+    range.setStartBefore(firstRemoved);
+    range.setEndAfter(lastRemoved);
     range.deleteContents();
-    const caret = document.createTextNode(CARET_ANCHOR);
-    range.insertNode(caret);
-    range.setStart(caret, CARET_ANCHOR.length);
+    if (previousText?.isConnected) {
+      range.setStart(previousText, previousText.length);
+    } else if (nextText?.isConnected) {
+      range.setStart(nextText, 0);
+    } else {
+      const caret = document.createTextNode(CARET_ANCHOR);
+      range.insertNode(caret);
+      range.setStart(caret, CARET_ANCHOR.length);
+    }
     range.collapse(true);
 
     editor.focus({ preventScroll: true });
@@ -452,6 +517,38 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     };
     restoreScroll();
     window.requestAnimationFrame(restoreScroll);
+    return true;
+  };
+
+  const preserveEmptyOpenSecret = (direction: 'backward' | 'forward') => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    const content = openSecretContentEmptiedByDeletion(editor, direction);
+    if (!content) return false;
+
+    const pageScroll = { x: window.scrollX, y: window.scrollY };
+    const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
+    const caret = document.createTextNode(CARET_ANCHOR);
+    content.replaceChildren(caret);
+    const range = document.createRange();
+    range.setStart(caret, CARET_ANCHOR.length);
+    range.collapse(true);
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    emit(readEditorBlocks(editor, modelRef.current));
+
+    const restoreScroll = () => {
+      editor.scrollLeft = editorScroll.left;
+      editor.scrollTop = editorScroll.top;
+      if (window.scrollX !== pageScroll.x || window.scrollY !== pageScroll.y) window.scrollTo(pageScroll.x, pageScroll.y);
+    };
+    restoreScroll();
+    window.requestAnimationFrame(() => {
+      restoreScroll();
+      window.requestAnimationFrame(restoreScroll);
+    });
     return true;
   };
 
@@ -570,7 +667,17 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             typingScrollRef.current = null;
             return;
           }
+          if (inputType === 'deleteContentBackward' && preserveEmptyOpenSecret('backward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
           if (inputType === 'deleteContentForward' && handleBoundaryDeletion('forward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
+          if (inputType === 'deleteContentForward' && preserveEmptyOpenSecret('forward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
@@ -587,7 +694,17 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
             typingScrollRef.current = null;
             return;
           }
+          if (event.key === 'Backspace' && preserveEmptyOpenSecret('backward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
           if (event.key === 'Delete' && handleBoundaryDeletion('forward')) {
+            event.preventDefault();
+            typingScrollRef.current = null;
+            return;
+          }
+          if (event.key === 'Delete' && preserveEmptyOpenSecret('forward')) {
             event.preventDefault();
             typingScrollRef.current = null;
             return;
