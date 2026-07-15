@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import SecretTextarea from './SecretTextarea';
 
 type PTSessionKind = 'pt' | 'training';
@@ -48,6 +48,14 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
   const [inputDate, setInputDate] = useState(today);
   const [inputKinds, setInputKinds] = useState<PTSessionKind[]>(['pt']);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const sorted = [...sessions].sort((a, b) => {
     const dateSort = b.date.localeCompare(a.date);
     if (dateSort !== 0) return dateSort;
@@ -91,8 +99,11 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8"
+      className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pt-sessions-title"
     >
       <div
         className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col"
@@ -101,10 +112,11 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
       >
         <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between flex-shrink-0">
           <div>
-            <h2 className="font-serif text-lg font-semibold text-stone-800">PT Sessions</h2>
+            <h2 id="pt-sessions-title" className="font-serif text-lg font-semibold text-stone-800">PT Sessions</h2>
             <p className="text-[11px] text-stone-400 mt-0.5">Track PT appointments and training sessions</p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-400"
           >
@@ -119,6 +131,7 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
               const selected = inputKinds.includes(kind);
               return (
                 <button
+                  type="button"
                   key={kind}
                   onClick={() => toggleInputKind(kind)}
                   className="rounded-xl px-3 py-2 text-xs font-bold border"
@@ -139,6 +152,7 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
               style={{ colorScheme: 'light' }}
             />
             <button
+              type="button"
               onClick={() => add(inputDate)}
               disabled={!canAdd(inputDate)}
               className="px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
@@ -148,6 +162,7 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
             </button>
           </div>
           <button
+            type="button"
             onClick={() => add(today)}
             disabled={!todayAddable}
             className="w-full py-2.5 text-xs font-semibold rounded-xl border-2 border-dashed transition-opacity disabled:opacity-40"
@@ -190,6 +205,7 @@ export default function PTSessionsModal({ sessions, onChange, onClose, today }: 
                             </span>
                             <div className="flex-1" />
                             <button
+                              type="button"
                               onClick={() => remove(session.date, kind)}
                               className="w-6 h-6 rounded-full hover:bg-stone-200 flex items-center justify-center text-stone-400 flex-shrink-0 transition-colors"
                             >

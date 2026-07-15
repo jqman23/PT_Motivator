@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { neon } from '@neondatabase/serverless';
-import { AgentAction, AgentPreviewItem, MAX_AGENT_ACTIONS, normalizeAgentActions } from '@/lib/aiAgent';
+import { AgentAction, AgentPreviewItem, MAX_AGENT_ACTIONS, coalesceAgentActions, normalizeAgentActions } from '@/lib/aiAgent';
 import { EXERCISES, Exercise } from '@/lib/exercises';
 import { CategoryConfig, COLOR_KEYS } from '@/lib/layout';
 
@@ -65,39 +65,6 @@ export async function loadAgentConfig(actions: AgentAction[]): Promise<AppAgentC
     widgetPrefs: values.widgetPrefs && typeof values.widgetPrefs === 'object' && !Array.isArray(values.widgetPrefs) ? values.widgetPrefs as Record<string, boolean> : {},
     appTitle: text(values.appTitle, 80) || 'PT Motivator',
   };
-}
-
-function actionTargetKey(action: AgentAction) {
-  switch (action.type) {
-    case 'completion_set': return `completion:${action.date}:${action.exerciseId}`;
-    case 'health_change': return `health:${action.date}:${action.field}`;
-    case 'metrics_set':
-    case 'metrics_clear': return `metrics:${action.date}:${action.exerciseId}`;
-    case 'exercise_update':
-    case 'exercise_move':
-    case 'exercise_remove': return `${action.type}:${action.exerciseId}`;
-    case 'category_upsert': return `category:${action.categoryId || action.name.toLowerCase()}`;
-    case 'category_remove': return `category:${action.categoryId}`;
-    case 'doctor_note_upsert': return action.noteId ? `doctor:${action.noteId}` : '';
-    case 'doctor_note_remove': return `doctor:${action.noteId}`;
-    case 'pt_session_upsert':
-    case 'pt_session_remove': return `session:${action.date}:${action.kind}`;
-    case 'widget_set': return `widget:${action.key}`;
-    case 'app_title_set': return 'app-title';
-    default: return '';
-  }
-}
-
-function removeConflictingActions(actions: AgentAction[]) {
-  const lastIndexByTarget = new Map<string, number>();
-  actions.forEach((action, index) => {
-    const key = actionTargetKey(action);
-    if (key) lastIndexByTarget.set(key, index);
-  });
-  return actions.filter((action, index) => {
-    const key = actionTargetKey(action);
-    return !key || lastIndexByTarget.get(key) === index;
-  });
 }
 
 async function expandBulkActions(actions: AgentAction[]) {
@@ -184,7 +151,25 @@ export async function validateAndExpandAgentActions(value: unknown) {
       if (category.exerciseIds.length > 0) throw new AgentValidationError('Move or remove every exercise before deleting that category.');
     }
   }
-  const expanded = removeConflictingActions(await expandBulkActions(rawActions));
+  const doctorIds = Array.from(new Set(rawActions.flatMap(action => (
+    action.type === 'doctor_note_upsert' && action.noteId ? [action.noteId]
+      : action.type === 'doctor_note_remove' ? [action.noteId]
+        : action.type === 'photo_attach' && action.target === 'doctor_note' && action.noteId ? [action.noteId]
+          : []
+  ))));
+  if (doctorIds.length) {
+    const rows = await sql`
+      SELECT id, jsonb_array_length(COALESCE(photo_attachments, '[]'::jsonb))::int AS photo_count
+      FROM doctor_notes
+      WHERE id IN (SELECT jsonb_array_elements_text(${JSON.stringify(doctorIds)}::jsonb))
+    `;
+    const byId = new Map(rows.map(row => [String(row.id), Number(row.photo_count ?? 0)]));
+    const missing = doctorIds.find(noteId => !byId.has(noteId));
+    if (missing) throw new AgentValidationError('The selected doctor note no longer exists.');
+    const unsafeDelete = rawActions.find(action => action.type === 'doctor_note_remove' && (byId.get(action.noteId) ?? 0) > 0);
+    if (unsafeDelete) throw new AgentValidationError('Open the doctor note to delete it because it contains photos.');
+  }
+  const expanded = coalesceAgentActions(await expandBulkActions(rawActions));
   if (!expanded.length) throw new AgentValidationError('No applicable changes were found.');
   if (expanded.filter(action => action.type === 'photo_attach').length > 1) {
     throw new AgentValidationError('Choose one photo destination at a time.');
@@ -292,14 +277,17 @@ export function applyAgentConfigActions(config: AppAgentConfig, actions: AgentAc
     } else if (action.type === 'category_upsert') {
       const existingIndex = action.categoryId ? layout.findIndex(category => category.id === action.categoryId) : -1;
       if (existingIndex >= 0) layout[existingIndex] = { ...layout[existingIndex], name: action.name, color: action.color || layout[existingIndex].color };
-      else ensureCategory(action.name);
+      else {
+        const categoryIndex = ensureCategory(action.name);
+        if (action.color) layout[categoryIndex] = { ...layout[categoryIndex], color: action.color };
+      }
       changed.add('layout');
     } else if (action.type === 'category_remove') {
       layout = layout.filter(category => category.id !== action.categoryId || category.exerciseIds.length > 0);
       changed.add('layout');
     } else if (action.type === 'pt_session_upsert') {
       const index = ptSessions.findIndex(session => session.date === action.date && (session.kind || 'pt') === action.kind);
-      const session = { date: action.date, kind: action.kind, note: action.note || '' };
+      const session = { date: action.date, kind: action.kind, note: action.note ?? (index >= 0 ? ptSessions[index].note : '') ?? '' };
       if (index >= 0) ptSessions[index] = session;
       else ptSessions.push(session);
       changed.add('ptSessions');

@@ -37,7 +37,7 @@ export type StoredAiReply = {
   rerankedCandidates?: number;
   degraded?: boolean;
   agentPlan?: PreviewedAgentPlan;
-  agentPlanningStatus?: 'planned' | 'missing' | 'invalid';
+  agentPlanningStatus?: 'planned' | 'clarification' | 'missing' | 'invalid';
 };
 
 export type StoredAiChatMessage = {
@@ -147,7 +147,7 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     rerankedCandidates: cleanNumber(raw.rerankedCandidates),
     degraded: raw.degraded === true,
     agentPlan,
-    agentPlanningStatus: raw.agentPlanningStatus === 'planned' || raw.agentPlanningStatus === 'missing' || raw.agentPlanningStatus === 'invalid'
+    agentPlanningStatus: raw.agentPlanningStatus === 'planned' || raw.agentPlanningStatus === 'clarification' || raw.agentPlanningStatus === 'missing' || raw.agentPlanningStatus === 'invalid'
       ? raw.agentPlanningStatus
       : undefined,
   };

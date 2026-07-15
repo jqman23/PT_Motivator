@@ -7,6 +7,7 @@ import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import SecretTextarea from './SecretTextarea';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
+import { isAgentRequest } from '@/lib/aiRequestIntent';
 import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 import {
   normalizeAiChatMessages,
@@ -144,7 +145,7 @@ function normalizeApiNinjasMatch(item: ApiNinjasResult, index: number): SmartDbM
 function shouldSearchExerciseSources(value: string) {
   const exerciseWords = /exercise|movement|stretch|drill|band|raise|curl|squat|lunge|bridge|balance|mobility|strength|form|construct|build|identify/i;
   const historyWords = /which day|what day|when did|history|previous|last time|day after|day before|compare|pattern|trend/i;
-  return exerciseWords.test(value) && !historyWords.test(value);
+  return exerciseWords.test(value) && !historyWords.test(value) && !isAgentRequest(value);
 }
 
 async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
@@ -315,33 +316,35 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
   const undone = Boolean(plan.undoneAt);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#C7D6CB] bg-[#EEF2ED]">
-      <div className="flex items-start justify-between gap-3 border-b border-[#D3DDD5] px-3 py-2.5">
+    <div className="overflow-hidden rounded-2xl border border-[#BFD0C3] bg-[#EEF3EF] shadow-[0_8px_24px_rgba(71,102,83,0.10)]">
+      <div className="flex items-start justify-between gap-3 border-b border-[#D3DDD5] bg-gradient-to-br from-[#F7FAF7] to-[#E8F0EA] px-4 py-3.5">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#DCE8DF] text-[#52705C]" aria-hidden="true">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#D7E6DB] text-[#476653]" aria-hidden="true">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M10 2.8l1.15 3.25L14.4 7.2l-3.25 1.15L10 11.6 8.85 8.35 5.6 7.2l3.25-1.15L10 2.8Z" /><path d="M15.2 12.1l.62 1.73 1.73.62-1.73.62-.62 1.73-.62-1.73-1.73-.62 1.73-.62.62-1.73Z" /></svg>
             </span>
-            <p className="text-[10px] font-bold uppercase text-[#52705C]">Proposed app actions</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#476653]">Review proposed changes</p>
+            <span className="rounded-full bg-white/75 px-2 py-0.5 text-[9px] font-bold text-[#64806D]">{plan.actions.length} action{plan.actions.length === 1 ? '' : 's'}</span>
           </div>
-          <p className="mt-1 text-sm font-semibold leading-snug text-stone-800">{plan.summary}</p>
+          <p className="mt-2 text-sm font-semibold leading-snug text-stone-800">{plan.summary}</p>
+          <p className="mt-1 text-[10px] leading-snug text-stone-500">{applied ? 'These selected changes were applied.' : undone ? 'These changes were applied and then undone.' : 'Nothing has changed yet. Check the rows, then apply only what you want.'}</p>
         </div>
-        <button type="button" onClick={onCopyJson} className="shrink-0 text-[10px] font-bold text-stone-400" title="Copy action-plan JSON">JSON</button>
+        <button type="button" onClick={onCopyJson} className="shrink-0 rounded-lg border border-white/80 bg-white/70 px-2 py-1.5 text-[9px] font-bold text-stone-400 hover:text-stone-600" title="Copy action-plan JSON">Copy plan</button>
       </div>
 
-      <div className="divide-y divide-[#D8E0DA]">
+      <div className="divide-y divide-[#D8E0DA] bg-white/35">
         {visibleActions.map(action => {
           const preview = previewById.get(action.id);
           const navigation = action.type === 'navigate';
           const selected = selectedIds.includes(action.id);
           return (
-            <div key={action.id} className="flex min-w-0 items-start gap-2.5 px-3 py-2.5">
+            <div key={action.id} className={`flex min-w-0 items-center gap-3 px-4 py-3 transition-colors ${selected || navigation ? 'bg-white/55' : 'bg-transparent opacity-65'}`}>
               {navigation ? (
-                <button type="button" onClick={() => onNavigate(action)} className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#BFCFC3] bg-[#F6F1E7] text-[#52705C]" aria-label={preview?.title || 'Open destination'}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#DCE8DF] text-[#52705C]" aria-hidden="true">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M7 4h9v9M16 4 6 14" /><path d="M13 16H4V7" /></svg>
-                </button>
+                </span>
               ) : (
-                <input type="checkbox" checked={selected} disabled={applied || undone || busy} onChange={() => onToggle(action.id)} className="mt-1 h-4 w-4 shrink-0 accent-[#6F8C78]" aria-label={`Include ${preview?.title || action.type}`} />
+                <input type="checkbox" checked={selected} disabled={applied || undone || busy} onChange={() => onToggle(action.id)} className="h-5 w-5 shrink-0 accent-[#52705C]" aria-label={`Include ${preview?.title || action.type}`} />
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -352,6 +355,11 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
                 {preview?.detail && <p className="mt-0.5 break-words text-[10px] leading-snug text-stone-500">{preview.detail}</p>}
                 {action.reason && <p className="mt-0.5 text-[9px] leading-snug text-stone-400">{action.reason}</p>}
               </div>
+              {navigation && (
+                <button type="button" onClick={() => onNavigate(action)} className="shrink-0 rounded-lg bg-[#1F2F46] px-3 py-2 text-[10px] font-bold text-white" aria-label={preview?.title || 'Open destination'}>
+                  Open
+                </button>
+              )}
             </div>
           );
         })}
@@ -375,18 +383,24 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
       {error && <p className="border-t border-red-100 bg-red-50 px-3 py-2 text-[11px] text-red-600">{error}</p>}
       {copyStatus && <p className="border-t border-[#D3DDD5] px-3 py-1.5 text-center text-[10px] font-semibold text-[#64806D]">{copyStatus}</p>}
       {writeActions.length > 0 && (
-        <div className="flex items-center gap-2 border-t border-[#D3DDD5] px-3 py-2.5">
+        <div className="border-t border-[#D3DDD5] bg-[#F7FAF7] px-4 py-3">
           {applied ? (
-            <div className="flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#DCE8DF] text-xs font-bold text-[#52705C]">
+            <div className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-[#DCE8DF] text-xs font-bold text-[#52705C]">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="m4 10 4 4 8-8" /></svg>
               Applied
             </div>
           ) : undone ? (
-            <div className="flex min-h-9 flex-1 items-center justify-center rounded-lg bg-stone-200/70 text-xs font-bold text-stone-500">Undone</div>
+            <div className="flex min-h-11 w-full items-center justify-center rounded-xl bg-stone-200/70 text-xs font-bold text-stone-500">Undone</div>
           ) : (
-            <button type="button" onClick={onApply} disabled={busy || selectedCount === 0} className="min-h-9 flex-1 rounded-lg bg-[#1F2F46] px-3 text-xs font-bold text-white disabled:opacity-40" style={{ touchAction: 'manipulation' }}>
-              {busy ? 'Applying safely…' : `Apply ${selectedCount} selected`}
-            </button>
+            <>
+              <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-semibold text-stone-500">
+                <span>{selectedCount} of {writeActions.length} selected</span>
+                <span>Review required</span>
+              </div>
+              <button type="button" onClick={onApply} disabled={busy || selectedCount === 0} className="min-h-11 w-full rounded-xl bg-[#1F2F46] px-3 text-sm font-bold text-white shadow-sm disabled:opacity-40" style={{ touchAction: 'manipulation' }}>
+                {busy ? 'Applying safely…' : `Apply ${selectedCount} change${selectedCount === 1 ? '' : 's'}`}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -836,7 +850,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4"
+      className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4"
       onPointerDown={event => {
         if (isDirectBackdropInteraction(event.target, event.currentTarget)) closeModal();
       }}
@@ -1074,7 +1088,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             );
           })}
 
-          {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Checking your app history and thinking…</div>}
+          {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Preparing a careful response and any requested review actions…</div>}
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 whitespace-pre-wrap">{error}</p>}
         </div>
 
@@ -1083,7 +1097,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           <SecretTextarea
             value={input}
             onChange={setInput}
-            placeholder="Ask about a past day, a symptom pattern, an exercise, or follow up on the answer…"
+            placeholder="Ask about your history—or tell AI what you want to change…"
             rows={2}
             className="ai-coach-composer-editor w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
             style={{ fontSize: 16, colorScheme: 'light' }}
@@ -1092,14 +1106,14 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             {loading ? 'Thinking…' : messages.length ? 'Send follow-up' : 'Ask AI'}
           </button>
           {historySaveError && <p className="mt-2 text-center text-[10px] font-semibold text-red-500">The answer is here, but chat history could not save.</p>}
-          <p className="mt-2 text-center text-[10px] leading-snug text-stone-400">It can use your saved logs, but its health interpretations are not a diagnosis.</p>
+          <p className="mt-2 text-center text-[10px] leading-snug text-stone-400">App changes always appear for review before Apply. Health interpretations are not a diagnosis.</p>
         </div>
           </>
         )}
       </div>
 
       {datePreview && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 px-5" onClick={event => { event.stopPropagation(); setDatePreview(null); }}>
+        <div className="fixed inset-0 z-[10030] flex items-center justify-center bg-black/35 px-5" onClick={event => { event.stopPropagation(); setDatePreview(null); }}>
           <div role="dialog" aria-modal="true" aria-labelledby="ai-date-summary-title" className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-2xl" onClick={event => event.stopPropagation()}>
             <div className="flex items-center justify-between gap-3">
               <div>

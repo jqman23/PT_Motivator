@@ -12,6 +12,11 @@ test('recognizes natural app commands and short follow-ups', () => {
     'Take me to my doctor notes',
     'I completed my balance exercise',
     'Yes, do that',
+    'My pain is 4 today',
+    'I slept 7.5 hours',
+    'Ask my doctor about the swelling',
+    'PT session tomorrow',
+    '2 sets of 10 reps on calf raises',
   ]) assert.equal(isAgentRequest(request), true, request);
 });
 
@@ -25,7 +30,28 @@ test('does not turn advice or capability questions into commands', () => {
 });
 
 test('recognizes requests that require comparison across the whole loaded history', () => {
-  assert.equal(isWholeHistoryComparisonRequest('Look at all sessions. Tell me about my best day.'), true);
-  assert.equal(isWholeHistoryComparisonRequest('Which was my worst session overall?'), true);
-  assert.equal(isWholeHistoryComparisonRequest('When did I mention heel burning?'), false);
+  for (const request of [
+    'Look at all sessions. Tell me about my best day.',
+    'Which was my worst session overall?',
+    'Review everything I have logged.',
+    'Use my complete history to answer this.',
+    'Analyze my records from the very beginning.',
+    'Take every single logged day into account.',
+    'Compare them all and tell me what stands out.',
+    'Since I started tracking, when was I doing best?',
+    'Do not just use the recent days; consider everything.',
+    'What was my best day of all time?',
+    'Scan each check-in before answering.',
+    'Base this on all available saved data.',
+  ]) assert.equal(isWholeHistoryComparisonRequest(request), true, request);
+});
+
+test('keeps bounded and targeted history questions on retrieval instead of whole-history comparison', () => {
+  for (const request of [
+    'When did I mention heel burning?',
+    'Compare my last seven days.',
+    'What happened yesterday?',
+    'Find the first day I mentioned stairs.',
+    'Summarize this PT session.',
+  ]) assert.equal(isWholeHistoryComparisonRequest(request), false, request);
 });

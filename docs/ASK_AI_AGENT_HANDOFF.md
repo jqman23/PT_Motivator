@@ -4,7 +4,7 @@ Last updated: 2026-07-15
 
 Agent implementation baseline: `7c730f6` (`Add undoable AI agent actions`)
 
-Implementation deployment state at handoff: pushed to `main`; GitHub/Vercel reported the deployment successful. The later documentation-only commit containing this file does not change the runtime architecture described here.
+Implementation state: the original transaction protocol was introduced in `7c730f6`; the current repository HEAD includes the July 15 Ask AI reliability, fallback-key, whole-history, UI, and liberal-planning hardening described below.
 
 This document is the source of truth for continuing work on Ask AI, `/ai` note guidance, history retrieval, chat persistence, and authorized AI agent actions. It records the product intent, implementation, database behavior, verification, important decisions, and known continuation points.
 
@@ -31,7 +31,7 @@ The interaction model is deliberately split into four stages:
 
 The AI is not trusted as an executor. It can only propose data that passes the server-owned protocol.
 
-Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. Explicit navigation and numeric health commands also have deterministic, server-normalized plan fallbacks when model JSON is malformed. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
+Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements, direct health values, PT/training dates, doctor questions, sets/reps statements, and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. A liberal model-output adapter accepts common camelCase/snake_case action names, nested parameter objects, names in place of IDs, relative dates, and supported action aliases before the strict protocol validator runs. If the first response still has no plan, a dedicated zero-temperature planner gets one bounded retry. Explicit navigation, numeric health commands, health notes, PT sessions, doctor questions/follow-ups, exercise metrics, and exact-name exercise completion/note commands also have deterministic server fallbacks. Agent answers are rewritten to server-owned review language so the assistant never claims a proposed change already happened. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
 
 ## Work Leading to the Current State
 
@@ -159,7 +159,7 @@ The query planner adds:
 
 The deterministic stage returns at most 24 plausible candidates and does not pad the result with unrelated days.
 
-Whole-history comparisons are handled separately from targeted retrieval. When the conversation asks for all/every/overall history or a global best/worst day, the main model receives one compact structured row for every loaded saved day, including the core health metrics, session kind, activity/note counts, and a bounded notable-context excerpt. Scout may still choose detailed candidate records, but those candidates no longer define the comparison scope. The UI reports `Compared all N saved days` for this path instead of implying that Scout's candidate count was the full history.
+Whole-history comparisons are handled separately from targeted retrieval. Requests using all/every/each/entire/full/complete/whole/overall/all-time/lifetime language, “look through everything,” “since I started tracking,” “leave nothing out,” “compare them all,” or a global best/worst superlative all select this path. The main model receives one compact structured row for every loaded saved day, including the core health metrics, session kind, activity/note counts, and a bounded notable-context excerpt. Scout may still choose detailed candidate records, but those candidates no longer define the comparison scope. The UI reports `Compared all N saved days` for this path and hides the Scout-candidate label so it cannot imply that a 24-candidate shortlist was the full comparison.
 
 ### Scout Reranking
 
@@ -328,6 +328,8 @@ The protocol normalizer:
 - Requires explicit structured targets for photos.
 - Allows only one photo destination per plan.
 - Rejects a plan that attaches a photo to a doctor note it also deletes.
+- Coalesces compatible edits to the same target instead of silently dropping an earlier patch or producing a duplicate-row SQL conflict.
+- Lets an explicit exercise removal override incompatible edit/move actions for the same exercise.
 
 The server revalidates every plan during preview and again immediately before apply. Client-side state and model output are not trusted.
 
@@ -340,9 +342,10 @@ It:
 - Normalizes the action list.
 - Loads only configuration keys needed by those action types.
 - Confirms exercise and category targets still exist.
+- Confirms doctor-note targets still exist and rejects agent deletion of a note with photos before the Apply stage.
 - Requires a category to be empty before removal.
 - Expands bulk rules into concrete actions.
-- Resolves conflicts using the last action for a single-value target.
+- Resolves single-value conflicts while merging compatible note, category, and exercise patches.
 - Produces human-readable preview rows.
 - Labels actions as navigation, change, destructive, or bulk.
 
@@ -360,6 +363,10 @@ The review interface in `components/ExerciseAiCoachModal.tsx` provides:
 - One Apply selected button.
 - Applied and Undone states.
 - JSON plan copy with visible confirmation.
+- A contained, high-contrast review surface with an action-count badge, explicit “nothing changed yet” language, selected-count status, larger checkboxes, and full Open buttons for navigation.
+- Modal layers above the desktop action bar and floating widget controls. The PT Sessions dialog uses the same protected overlay layer and supports Escape-to-close.
+
+Agent commands do not load ordinary saved-day history merely because they mention today or another explicit date. They also suppress unrelated date tiles, Scout labels, external exercise search, and exercise-draft cards. This keeps a direct command focused on the review card and avoids unnecessary Neon/API work.
 
 Applied plans cannot be applied a second time from the same chat card. Selected/applied action IDs persist in chat history.
 
@@ -492,9 +499,9 @@ npx eslint components/ExerciseAiCoachModal.tsx lib/aiAgent.ts lib/aiAgentServer.
 npm run build
 ```
 
-Results:
+Results for the July 15 hardening pass:
 
-- 37 focused tests passed.
+- 59 focused tests passed.
 - TypeScript passed.
 - Targeted ESLint passed.
 - The full Next.js production build passed when `DATABASE_URL` was supplied privately.
@@ -532,11 +539,9 @@ This specifically verifies the final fix that keeps persisted chat status synchr
 
 ### Deployment
 
-- Commit: `7c730f6 Add undoable AI agent actions`.
-- Pushed directly to `origin/main`.
-- Vercel commit status: successful deployment.
+The original agent transaction implementation (`7c730f6`) and subsequent hardening commits are pushed directly to `origin/main`; use `git log` and the Vercel deployment status for the exact current production commit.
 
-The in-app browser/screenshot tool was unavailable in the implementation environment. Mobile visual behavior received responsive code review and production-build verification, but not an automated screenshot pass. A real iPhone/Safari interaction pass remains the highest-value manual follow-up.
+The in-app browser/screenshot tool was unavailable in the implementation environment. Desktop/mobile visual behavior received responsive code review and production-build verification, but not an automated screenshot pass. A real desktop and iPhone/Safari interaction pass remains the highest-value manual follow-up.
 
 ## Important Current Constraints
 
@@ -547,7 +552,7 @@ The in-app browser/screenshot tool was unavailable in the implementation environ
 - Direct plans are prompted to contain at most 12 actions, while server-expanded plans are hard-capped at 100.
 - The protocol accepts valid calendar dates broadly. Product rules for disallowing future completion/health dates could be added separately if desired; PT/training sessions may legitimately be future-dated.
 - Version 1 does not directly edit doctor response transcripts, exercise type-display metadata, exercise program-display metadata, local-only filters, or hidden-completed local state.
-- Version 1 can append to a doctor note body but has no separate semantic `follow_up` record type.
+- Version 1 represents doctor follow-ups/responses as append operations on the exact doctor note body; it does not create a separate semantic `follow_up` database record or edit voice-transcript tiles.
 - There is no agent-created arbitrary SQL or arbitrary JSON/config write action. This is deliberate; only allow-listed domain actions are executable.
 - The app is currently a personal application and follows the authorization model of the existing API routes. If it becomes multi-user, every chat, run, and mutation query must be scoped to an authenticated owner before expanding the protocol.
 - AI plans are validated twice, but the pre-read and final serverless transaction are separate phases. In this single-user app that is acceptable. A multi-user version should consider stronger compare-and-swap semantics for fields that can be edited concurrently.

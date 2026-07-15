@@ -5,13 +5,65 @@ import { getConfig } from '@/lib/db';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
-import { buildDeterministicAgentFallback, normalizeAgentPlan } from '@/lib/aiAgent';
+import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
 import { isAgentRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildWholeHistoryComparison, strongFallbackDays, supportedDateLinkDates } from '@/lib/aiHistoryScope';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
 const MAX_HISTORY_DAYS = Math.max(90, Math.min(730, Number(process.env.AI_HISTORY_DAYS_PTMOTIVATOR || 365)));
+
+const AGENT_ACTION_CONTRACT = {
+  rules: [
+    'Return every clearly requested action, not a prose claim that it happened.',
+    'Use exact IDs from the supplied existing exercises, categories, and doctor notes.',
+    'Use today/currentlySelectedDate when the command says today, this day, or omits the date for a day-specific edit.',
+    'Append notes unless the user explicitly requests replace, rewrite, clear, or overwrite.',
+    'Prefer a reviewable proposal when context provides one reasonable interpretation; ask one clarification only for a genuinely missing target, value, or note text.',
+    'Use doctor_note_upsert mode append for a follow-up, response, or next-step note attached to an existing doctor note.',
+  ],
+  shapes: [
+    'completion_set{date,exerciseId,completed}',
+    'exercise_note_change{date,exerciseId,mode,text}',
+    'health_change{date,field,mode,value}',
+    'metrics_set{date,exerciseId,sets,reps,durationSeconds,weight,weightUnit,scopeMultiplier}',
+    'metrics_clear{date,exerciseId}',
+    'exercise_add{exercise:{name,cat,cue,sets,tips,optional,programs,imageSearch,mainImageUrl,mainImageUrls,mainVideoUrl},categoryName}',
+    'exercise_update{exerciseId,patch}', 'exercise_move{exerciseId,categoryName}', 'exercise_remove{exerciseId}',
+    'category_upsert{categoryId,name,color}', 'category_remove{categoryId}',
+    'doctor_note_upsert{noteId,mode,patch}', 'doctor_note_remove{noteId}',
+    'pt_session_upsert{date,kind,note}', 'pt_session_remove{date,kind}',
+    'widget_set{key,enabled}', 'app_title_set{title}',
+    'photo_attach{target,date,exerciseId,noteId}',
+    'bulk_completion_from_note{exerciseId,phrase,field,startDate,endDate,completed}',
+    'navigate{destination,date,exerciseId,noteId}',
+  ],
+} as const;
+
+function agentActionTarget(action: AgentAction) {
+  switch (action.type) {
+    case 'completion_set': return `${action.type}:${action.date}:${action.exerciseId}`;
+    case 'exercise_note_change': return `${action.type}:${action.date}:${action.exerciseId}`;
+    case 'health_change': return `${action.type}:${action.date}:${action.field}`;
+    case 'metrics_set':
+    case 'metrics_clear': return `metrics:${action.date}:${action.exerciseId}`;
+    case 'exercise_update':
+    case 'exercise_move':
+    case 'exercise_remove': return `${action.type}:${action.exerciseId}`;
+    case 'category_upsert': return `${action.type}:${action.categoryId || action.name.toLowerCase()}`;
+    case 'category_remove': return `${action.type}:${action.categoryId}`;
+    case 'doctor_note_upsert': return `${action.type}:${action.noteId || action.id}`;
+    case 'doctor_note_remove': return `${action.type}:${action.noteId}`;
+    case 'pt_session_upsert':
+    case 'pt_session_remove': return `session:${action.date}:${action.kind}`;
+    case 'widget_set': return `${action.type}:${action.key}`;
+    case 'app_title_set': return action.type;
+    case 'photo_attach': return `${action.type}:${action.target}:${action.date || ''}:${action.exerciseId || ''}:${action.noteId || ''}`;
+    case 'bulk_completion_from_note': return `${action.type}:${action.exerciseId}:${action.field}:${action.startDate}:${action.endDate}`;
+    case 'exercise_add': return `${action.type}:${action.exercise.name.toLowerCase()}`;
+    case 'navigate': return `${action.type}:${action.destination}:${action.date || ''}:${action.exerciseId || ''}:${action.noteId || ''}`;
+  }
+}
 
 type ExerciseContext = {
   id: string;
@@ -113,6 +165,7 @@ function extractDates(text: string, today: string, selectedDate?: string | null)
 
   const lower = text.toLowerCase();
   if (/\btoday\b/.test(lower)) add(today);
+  if (/\btomorrow\b/.test(lower)) add(shiftDate(today, 1));
   if (/\bday before yesterday\b|\btwo days ago\b/.test(lower)) add(shiftDate(today, -2));
   else if (/\byesterday\b/.test(lower)) add(shiftDate(today, -1));
   if (/\blast week\b/.test(lower)) add(shiftDate(today, -7));
@@ -559,7 +612,7 @@ export async function POST(req: NextRequest) {
     const priorUserQuestion = history.toReversed().find(message => message.role === 'user')?.content ?? '';
     const wholeHistoryIntent = isWholeHistoryComparisonRequest(cleanQuestion)
       || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion));
-    const historyIntent = isHistoryQuestion(cleanQuestion) || explicitDates.length > 0;
+    const historyIntent = isHistoryQuestion(cleanQuestion) || (!agentIntent && explicitDates.length > 0);
     const patternIntent = isPatternQuestion(cleanQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
     const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || questionAiInstructions.length > 0;
@@ -591,7 +644,10 @@ export async function POST(req: NextRequest) {
       analytics = patternIntent || wholeHistoryIntent ? buildAnalytics(dayRecords) : null;
     }
 
-    const matchedExerciseContext = rankExercises(cleanQuestion, exercises);
+    const agentExerciseQuery = agentIntent
+      ? `${history.filter(message => message.role === 'user').map(message => message.content).join(' ')} ${cleanQuestion}`
+      : cleanQuestion;
+    const matchedExerciseContext = rankExercises(agentExerciseQuery, exercises);
     const allowedDates = new Set([
       ...rankedDays.map(day => day.date),
       ...(wholeHistoryIntent ? dayRecords.map(day => day.date) : []),
@@ -603,7 +659,8 @@ export async function POST(req: NextRequest) {
       ? requestBody.appContext as Record<string, unknown>
       : {};
     let doctorNotesContext: Array<Record<string, unknown>> = [];
-    if (/doctor|provider|appointment question|medical note/i.test(cleanQuestion)) {
+    const doctorContextText = agentIntent ? conversationText : cleanQuestion;
+    if (/doctor|provider|appointment question|medical note|follow[- ]?up/i.test(doctorContextText)) {
       const rows = await sql`
         SELECT id, kind, title, provider, reference_text, LEFT(body, 600) AS body, linked_dates, pinned, note_color
         FROM doctor_notes
@@ -641,8 +698,10 @@ export async function POST(req: NextRequest) {
       'Ask at most one clarifying question at a time, and put that question only in answer.',
       'When and only when the user clearly asks to change the app or open a destination, also return agentPlan. A plan proposes actions for user review; it does not claim they already happened.',
       'agentPlanningRequested is decided by the server. When it is true, you MUST either return a valid agentPlan with at least one supported action or ask one specific clarification question in answer. Never respond as though an app change happened without a plan.',
+      'For an agent request, creating a complete review plan is the primary task. Return every clearly requested action in the same plan. Do not substitute confirmedExercise, instructions, dateLinks, or manual steps for agentPlan.',
       'Do not return agentPlan for hypothetical questions, capability questions, explanations, medical advice, or ambiguous requests. Ask one clarification instead when the target, date, note, or intended value is unclear.',
       'Default note edits to append. Use replace only when the user explicitly says replace, rewrite, clear, or set the whole note. Never infer a health score or completion from ambiguous language.',
+      'Represent a requested doctor-note follow-up, response, or next step with doctor_note_upsert mode append on the exact existing note.',
       'Use exact exercise IDs from relevantExercisesInApp. Use exact doctor-note IDs from doctorNotes. Use currentlySelectedDate when the user says this day or does not specify a date for a clearly day-specific command.',
       'For many completion changes based on note text, emit one bulk_completion_from_note action rather than listing dates. The server will deterministically find and preview matches.',
       'A photo_attach action only opens a user-controlled photo chooser during review. Never invent photo data or claim access to the photo library. Propose at most one photo_attach action per plan.',
@@ -675,6 +734,7 @@ export async function POST(req: NextRequest) {
       },
       doctorNotes: doctorNotesContext,
       agentPlanningRequested: agentIntent,
+      agentActionContract: agentIntent ? AGENT_ACTION_CONTRACT : null,
       agentPlanningDirective: agentIntent
         ? 'This request is a direct app command. Return a valid non-empty agentPlan for review, or ask exactly one clarification question if a required target or value is missing. Do not merely explain how the user could do it manually.'
         : null,
@@ -684,6 +744,15 @@ export async function POST(req: NextRequest) {
           ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
         : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
     };
+    const deterministicAgentPlan = agentIntent ? buildDeterministicAgentFallback({
+      question: cleanQuestion,
+      today: appToday,
+      selectedDate,
+      explicitDates: currentQuestionDates,
+      exercises,
+      doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
+      priorUserMessages: history.filter(message => message.role === 'user').map(message => message.content),
+    }) : undefined;
 
     let result: Awaited<ReturnType<typeof callGroqChat>>;
     try {
@@ -692,8 +761,8 @@ export async function POST(req: NextRequest) {
           { role: 'system', content: system },
           { role: 'user', content: JSON.stringify(promptContext) },
         ],
-        temperature: 0.22,
-        max_completion_tokens: 950,
+        temperature: agentIntent ? 0 : 0.22,
+        max_completion_tokens: agentIntent ? 1_400 : 950,
         response_format: { type: 'json_object' },
       });
     } catch (error) {
@@ -703,6 +772,27 @@ export async function POST(req: NextRequest) {
         reason: reasonForDay(day, cleanQuestion),
       }));
       if (error instanceof GroqRouteError) {
+        if (deterministicAgentPlan) {
+          return NextResponse.json({
+            reply: {
+              answer: deterministicAgentPlan.actions.some(isAgentWriteAction)
+                ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+                : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`,
+              options: [],
+              dateLinks: [],
+              agentPlan: deterministicAgentPlan,
+              agentPlanningStatus: 'planned',
+            },
+            degraded: true,
+            model: '',
+            attemptedModels: error.attempts.map(attempt => attempt.model),
+            usedPersonalHistory: shouldLoadHistory,
+            searchedDays: shouldLoadHistory ? dayRecords.length : 0,
+            comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
+            rerankerModel,
+            rerankedCandidates,
+          });
+        }
         return NextResponse.json({
           reply: {
             answer: agentIntent
@@ -729,24 +819,88 @@ export async function POST(req: NextRequest) {
 
     const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
     const raw = jsonFromText(rawContent);
-    const modelAgentPlan = agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined;
-    const normalizedAgentPlan = modelAgentPlan ?? (agentIntent ? buildDeterministicAgentFallback({
+    const categoryContext = Array.isArray(appContext.categories) ? appContext.categories.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const row = item as Record<string, unknown>;
+      const id = cleanText(row.id, 120);
+      const name = cleanText(row.name, 120);
+      return id && name ? [{ id, name }] : [];
+    }).slice(0, 30) : [];
+    const modelPlanContext: AgentModelPlanContext = {
       question: cleanQuestion,
       today: appToday,
       selectedDate,
-      explicitDates: currentQuestionDates,
-    }) : undefined);
+      exercises,
+      categories: categoryContext,
+      doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
+    };
+    const modelAgentPlan = agentIntent ? normalizeModelAgentPlan(raw, modelPlanContext) : undefined;
+    const deterministicTargets = new Set(deterministicAgentPlan?.actions.map(agentActionTarget) ?? []);
+    const combinedActions = deterministicAgentPlan && modelAgentPlan
+      ? [...modelAgentPlan.actions.filter(action => !deterministicTargets.has(agentActionTarget(action))), ...deterministicAgentPlan.actions]
+      : deterministicAgentPlan?.actions ?? modelAgentPlan?.actions ?? [];
+    let normalizedAgentPlan = combinedActions.length ? normalizeAgentPlan({
+      summary: deterministicAgentPlan && modelAgentPlan ? `Review ${combinedActions.length} requested app changes` : deterministicAgentPlan?.summary ?? modelAgentPlan?.summary,
+      actions: coalesceAgentActions(combinedActions),
+    }) : undefined;
+    let repairClarification = '';
+    if (agentIntent && !normalizedAgentPlan) {
+      try {
+        const repair = await callGroqChat(apiKeys, groqTask, {
+          messages: [
+            {
+              role: 'system',
+              content: [
+                'You are the dedicated PT Motivator action planner. Translate the user command into a complete reviewable action plan; do not claim or perform changes.',
+                'Be liberal about proposing reversible actions because the server validates them and the user reviews every row before Apply.',
+                'Use all clear context and return every requested action. Never invent note text, a metric value, an exercise target, or a doctor-note target.',
+                'Use only the supplied action contract and exact existing IDs. If one required detail truly cannot be resolved, return no actions and one concise clarification.',
+                'Return JSON only: {"summary":"","actions":[{"id":"action-1","type":"","reason":""}],"clarification":""}.',
+              ].join(' '),
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({
+                question: cleanQuestion,
+                recentConversation: history,
+                today: appToday,
+                currentlySelectedDate: selectedDate,
+                existingExercises: matchedExerciseContext,
+                categories: categoryContext,
+                doctorNotes: doctorNotesContext,
+                appContext: promptContext.appContext,
+                contract: AGENT_ACTION_CONTRACT,
+                invalidFirstAttempt: raw.agentPlan ?? raw.agent_plan ?? null,
+              }),
+            },
+          ],
+          temperature: 0,
+          max_completion_tokens: 1_200,
+          response_format: { type: 'json_object' },
+        });
+        const repairedRaw = jsonFromText(repair.data?.choices?.[0]?.message?.content ?? '');
+        normalizedAgentPlan = normalizeModelAgentPlan(repairedRaw, modelPlanContext);
+        repairClarification = cleanText(repairedRaw.clarification, 420);
+      } catch {
+        // The original answer can still provide a clarification; do not turn a planner retry into a route failure.
+      }
+    }
     const agentPlanningStatus = !agentIntent ? undefined
       : normalizedAgentPlan ? 'planned' as const
-        : raw.agentPlan ? 'invalid' as const : 'missing' as const;
-    const baseAnswer = cleanMultiline(raw.answer, 1500) || (rankedDays.length
+        : repairClarification || /\?\s*$/.test(cleanMultiline(raw.answer, 1500)) ? 'clarification' as const
+        : raw.agentPlan || raw.agent_plan ? 'invalid' as const : 'missing' as const;
+    const baseAnswer = repairClarification || cleanMultiline(raw.answer, 1500) || (rankedDays.length
       ? 'These are the closest matching days I found in your saved history.'
       : 'I need one more detail to answer that accurately.');
-    const answer = agentIntent && !normalizedAgentPlan && !/\?\s*$/.test(baseAnswer)
-      ? `${baseAnswer}\n\nI recognized this as an app command, but I could not prepare a safe reviewable action plan. Please specify the exact item, date, and change.`
-      : baseAnswer;
+    const answer = normalizedAgentPlan
+      ? normalizedAgentPlan.actions.some(isAgentWriteAction)
+        ? `I prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+        : `I prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
+      : agentIntent && !/\?\s*$/.test(baseAnswer)
+        ? `${baseAnswer}\n\nI recognized this as an app command, but I could not prepare a safe reviewable action plan. Please specify the exact item, date, and change.`
+        : baseAnswer;
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
-    const dateLinks = cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
+    const dateLinks = agentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
 
     return NextResponse.json({
@@ -755,7 +909,7 @@ export async function POST(req: NextRequest) {
         options: normalizeAiReplyOptions(raw.options),
         dateLinks,
         dateSummaries,
-        confirmedExercise: cleanExerciseDraft(raw.confirmedExercise),
+        confirmedExercise: agentIntent ? undefined : cleanExerciseDraft(raw.confirmedExercise),
         agentPlan: normalizedAgentPlan,
         agentPlanningStatus,
       },

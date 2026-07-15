@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { MAX_AGENT_ACTIONS, normalizeAgentActions, normalizeAgentPlan } from './aiAgent.ts';
+import { MAX_AGENT_ACTIONS, coalesceAgentActions, normalizeAgentActions, normalizeAgentPlan, normalizeModelAgentPlan } from './aiAgent.ts';
 
 test('normalizes supported actions and rejects malformed targets', () => {
   const actions = normalizeAgentActions([
@@ -92,4 +92,111 @@ test('bounds colors and media URLs to values the app can render', () => {
     assert.equal(actions[1].exercise.mainImageUrl, '');
     assert.deepEqual(actions[1].exercise.mainImageUrls, ['https://example.com/a.jpg']);
   }
+});
+
+test('liberally normalizes model aliases across every agent action family', () => {
+  const plan = normalizeModelAgentPlan({
+    agent_plan: {
+      title: 'Review requested changes',
+      proposed_actions: [
+        { actionType: 'completeExercise', day: 'today', exerciseName: 'Standing Calf Stretch', status: 'checked' },
+        { type: 'add_exercise_note', day: 'today', exercise: 'Standing Calf Stretch', note: 'I did 1 set' },
+        { type: 'set_health_metric', day: 'today', metric: 'pain score', score: 4 },
+        { type: 'update_metrics', day: 'today', exerciseName: 'Standing Calf Stretch', setsCount: 2, repsCount: 10, weightValue: 5, unit: 'lb', multiplier: 2 },
+        { type: 'clear_metrics', day: 'today', exerciseName: 'Standing Calf Stretch' },
+        { type: 'add_exercise', exercise: { name: 'Pool Walk', category: 'mobility', description: 'Walk slowly in waist-deep water' }, categoryName: 'Mobility' },
+        { type: 'edit_exercise', exerciseName: 'Standing Calf Stretch', changes: { sets: '2 x 30 sec' } },
+        { type: 'move_exercise', exerciseName: 'Standing Calf Stretch', destination: 'Mobility' },
+        { type: 'delete_exercise', exerciseName: 'Standing Calf Stretch' },
+        { type: 'add_category', categoryName: 'Pool work', color: 'blue' },
+        { type: 'delete_category', name: 'Mobility' },
+        { type: 'add_doctor_question', title: 'Questions for PT', question: 'Ask about stairs' },
+        { type: 'append_doctor_note', noteTitle: 'PT Questions', content: 'Ask about swelling' },
+        { type: 'delete_doctor_note', title: 'PT Questions' },
+        { type: 'add_pt_session', date: 'tomorrow', note: 'Morning appointment' },
+        { type: 'remove_training_session', date: '7/14' },
+        { type: 'hide_widget', widget: 'daily summary' },
+        { type: 'change_app_title', value: 'Recovery Board' },
+        { type: 'attach_photo', target: 'exercise note', date: 'today', exerciseName: 'Standing Calf Stretch' },
+        { type: 'complete_from_note', exerciseName: 'Standing Calf Stretch', match: 'walked', noteField: 'general note', startDate: '2026-07-01', endDate: 'today' },
+        { type: 'open_screen', screen: 'settings' },
+        { type: 'run_sql', statement: 'DROP TABLE health_log' },
+      ],
+    },
+  }, {
+    question: 'Make these changes',
+    today: '2026-07-15',
+    selectedDate: '2026-07-15',
+    exercises: [{ id: 'calf-1', name: 'Standing Calf Stretch' }],
+    categories: [{ id: 'mobility-cat', name: 'Mobility' }],
+    doctorNotes: [{ id: 'doc-1', title: 'PT Questions' }],
+  });
+
+  assert.deepEqual(plan?.actions.map(action => action.type), [
+    'completion_set', 'exercise_note_change', 'health_change', 'metrics_set', 'metrics_clear',
+    'exercise_add', 'exercise_update', 'exercise_move', 'exercise_remove', 'category_upsert',
+    'category_remove', 'doctor_note_upsert', 'doctor_note_upsert', 'doctor_note_remove',
+    'pt_session_upsert', 'pt_session_remove', 'widget_set', 'app_title_set', 'photo_attach',
+    'bulk_completion_from_note', 'navigate',
+  ]);
+  assert.equal(plan?.actions[0].type === 'completion_set' ? plan.actions[0].exerciseId : '', 'calf-1');
+  assert.equal(plan?.actions[2].type === 'health_change' ? plan.actions[2].field : '', 'pain');
+  assert.equal(plan?.actions[15].type === 'pt_session_remove' ? plan.actions[15].kind : '', 'training');
+  assert.equal(plan?.actions[16].type === 'widget_set' ? plan.actions[16].enabled : true, false);
+});
+
+test('turns an app-ready exercise draft into an add action only for an explicit add command', () => {
+  const added = normalizeModelAgentPlan({
+    confirmedExercise: { name: 'Pool Walk', cat: 'mobility', cue: 'Walk slowly' },
+  }, { question: 'Add this exercise', today: '2026-07-15' });
+  const described = normalizeModelAgentPlan({
+    confirmedExercise: { name: 'Pool Walk', cat: 'mobility', cue: 'Walk slowly' },
+  }, { question: 'Describe this exercise', today: '2026-07-15' });
+  assert.equal(added?.actions[0]?.type, 'exercise_add');
+  assert.equal(described, undefined);
+});
+
+test('normalizes common category rename and doctor follow-up shapes', () => {
+  const plan = normalizeModelAgentPlan({ actions: [
+    { type: 'rename_category', category: 'Mobility', newName: 'Daily Mobility' },
+    { type: 'add_follow_up', noteTitle: 'PT Questions', followUp: 'They recommended shorter walks.' },
+  ] }, {
+    question: 'Rename Mobility and add that follow-up',
+    today: '2026-07-15',
+    categories: [{ id: 'cat-1', name: 'Mobility' }],
+    doctorNotes: [{ id: 'doc-1', title: 'PT Questions' }],
+  });
+
+  assert.equal(plan?.actions[0].type === 'category_upsert' ? plan.actions[0].categoryId : '', 'cat-1');
+  assert.equal(plan?.actions[0].type === 'category_upsert' ? plan.actions[0].name : '', 'Daily Mobility');
+  assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].noteId : '', 'doc-1');
+  assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].mode : '', 'append');
+  assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].patch.body : '', 'They recommended shorter walks.');
+});
+
+test('coalesces compatible edits without losing earlier fields or appended text', () => {
+  const actions = normalizeAgentActions([
+    { id: 'health-1', type: 'health_change', date: '2026-07-15', field: 'general_notes', mode: 'append', value: 'Walked outside.' },
+    { id: 'health-2', type: 'health_change', date: '2026-07-15', field: 'general_notes', mode: 'append', value: 'Used the cane.' },
+    { id: 'exercise-1', type: 'exercise_update', exerciseId: 'calf-1', patch: { cue: 'Keep the heel down.' } },
+    { id: 'exercise-2', type: 'exercise_update', exerciseId: 'calf-1', patch: { sets: '2 x 30 sec' } },
+    { id: 'doctor-1', type: 'doctor_note_upsert', noteId: 'doc-1', mode: 'append', patch: { body: 'Ask about swelling.' } },
+    { id: 'doctor-2', type: 'doctor_note_upsert', noteId: 'doc-1', mode: 'update', patch: { pinned: true } },
+  ]);
+  const coalesced = coalesceAgentActions(actions);
+
+  assert.equal(coalesced.length, 3);
+  assert.equal(coalesced[0].type === 'health_change' ? coalesced[0].value : '', 'Walked outside.\nUsed the cane.');
+  assert.deepEqual(coalesced[1].type === 'exercise_update' ? coalesced[1].patch : {}, { cue: 'Keep the heel down.', sets: '2 x 30 sec' });
+  assert.deepEqual(coalesced[2].type === 'doctor_note_upsert' ? coalesced[2].patch : {}, { body: 'Ask about swelling.', pinned: true });
+  assert.equal(coalesced[2].type === 'doctor_note_upsert' ? coalesced[2].mode : '', 'append');
+});
+
+test('lets an explicit exercise removal override incompatible move and edit actions', () => {
+  const actions = normalizeAgentActions([
+    { type: 'exercise_update', exerciseId: 'calf-1', patch: { sets: '2 x 30 sec' } },
+    { type: 'exercise_move', exerciseId: 'calf-1', categoryName: 'Mobility' },
+    { type: 'exercise_remove', exerciseId: 'calf-1' },
+  ]);
+  assert.deepEqual(coalesceAgentActions(actions).map(action => action.type), ['exercise_remove']);
 });
