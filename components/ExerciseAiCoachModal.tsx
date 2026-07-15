@@ -424,7 +424,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             onSubmit={() => void ask(input)}
             placeholder="Ask about a past day, a symptom pattern, an exercise, or follow up on the answer…"
             rows={2}
-            className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-none bg-white"
+            className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
             style={{ fontSize: 16, colorScheme: 'light' }}
           />
           <button onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
