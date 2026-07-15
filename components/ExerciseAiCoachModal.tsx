@@ -6,11 +6,17 @@ import { SmartDbMatch } from '@/components/SmartAddTypes';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import SecretTextarea from './SecretTextarea';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
+import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 
 type DateLink = {
   date: string;
   label: string;
   reason?: string;
+};
+
+type DateSummary = {
+  date: string;
+  summary: string;
 };
 
 type ExerciseDraft = Partial<Exercise> & {
@@ -22,6 +28,7 @@ type AiReply = {
   answer: string;
   options: string[];
   dateLinks: DateLink[];
+  dateSummaries?: DateSummary[];
   confirmedExercise?: ExerciseDraft;
   model?: string;
   searchedDays?: number;
@@ -147,6 +154,51 @@ function displayDate(date: string) {
   });
 }
 
+function restoreConversation(): { input: string; messages: ChatMessage[] } {
+  if (typeof window === 'undefined') return { input: '', messages: [] };
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(AI_COACH_SESSION_KEY) || '{}') as Record<string, unknown>;
+    const input = typeof stored.input === 'string' ? stored.input.slice(0, 4000) : '';
+    const messages = Array.isArray(stored.messages)
+      ? stored.messages.filter((message): message is ChatMessage => Boolean(message)
+        && typeof message === 'object'
+        && (message.role === 'user' || message.role === 'assistant')
+        && typeof message.id === 'string'
+        && typeof message.content === 'string').slice(-20)
+      : [];
+    return { input, messages };
+  } catch {
+    return { input: '', messages: [] };
+  }
+}
+
+function InlineAnswerDates({ text, today, summaries, onPreview }: {
+  text: string;
+  today: string;
+  summaries: DateSummary[];
+  onPreview: (summary: DateSummary) => void;
+}) {
+  const summaryByDate = new Map(summaries.map(summary => [summary.date, summary]));
+  return aiAnswerDateSegments(text).map((segment, index) => {
+    if (!segment.date) return <span key={index}>{segment.text}</span>;
+    const label = formatAiDate(segment.date, today);
+    const summary = summaryByDate.get(segment.date);
+    if (!summary) return <span key={index}>{label}</span>;
+    return (
+      <button
+        key={index}
+        type="button"
+        onClick={() => onPreview(summary)}
+        className="inline border-0 bg-transparent p-0 font-semibold text-[#476653] underline decoration-[#8EAA96] decoration-1 underline-offset-2"
+        style={{ touchAction: 'manipulation' }}
+        aria-label={`Show a quick summary for ${displayDate(segment.date)}`}
+      >
+        {label}
+      </button>
+    );
+  });
+}
+
 function historyForApi(messages: ChatMessage[]) {
   return messages.slice(-10).map(message => {
     const dates = message.reply?.dateLinks?.length
@@ -191,19 +243,55 @@ async function copyValue(value: string) {
 }
 
 export default function ExerciseAiCoachModal({ exercises, selectedDate, today, onClose }: Props) {
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const initialConversation = useMemo(() => restoreConversation(), []);
+  const [input, setInput] = useState(initialConversation.input);
+  const [messages, setMessages] = useState<ChatMessage[]>(initialConversation.messages);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
+  const [datePreview, setDatePreview] = useState<DateSummary | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
 
+  const clearStoredConversation = () => {
+    try {
+      sessionStorage.removeItem(AI_COACH_ACTIVE_KEY);
+      sessionStorage.removeItem(AI_COACH_SESSION_KEY);
+    } catch {}
+  };
+
+  const closeModal = () => {
+    clearStoredConversation();
+    onClose();
+  };
+
+  const persistConversation = (nextInput = input, nextMessages = messages) => {
+    try {
+      sessionStorage.setItem(AI_COACH_ACTIVE_KEY, '1');
+      sessionStorage.setItem(AI_COACH_SESSION_KEY, JSON.stringify({ input: nextInput, messages: nextMessages.slice(-20) }));
+    } catch {}
+  };
+
   useEffect(() => {
-    const fn = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    try { sessionStorage.setItem(AI_COACH_ACTIVE_KEY, '1'); } catch {}
+  }, []);
+
+  useEffect(() => {
+    persistConversation(input, messages);
+    // Draft text is saved immediately before date navigation; avoid synchronous storage work on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  useEffect(() => {
+    const fn = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (datePreview) setDatePreview(null);
+      else closeModal();
+    };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datePreview, onClose]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -252,6 +340,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         answer: String(data.reply?.answer || 'I need one more detail to answer that.'),
         options: normalizeAiReplyOptions(data.reply?.options),
         dateLinks: Array.isArray(data.reply?.dateLinks) ? data.reply.dateLinks.slice(0, 5) : [],
+        dateSummaries: Array.isArray(data.reply?.dateSummaries)
+          ? data.reply.dateSummaries.filter((item: unknown): item is DateSummary => Boolean(item)
+            && typeof item === 'object'
+            && isIsoCalendarDate(String((item as DateSummary).date))
+            && typeof (item as DateSummary).summary === 'string').slice(0, 8)
+          : [],
         confirmedExercise: data.reply?.confirmedExercise,
         model: data.model,
         searchedDays: Number.isFinite(Number(data.searchedDays)) ? Number(data.searchedDays) : undefined,
@@ -275,6 +369,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   const openDate = (date: string) => {
+    persistConversation();
     localStorage.setItem('pt-selected-date', date);
     window.location.reload();
   };
@@ -290,7 +385,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4" onClick={closeModal}>
       <div className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col" style={{ maxHeight: '94dvh' }} onClick={event => event.stopPropagation()}>
         <div className="px-5 py-4 flex items-start justify-between gap-3">
           <div>
@@ -300,9 +395,9 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {messages.length > 0 && (
-              <button onClick={() => { setMessages([]); setError(''); }} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
+              <button onClick={() => { setMessages([]); setInput(''); setDatePreview(null); setError(''); try { sessionStorage.removeItem(AI_COACH_SESSION_KEY); } catch {} }} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
             )}
-            <button onClick={onClose} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl">×</button>
+            <button onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
           </div>
         </div>
 
@@ -330,7 +425,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             return (
               <div key={message.id} className="space-y-2">
                 <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm leading-relaxed text-stone-700 whitespace-pre-wrap">
-                  {message.content}
+                  <InlineAnswerDates text={message.content} today={today} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} />
                   {(reply?.model || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
                       {reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
@@ -348,7 +443,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-stone-800">{link.label || displayDate(link.date)}</p>
-                            <p className="text-[10px] font-semibold text-[#7E9B86] mt-0.5">{link.date}</p>
+                            <p className="text-[10px] font-semibold text-[#7E9B86] mt-0.5">{formatAiDate(link.date, today)}</p>
                             {link.reason && <p className="mt-1 text-xs leading-snug text-stone-500">{link.reason}</p>}
                           </div>
                           <span className="flex-shrink-0 text-lg text-[#7E9B86]">›</span>
@@ -416,6 +511,22 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           <p className="mt-2 text-center text-[10px] leading-snug text-stone-400">It can use your saved logs, but its health interpretations are not a diagnosis.</p>
         </div>
       </div>
+
+      {datePreview && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35 px-5" onClick={event => { event.stopPropagation(); setDatePreview(null); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="ai-date-summary-title" className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase text-stone-400">Day at a glance</p>
+                <h3 id="ai-date-summary-title" className="mt-0.5 text-base font-semibold text-stone-800">{displayDate(datePreview.date)}</h3>
+              </div>
+              <button type="button" onClick={() => setDatePreview(null)} className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 text-lg text-stone-500" aria-label="Close day summary">×</button>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-stone-600">{datePreview.summary}</p>
+            <button type="button" onClick={() => openDate(datePreview.date)} className="mt-4 w-full rounded-lg bg-[#1F2F46] py-2.5 text-sm font-bold text-white" style={{ touchAction: 'manipulation' }}>Open day</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

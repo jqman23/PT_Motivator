@@ -23,6 +23,7 @@ type HistoryMessage = { role: 'user' | 'assistant'; content: string; aiInstructi
 type DayRecord = HistoryDayRecord;
 
 type DateLink = { date: string; label: string; reason: string };
+type DateSummary = { date: string; summary: string };
 
 function cleanText(value: unknown, limit = 1200) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -299,6 +300,56 @@ function reasonForDay(record: RankedHistoryDay<DayRecord>, question: string) {
   return 'Related saved activity';
 }
 
+function naturalList(values: string[]) {
+  if (values.length <= 1) return values[0] ?? '';
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`;
+}
+
+function shortNote(value: unknown, limit = 115) {
+  const note = cleanText(value, limit + 20).replace(/[.!?]+(?=\s|$)/g, ';').replace(/;+$/, '');
+  if (note.length <= limit) return note;
+  const clipped = note.slice(0, limit - 3).replace(/\s+\S*$/, '').trim();
+  return `${clipped || note.slice(0, limit - 3).trim()}...`;
+}
+
+function summarizeDay(record: DayRecord): string | null {
+  const facts: string[] = [];
+  if (record.session) facts.push(`had a ${record.session.kind === 'training' ? 'training' : 'PT'} session`);
+
+  if (record.completed.length) {
+    const exercises = record.completed.slice(0, 2);
+    const extra = record.completed.length - exercises.length;
+    facts.push(`completed ${extra > 0 ? `${exercises.join(', ')}, plus ${extra} more exercise${extra === 1 ? '' : 's'}` : naturalList(exercises)}`);
+  }
+
+  const health = record.health ?? {};
+  const pain = numeric(health.pain);
+  if (pain !== null) facts.push(`logged pain at ${pain}/10`);
+
+  const generalNote = shortNote(health.generalNote);
+  const painNote = shortNote(health.painNote);
+  const exerciseNote = record.exerciseNotes[0];
+  const sessionNote = shortNote(record.session?.note);
+  if (generalNote) facts.push(`noted "${generalNote}"`);
+  else if (painNote) facts.push(`noted "${painNote}"`);
+  else if (exerciseNote?.note) facts.push(`wrote about ${exerciseNote.exercise}: "${shortNote(exerciseNote.note)}"`);
+  else if (sessionNote) facts.push(`noted "${sessionNote}"`);
+
+  return facts.length ? `You ${naturalList(facts)}.` : null;
+}
+
+function dateSummariesForAnswer(answer: string, records: DayRecord[], today: string): DateSummary[] {
+  const recordsByDate = new Map(records.map(record => [record.date, record]));
+  const dates = Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1]);
+  const uniqueDates = Array.from(new Set(dates)).filter(date => validDate(date) && date <= today).slice(0, 8);
+  return uniqueDates.flatMap(date => {
+    const record = recordsByDate.get(date);
+    const summary = record ? summarizeDay(record) : null;
+    return summary ? [{ date, summary }] : [];
+  });
+}
+
 function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
   const health = record.health ?? {};
   return {
@@ -545,6 +596,7 @@ export async function POST(req: NextRequest) {
       'You can answer normal follow-up questions, explain or construct exercises, reason over the supplied app history, compare logged patterns, and help the user find a remembered date.',
       'The supplied day records are authoritative. Never invent a completed exercise, symptom, metric, appointment, or date. If the records do not support the memory, say that clearly.',
       'When answering which-day or when questions, cite the best supported date in the answer and include it in dateLinks so the user can tap it.',
+      'Write every specific calendar date in answer as YYYY-MM-DD. The interface will display it in the user-friendly local format.',
       'When several days are plausible, explain the distinction briefly and return up to five dateLinks.',
       'For exercise construction, preserve the user-described setup and motion. Produce confirmedExercise only when enough detail exists; otherwise ask one useful clarifying question.',
       'confirmedExercise must be app-ready with name, short cue, sets, cat, imageSearch, confidence, nextStep, and practical tips.',
@@ -622,12 +674,14 @@ export async function POST(req: NextRequest) {
     const answer = cleanMultiline(raw.answer, 1500) || (rankedDays.length
       ? 'These are the closest matching days I found in your saved history.'
       : 'I need one more detail to answer that accurately.');
+    const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
 
     return NextResponse.json({
       reply: {
         answer,
         options: normalizeAiReplyOptions(raw.options),
         dateLinks,
+        dateSummaries,
         confirmedExercise: cleanExerciseDraft(raw.confirmedExercise),
       },
       model: result.model,

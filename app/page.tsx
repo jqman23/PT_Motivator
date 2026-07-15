@@ -19,6 +19,7 @@ import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
+import { AI_COACH_ACTIVE_KEY } from '@/lib/aiDatePresentation';
 import TypeSettingsModal from '@/components/TypeSettingsModal';
 import DoctorNotesWidget from '@/components/DoctorNotesWidget';
 import { ExerciseTypeMeta, getExerciseTypeDisplay, normalizeExerciseType } from '@/lib/exerciseTypes';
@@ -224,8 +225,14 @@ export default function Home() {
     [layout, exerciseMap, typeMeta]
   );
   useEffect(() => {
-    const stored = localStorage.getItem('pt-selected-date');
-    if (stored && stored <= todayStr()) setSelectedDate(stored);
+    const timer = window.setTimeout(() => {
+      const stored = localStorage.getItem('pt-selected-date');
+      if (stored && stored <= todayStr()) setSelectedDate(stored);
+      try {
+        if (sessionStorage.getItem(AI_COACH_ACTIVE_KEY) === '1') setShowAiCoach(true);
+      } catch {}
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
