@@ -12,7 +12,6 @@ type Props = {
   className?: string;
   style?: React.CSSProperties;
   autoFocus?: boolean;
-  onSubmit?: () => void;
   onFocus?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
   onBlur?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
 };
@@ -357,7 +356,7 @@ function restoreSmallTypingShift(snapshot: TypingScrollSnapshot) {
   });
 }
 
-export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onSubmit, onFocus, onBlur }: Props) {
+export default function SecretTextarea({ value, onChange, placeholder, rows = 2, className = '', style, autoFocus, onFocus, onBlur }: Props) {
   const editorId = useId();
   const [renderState, setRenderState] = useState(() => ({ blocks: makeEditorBlocks(value, editorId), revision: 0 }));
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
@@ -641,7 +640,12 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     const boundary = editor.querySelector<HTMLElement>(`[data-command-boundary="after"][data-command-id="${blockId}"]`);
     if (!boundary) return false;
     const range = document.createRange();
-    range.setStartAfter(boundary);
+    const trailingText = boundary.nextSibling;
+    if (trailingText?.nodeType === Node.TEXT_NODE && (trailingText.textContent ?? '').startsWith(CARET_ANCHOR)) {
+      range.setStart(trailingText, CARET_ANCHOR.length);
+    } else {
+      range.setStartAfter(boundary);
+    }
     range.collapse(true);
     editor.focus({ preventScroll: true });
     const selection = window.getSelection();
@@ -650,10 +654,13 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     return true;
   };
 
-  const handleEnter = (submit: boolean) => {
-    if (lockOpenSecretAtCaret() || exitAiAtCaret()) return;
-    if (submit && onSubmit) onSubmit();
-    else handlePlainTextInsertion('\n');
+  const handleEnter = () => {
+    if (lockOpenSecretAtCaret()) return;
+    if (exitAiAtCaret()) {
+      handlePlainTextInsertion('\n');
+      return;
+    }
+    handlePlainTextInsertion('\n');
   };
 
   const showUnlock = (secretId: string, control: HTMLElement) => {
@@ -767,7 +774,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           }
           if (inputType !== 'insertParagraph' && inputType !== 'insertLineBreak') return;
           event.preventDefault();
-          handleEnter(inputType === 'insertParagraph');
+          handleEnter();
           stabilizeScrollAfterTyping();
         }}
         onKeyDown={event => {
@@ -794,7 +801,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           }
           if (event.key !== 'Enter') return;
           event.preventDefault();
-          handleEnter(!event.shiftKey);
+          handleEnter();
           stabilizeScrollAfterTyping();
         }}
         onPaste={event => {

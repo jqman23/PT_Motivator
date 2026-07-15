@@ -65,13 +65,6 @@ interface Props {
   onClose: () => void;
 }
 
-const STARTERS = [
-  'Which day did I first mention burning or stinging under my foot?',
-  'What did I log the day after my most recent PT session?',
-  'Help me construct an exercise from a movement I remember',
-  'Compare my pain on PT days with the following day',
-];
-
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -313,16 +306,6 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         <div ref={scrollRef} className="overflow-y-auto px-5 py-4 flex-1 space-y-3">
-          {!messages.length && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {STARTERS.map(item => (
-                <button key={item} onClick={() => void ask(item)} className="text-left text-xs font-semibold leading-snug rounded-2xl bg-white border border-stone-100 px-3 py-3 text-stone-600 hover:bg-stone-50" style={{ touchAction: 'manipulation' }}>
-                  {item}
-                </button>
-              ))}
-            </div>
-          )}
-
           {messages.map(message => {
             if (message.role === 'user') {
               return (
@@ -421,7 +404,6 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           <SecretTextarea
             value={input}
             onChange={setInput}
-            onSubmit={() => void ask(input)}
             placeholder="Ask about a past day, a symptom pattern, an exercise, or follow up on the answer…"
             rows={2}
             className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 focus:outline-none resize-y bg-white"
