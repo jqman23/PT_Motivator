@@ -105,9 +105,8 @@ export default function HealthSectionJumpEnhancer() {
       const topButton = document.querySelector<HTMLButtonElement>(TOP_BUTTON_SELECTOR);
       if (!topButton) return;
 
-      const section = findHealthSection();
       const isMobile = window.matchMedia('(max-width: 639px)').matches;
-      const show = Boolean(isMobile && section && section.getBoundingClientRect().top <= 96);
+      const show = Boolean(isMobile && window.scrollY >= window.innerHeight * 0.9);
       topButton.style.display = show ? 'flex' : 'none';
     };
 
