@@ -793,11 +793,6 @@ export default function Home() {
                   </div>
               )}
             </div>
-            {widgetPrefs.aiCoach !== false && (
-              <button onClick={() => setShowAiCoach(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#F3F8FA', border: '1px solid #C6DCE9', color: '#648399', touchAction: 'manipulation' }} title="Ask AI" aria-label="Ask AI">
-                <AiSparkleIcon />
-              </button>
-            )}
             {widgetPrefs.doctorNotes !== false && (
               <button onClick={() => { setDoctorNotesStartNew(false); setShowDoctorNotes(true); }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#E4ECE6', border: '1px solid #CAD9CF', color: '#476653', touchAction: 'manipulation' }} title="Doctor notes" aria-label="Doctor notes">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="block h-4 w-4" aria-hidden="true">
@@ -814,6 +809,11 @@ export default function Home() {
                 </svg>
               )}
             </button>
+            {widgetPrefs.aiCoach !== false && (
+              <button onClick={() => setShowAiCoach(true)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0 leading-none" style={{ background: '#F3F8FA', border: '1px solid #C6DCE9', color: '#648399', touchAction: 'manipulation' }} title="Ask AI" aria-label="Ask AI">
+                <AiSparkleIcon className="h-4 w-4 -translate-x-px" />
+              </button>
+            )}
           </div>
         </div>
 

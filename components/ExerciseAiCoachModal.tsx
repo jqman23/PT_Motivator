@@ -519,32 +519,34 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4" onClick={closeModal}>
       <div className="w-full max-w-lg rounded-3xl bg-[#F6F1E7] shadow-2xl border border-white/50 flex flex-col" style={{ maxHeight: '94dvh' }} onClick={event => event.stopPropagation()}>
-        <div className="px-5 py-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PT Motivator assistant</p>
-            <h2 className="font-serif text-xl font-semibold text-stone-800">Ask anything about your PT</h2>
-            <p className="text-xs text-stone-500 mt-1 leading-snug">Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.</p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => historyOpen ? setHistoryOpen(false) : showChatHistory()}
-              className="flex h-9 w-9 items-center justify-center rounded-full border"
-              style={{ background: historyOpen ? '#EAF2F5' : '#fff', borderColor: historyOpen ? '#C6DCE9' : '#f5f5f4', color: historyOpen ? '#648399' : '#78716c', touchAction: 'manipulation' }}
-              title={historyOpen ? 'Back to conversation' : 'Chat history'}
-              aria-label={historyOpen ? 'Back to conversation' : 'Chat history'}
-            >
-              {historyOpen ? (
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M16 10H4M9 5l-5 5 5 5" /></svg>
-              ) : (
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M4.2 6.1A7 7 0 1 1 3 10" /><path d="M3 3.5v4h4" /><path d="M10 6.5V10l2.5 1.5" /></svg>
+        <div className="px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PT Motivator assistant</p>
+              <h2 className="font-serif text-xl font-semibold text-stone-800">Ask anything</h2>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => historyOpen ? setHistoryOpen(false) : showChatHistory()}
+                className="flex h-9 w-9 items-center justify-center rounded-full border"
+                style={{ background: historyOpen ? '#EAF2F5' : '#fff', borderColor: historyOpen ? '#C6DCE9' : '#f5f5f4', color: historyOpen ? '#648399' : '#78716c', touchAction: 'manipulation' }}
+                title={historyOpen ? 'Back to conversation' : 'Chat history'}
+                aria-label={historyOpen ? 'Back to conversation' : 'Chat history'}
+              >
+                {historyOpen ? (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M16 10H4M9 5l-5 5 5 5" /></svg>
+                ) : (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M4.2 6.1A7 7 0 1 1 3 10" /><path d="M3 3.5v4h4" /><path d="M10 6.5V10l2.5 1.5" /></svg>
+                )}
+              </button>
+              {!historyOpen && messages.length > 0 && (
+                <button onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
               )}
-            </button>
-            {!historyOpen && messages.length > 0 && (
-              <button onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
-            )}
-            <button onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
+              <button onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
+            </div>
           </div>
+          <p className="mt-2 w-full text-xs leading-snug text-stone-500">Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.</p>
         </div>
 
         {historyOpen ? (
