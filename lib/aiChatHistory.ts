@@ -33,9 +33,11 @@ export type StoredAiReply = {
   dateSummaries?: StoredAiDateSummary[];
   confirmedExercise?: StoredAiExerciseDraft;
   model?: string;
+  providerKey?: string;
   searchedDays?: number;
   comparedDays?: number;
   rerankerModel?: string;
+  rerankerProviderKey?: string;
   rerankedCandidates?: number;
   degraded?: boolean;
   agentPlan?: PreviewedAgentPlan;
@@ -144,9 +146,11 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     dateSummaries,
     confirmedExercise,
     model: cleanText(raw.model, 120) || undefined,
+    providerKey: cleanText(raw.providerKey, 40) || undefined,
     searchedDays: cleanNumber(raw.searchedDays),
     comparedDays: cleanNumber(raw.comparedDays),
     rerankerModel: cleanText(raw.rerankerModel, 120) || undefined,
+    rerankerProviderKey: cleanText(raw.rerankerProviderKey, 40) || undefined,
     rerankedCandidates: cleanNumber(raw.rerankedCandidates),
     degraded: raw.degraded === true,
     agentPlan,

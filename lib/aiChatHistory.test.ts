@@ -15,6 +15,8 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
         options: ['In the morning'],
         dateLinks: [{ date: '2026-06-21', label: 'June 21' }, { date: 'not-a-date', label: 'Bad' }],
         comparedDays: 47,
+        model: 'gemini/gemini-3.5-flash',
+        providerKey: 'Gemini',
         agentPlanningStatus: 'missing',
         visualizations: [{
           id: 'pain-trend',
@@ -32,6 +34,7 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
   assert.equal(messages[0].content, 'When did my ankle hurt?');
   assert.deepEqual(messages[1].reply?.dateLinks.map(link => link.date), ['2026-06-21']);
   assert.equal(messages[1].reply?.comparedDays, 47);
+  assert.equal(messages[1].reply?.providerKey, 'Gemini');
   assert.equal(messages[1].reply?.agentPlanningStatus, 'missing');
   assert.equal(messages[1].reply?.visualizations?.[0].type, 'line');
 });

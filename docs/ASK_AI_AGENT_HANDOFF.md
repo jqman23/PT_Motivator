@@ -31,7 +31,9 @@ The interaction model is deliberately split into four stages:
 
 The AI is not trusted as an executor. It can only propose data that passes the server-owned protocol.
 
-Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus completion statements, direct health values, PT/training dates, doctor questions, sets/reps statements, and short follow-ups such as “yes, do that.” Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one clarification. A liberal model-output adapter accepts common camelCase/snake_case action names, nested parameter objects, names in place of IDs, relative dates, and supported action aliases before the strict protocol validator runs. If the first response still has no plan, a dedicated zero-temperature planner gets one bounded retry. Explicit navigation, numeric health commands, health notes, PT sessions, doctor questions/follow-ups, exercise metrics, and exact-name exercise completion/note commands also have deterministic server fallbacks. Agent answers are rewritten to server-owned review language so the assistant never claims a proposed change already happened. A missing or invalid plan is surfaced explicitly in the answer UI and is never silently downgraded to ordinary chat.
+Direct command detection includes ordinary app verbs such as add, change, log, record, save, attach, move, turn on/off, and navigation wording, plus desired end states, completion statements, direct health values, PT/training dates, doctor questions, sets/reps statements, filled action starters, and short follow-ups such as “yes, do that.” The detector is intentionally phrasing-oriented rather than template-oriented: polite wording, terse statements, inflected verbs, and common voice-transcription variation all enter the action-planning path. Advice, hypothetical, and capability questions are excluded. When a command is recognized, the model must return a non-empty plan or ask one genuinely necessary clarification.
+
+A liberal model-output adapter accepts common camelCase/snake_case action names, nested parameter objects, names in place of IDs, relative dates, and supported action aliases before the strict protocol validator runs. A provider response that merely claims it prepared a change, returns prose instead of required JSON, or returns JSON without any action or clarification is rejected at the router and the cascade continues. If a syntactically valid response still cannot be normalized, a dedicated zero-temperature planner gets one bounded retry. Explicit navigation, widget state, numeric and note-based wellness updates, PT sessions, doctor notes/questions/follow-ups, exercise management, exercise metrics, and exact or uniquely resolvable exercise completion/note commands also have deterministic server fallbacks. Agent answers are rewritten to server-owned review language so the assistant never claims a proposed change already happened. The obsolete generic “safe action plan” warning is not shown; unresolved commands receive one concrete clarification instead.
 
 ## Work Leading to the Current State
 
@@ -183,23 +185,28 @@ The default reranker chain is:
 3. `qwen/qwen3-32b`
 4. `llama-3.3-70b-versatile`
 
-### Main Answer Model
+### Main Answer and Action Models
 
-Personal history and symptom questions use the personal model chain:
+The router is task-aware. Direct app commands use a dedicated structured-planning route, personal history/symptom questions use a high-quality answer route, public questions may use compound/search-capable capacity, and small structured tasks lead with high-volume efficient models.
 
-1. `openai/gpt-oss-120b`
-2. `llama-3.3-70b-versatile`
-3. `qwen/qwen3-32b`
-4. `meta-llama/llama-4-scout-17b-16e-instruct`
-5. `openai/gpt-oss-20b`
-6. `qwen/qwen3.6-27b`
-7. `llama-3.1-8b-instant`
+Direct action requests currently start in this order:
 
-Clearly public/non-personal questions may try `groq/compound-mini` and `groq/compound` before that chain. Compound models are intentionally excluded from personal-history requests because they may invoke external tools.
+1. Gemini `gemini-3.5-flash`.
+2. Groq `openai/gpt-oss-120b`, exhausting Groq 1–4 before advancing.
+3. Cerebras `gpt-oss-120b`.
+4. Gemini `gemini-3.1-flash-lite`.
+5. Groq `llama-3.3-70b-versatile`, then `qwen/qwen3-32b`, each across Groq 1–4.
+6. The explicit OpenRouter free-model allowlist, strongest instruction-following/planning models first.
+7. Remaining Groq personal models, each across Groq 1–4.
+8. Cerebras `gemma-4-31b`.
+
+Personal history, Enhance, and Standardize requests also use Gemini, Groq, Cerebras, and the same explicit OpenRouter free pool, with task-specific ordering. Log, Edit, and Summary lead with the high-volume Gemini `gemini-3.1-flash-lite` route before entering their Groq/Cerebras/OpenRouter fallbacks. Clearly public/non-personal questions may use Gemini, `groq/compound-mini`, and `groq/compound`; compound models remain excluded from personal-history requests because they may invoke external tools.
 
 The main Ask AI answer budget is currently 950 completion tokens. Groq model chains can be overridden with the bounded `GROQ_MODELS_PTMOTIVATOR_*` environment variables defined in `lib/groq.ts`. Each Groq model is tried with `GROQ_KEY_PTMOTIVATOR`, then `GROQ_KEY2_PTMOTIVATOR`, `GROQ_KEY3_PTMOTIVATOR`, and `GROQ_KEY4_PTMOTIVATOR` before the cascade advances. Missing and duplicate keys are skipped.
 
-The same helper now provides task-aware cross-provider failover using `CEREBRAS_KEY_PTMOTIVATOR`, `GEMINI_KEY_PTMOTIVATOR`, and `OPENROUTER_KEY_PTMOTIVATOR` (with optional numbered key 2-4 variants). Personal tasks use Groq, Cerebras, and OpenRouter requests with ZDR plus data-collection denial. Gemini unpaid models are limited to sanitized `publicAsk` payloads that exclude conversation history, app state, private instructions, health history, and doctor notes. OpenRouter is hard-allowlisted to explicit `:free` models; its random free router is only a final public-question fallback. No unqualified paid OpenRouter model is called.
+The same helper provides task-aware cross-provider failover using `CEREBRAS_KEY_PTMOTIVATOR`, `GEMINI_KEY_PTMOTIVATOR`, and `OPENROUTER_KEY_PTMOTIVATOR` (with optional numbered key 2–4 variants). The owner explicitly authorized personal app context across all configured providers, so a direct command always receives the complete app/action contract instead of being accidentally downgraded to a sanitized public prompt. OpenRouter is hard-allowlisted to explicit `:free` model IDs. The random free router, unqualified aliases, and paid models are not called, so prepaid credit unlocks account capacity without being spent by this application.
+
+Successful Ask AI responses persist and display the actual credential pool as `Groq 1`, `Groq 2`, `Groq 3`, `Groq 4`, `Gemini`, `Cerebras`, or `OpenRouter` beside the actual model. Scout reranking records its own provider-key label separately.
 
 Provider failures are classified. A 429 advances through quota pools and sets an in-memory cooldown; a rejected key is disabled for the process lifetime; and model/request validation failures are not repeated across every key. Every successful provider response is normalized to the existing OpenAI-compatible response shape so route-level validation remains identical.
 

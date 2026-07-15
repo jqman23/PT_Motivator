@@ -21,7 +21,9 @@ type EditorSecretBlock = Extract<SecretNoteBlock, { type: 'secret' }> & { id: st
 type EditorAiBlock = Extract<SecretNoteBlock, { type: 'ai' }> & { id: string };
 type EditorCommandBlock = EditorSecretBlock | EditorAiBlock;
 type EditorBlock = Extract<SecretNoteBlock, { type: 'text' }> | EditorCommandBlock;
-type PendingCaret = { blockId: string; position: 'inside-end' | 'before' | 'after' };
+type PendingCaret =
+  | { blockId: string; position: 'inside-end' | 'before' | 'after' }
+  | { position: 'text-offset'; offset: number };
 type TypingScrollSnapshot = {
   pageX: number;
   pageY: number;
@@ -207,11 +209,6 @@ function skipCaretAnchors(node: Node | null, direction: 'backward' | 'forward') 
   return current;
 }
 
-function isCaretScaffolding(node: Node | null) {
-  return node?.nodeType === Node.COMMENT_NODE
-    || (node?.nodeType === Node.TEXT_NODE && !cleanText(node.textContent ?? ''));
-}
-
 function commandAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 'forward') {
   const selection = window.getSelection();
   if (!selection?.isCollapsed || !selection.anchorNode) return null;
@@ -304,6 +301,58 @@ function commandContentEmptiedByDeletion(root: HTMLDivElement, direction: 'backw
     ? Array.from(before).length === 1 && !after
     : !before && Array.from(after).length === 1;
   return deletesLastCharacter ? content : null;
+}
+
+function rawOffsetForCleanOffset(text: string, cleanOffset: number) {
+  if (cleanOffset <= 0) {
+    let raw = 0;
+    while (text[raw] === CARET_ANCHOR) raw += 1;
+    return raw;
+  }
+  let visible = 0;
+  for (let raw = 0; raw < text.length; raw += 1) {
+    if (text[raw] !== CARET_ANCHOR) visible += 1;
+    if (visible >= cleanOffset) return raw + 1;
+  }
+  return text.length;
+}
+
+function placeCaretAtTextOffset(root: HTMLDivElement, requestedOffset: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Array<{ node: Text; start: number; end: number }> = [];
+  let total = 0;
+  let current = walker.nextNode();
+  while (current) {
+    const node = current as Text;
+    const parent = node.parentElement;
+    const hiddenControl = parent?.closest('[contenteditable="false"]');
+    const command = parent?.closest('[data-command="true"]');
+    const commandContent = parent?.closest('[data-command-content="true"]');
+    const length = cleanText(node.data).length;
+    if (!hiddenControl && (!command || commandContent) && length) {
+      textNodes.push({ node, start: total, end: total + length });
+      total += length;
+    }
+    current = walker.nextNode();
+  }
+
+  const offset = Math.max(0, Math.min(requestedOffset, total));
+  const exactStart = textNodes.find(item => item.start === offset);
+  const inside = textNodes.find(item => item.start < offset && offset < item.end);
+  const previous = [...textNodes].reverse().find(item => item.end <= offset);
+  const target = exactStart ?? inside ?? previous;
+  const range = document.createRange();
+  if (target) {
+    const cleanOffset = exactStart === target ? 0 : Math.max(0, offset - target.start);
+    range.setStart(target.node, rawOffsetForCleanOffset(target.node.data, cleanOffset));
+  } else {
+    range.selectNodeContents(root);
+    range.collapse(false);
+  }
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
 }
 
 function captureTypingScroll(root: HTMLDivElement): TypingScrollSnapshot | null {
@@ -431,15 +480,22 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!pending) return;
     pendingCaretRef.current = null;
     const editor = editorRef.current;
-    const command = editor?.querySelector<HTMLElement>(`[data-command="true"][data-command-id="${pending.blockId}"]`);
-    if (!editor || !command) return;
+    if (!editor) return;
+
+    editor.focus({ preventScroll: true });
+    if (pending.position === 'text-offset') {
+      placeCaretAtTextOffset(editor, pending.offset);
+      return;
+    }
+
+    const command = editor.querySelector<HTMLElement>(`[data-command="true"][data-command-id="${pending.blockId}"]`);
+    if (!command) return;
 
     const target = pending.position === 'inside-end'
       ? command.querySelector<HTMLElement>('[data-command-content="true"]')
       : editor.querySelector<HTMLElement>(`[data-command-boundary="${pending.position}"][data-command-id="${pending.blockId}"]`);
     if (!target) return;
 
-    editor.focus({ preventScroll: true });
     const selection = window.getSelection();
     const range = document.createRange();
     if (pending.position === 'inside-end') {
@@ -509,62 +565,28 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     return true;
   };
 
-  const removeCommandWithoutRemount = (blockId: string) => {
+  const removeCommand = (blockId: string) => {
     const editor = editorRef.current;
     if (!editor) return false;
-    const before = editor.querySelector<HTMLElement>(`[data-command-boundary="before"][data-command-id="${blockId}"]`);
-    const command = editor.querySelector<HTMLElement>(`[data-command="true"][data-command-id="${blockId}"]`);
-    const after = editor.querySelector<HTMLElement>(`[data-command-boundary="after"][data-command-id="${blockId}"]`);
-    if (!before || !command || !after) return false;
+    const current = readCurrent();
+    const commandIndex = current.findIndex(block => block.type !== 'text' && block.id === blockId);
+    if (commandIndex < 0) return false;
 
     const pageScroll = { x: window.scrollX, y: window.scrollY };
     const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
-    let firstRemoved: Node = before;
-    while (isCaretScaffolding(firstRemoved.previousSibling)) {
-      firstRemoved = firstRemoved.previousSibling!;
-    }
-    let lastRemoved: Node = after;
-    while (isCaretScaffolding(lastRemoved.nextSibling)) {
-      lastRemoved = lastRemoved.nextSibling!;
-    }
-    if (firstRemoved.previousSibling instanceof Text) {
-      firstRemoved.previousSibling.data = firstRemoved.previousSibling.data.replace(/\u200b+$/g, '');
-    }
-    if (lastRemoved.nextSibling instanceof Text) {
-      lastRemoved.nextSibling.data = lastRemoved.nextSibling.data.replace(/^\u200b+/g, '');
-    }
-    const previousText = firstRemoved.previousSibling?.nodeType === Node.TEXT_NODE
-      && cleanText(firstRemoved.previousSibling.textContent ?? '')
-      ? firstRemoved.previousSibling as Text
-      : null;
-    const nextText = lastRemoved.nextSibling?.nodeType === Node.TEXT_NODE
-      && cleanText(lastRemoved.nextSibling.textContent ?? '')
-      ? lastRemoved.nextSibling as Text
-      : null;
-
-    const range = document.createRange();
-    range.setStartBefore(firstRemoved);
-    range.setEndAfter(lastRemoved);
-    range.deleteContents();
-    if (previousText?.isConnected) {
-      range.setStart(previousText, previousText.length);
-    } else if (nextText?.isConnected) {
-      range.setStart(nextText, 0);
-    } else {
-      const caret = document.createTextNode(CARET_ANCHOR);
-      range.insertNode(caret);
-      range.setStart(caret, CARET_ANCHOR.length);
-    }
-    range.collapse(true);
-
-    editor.focus({ preventScroll: true });
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
+    const previous = current[commandIndex - 1];
+    const next = current[commandIndex + 1];
+    const textOffset = current.slice(0, commandIndex).reduce((sum, block) => sum + block.text.length, 0);
+    const caret: PendingCaret = next && next.type !== 'text'
+      ? { blockId: next.id, position: 'before' }
+      : !next && previous && previous.type !== 'text'
+        ? { blockId: previous.id, position: 'after' }
+        : { position: 'text-offset', offset: textOffset };
+    const remaining = current.filter((_, index) => index !== commandIndex);
     setUnlockingId(null);
     setUnlockCode('');
     setUnlockError(false);
-    emit(readEditorBlocks(editor, modelRef.current));
+    replaceEditor(remaining, caret, true, true);
 
     const restoreScroll = () => {
       editor.scrollLeft = editorScroll.left;
@@ -581,19 +603,15 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     if (!editor) return false;
     const content = commandContentEmptiedByDeletion(editor, direction);
     if (!content) return false;
+    const commandId = content.closest<HTMLElement>('[data-command="true"]')?.dataset.commandId;
+    if (!commandId) return false;
 
     const pageScroll = { x: window.scrollX, y: window.scrollY };
     const editorScroll = { left: editor.scrollLeft, top: editor.scrollTop };
-    const caret = document.createTextNode(CARET_ANCHOR);
-    content.replaceChildren(caret);
-    const range = document.createRange();
-    range.setStart(caret, CARET_ANCHOR.length);
-    range.collapse(true);
-    editor.focus({ preventScroll: true });
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    emit(readEditorBlocks(editor, modelRef.current));
+    const next = readCurrent().map(block => block.type !== 'text' && block.id === commandId
+      ? { ...block, text: '' }
+      : block);
+    replaceEditor(next, { blockId: commandId, position: 'inside-end' }, true, true);
 
     const restoreScroll = () => {
       editor.scrollLeft = editorScroll.left;
@@ -612,7 +630,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     const editor = editorRef.current;
     if (!editor) return false;
     const blockId = commandAtDeletionBoundary(editor, direction);
-    return blockId ? removeCommandWithoutRemount(blockId) : false;
+    return blockId ? removeCommand(blockId) : false;
   };
 
   const lockSecret = (secretId: string) => {
@@ -879,7 +897,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                     onKeyDown={event => {
                       if (event.key === 'Backspace' || event.key === 'Delete') {
                         event.preventDefault();
-                        removeCommandWithoutRemount(block.id);
+                        removeCommand(block.id);
                         return;
                       }
                       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -905,7 +923,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
                       onKeyDown={event => {
                         if (event.key === 'Backspace' || event.key === 'Delete') {
                           event.preventDefault();
-                          removeCommandWithoutRemount(block.id);
+                          removeCommand(block.id);
                           return;
                         }
                         if (event.key !== 'Enter' && event.key !== ' ') return;

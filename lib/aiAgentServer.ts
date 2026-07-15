@@ -148,7 +148,6 @@ export async function validateAndExpandAgentActions(value: unknown) {
     if (action.type === 'category_remove') {
       const category = categoryById.get(action.categoryId);
       if (!category) throw new AgentValidationError('The category to remove no longer exists.');
-      if (category.exerciseIds.length > 0) throw new AgentValidationError('Move or remove every exercise before deleting that category.');
     }
   }
   const doctorIds = Array.from(new Set(rawActions.flatMap(action => (
@@ -202,7 +201,7 @@ export function previewItemForAction(action: AgentAction, config: AppAgentConfig
     case 'exercise_move': return { actionId: action.id, title: `Move ${name}`, detail: `To ${action.categoryName}`, risk: 'change' };
     case 'exercise_remove': return { actionId: action.id, title: `Remove ${name}`, detail: 'Removes it from the library and categories', risk: 'destructive' };
     case 'category_upsert': return { actionId: action.id, title: action.categoryId ? `Rename or recolor ${action.name}` : `Add category ${action.name}`, detail: action.color || 'Use the next available color', risk: 'change' };
-    case 'category_remove': return { actionId: action.id, title: 'Remove empty category', detail: config.layout.find(category => category.id === action.categoryId)?.name || action.categoryId, risk: 'destructive' };
+    case 'category_remove': return { actionId: action.id, title: 'Remove category group', detail: `${config.layout.find(category => category.id === action.categoryId)?.name || action.categoryId} · Exercises stay in the library`, risk: 'destructive' };
     case 'doctor_note_upsert': return { actionId: action.id, title: `${action.mode === 'create' ? 'Create' : action.mode === 'append' ? 'Append to' : 'Update'} doctor note`, detail: action.patch.title || action.patch.body || action.noteId || '', risk: action.mode === 'update' ? 'change' : 'change' };
     case 'doctor_note_remove': return { actionId: action.id, title: 'Delete doctor note', detail: action.noteId, risk: 'destructive' };
     case 'pt_session_upsert': return { actionId: action.id, title: `Add or update ${action.kind === 'pt' ? 'PT' : 'training'} session`, detail: `${displayDate(action.date)}${action.note ? ` · ${action.note}` : ''}`, risk: 'change' };

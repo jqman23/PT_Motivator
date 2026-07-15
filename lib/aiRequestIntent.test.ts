@@ -17,6 +17,16 @@ test('recognizes natural app commands and short follow-ups', () => {
     'Ask my doctor about the swelling',
     'PT session tomorrow',
     '2 sets of 10 reps on calf raises',
+    'On [today], mark [prone McKenzie] complete and log [1] set of [12]',
+    'I want you to rename my Mobility category',
+    'Could you please draft removing tomorrow’s PT session?',
+    'I want the timer gone please',
+    'No daily summary on the home screen anymore.',
+    'Call the app Recovery Board',
+    'The app title should be Recovery Board',
+    'There should be a PT session tomorrow',
+    'Get rid of my training appointment on Friday',
+    'Prone McKenzie is done today — 1 x 12, note test',
   ]) assert.equal(isAgentRequest(request), true, request);
 });
 
@@ -26,6 +36,8 @@ test('does not turn advice or capability questions into commands', () => {
     'How can I record pain more consistently?',
     'What can you change in the app?',
     'Do you recommend turning off reminders?',
+    'What should I name the app?',
+    'What would happen without the timer?',
   ]) assert.equal(isAgentRequest(request), false, request);
 });
 
@@ -78,5 +90,6 @@ test('keeps bounded and targeted history questions on retrieval instead of whole
     'What happened yesterday?',
     'Find the first day I mentioned stairs.',
     'Summarize this PT session.',
+    'Mark Prone McKenzie complete and log 1 set of 12 reps.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), false, request);
 });

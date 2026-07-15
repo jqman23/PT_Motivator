@@ -38,26 +38,34 @@ test('exhausts API keys for the preferred model before trying a fallback model',
 
   try {
     const result = await callGroqChat([
-      { name: 'key-1', value: 'first' },
-      { name: 'key-2', value: 'second' },
+      { name: 'GROQ_KEY_PTMOTIVATOR', value: 'first' },
+      { name: 'GROQ_KEY2_PTMOTIVATOR', value: 'second' },
     ], 'ask', { messages: [] });
     assert.equal(attempts.length, 2);
     assert.equal(attempts[0].model, attempts[1].model);
     assert.equal(attempts[0].authorization, 'Bearer first');
     assert.equal(attempts[1].authorization, 'Bearer second');
     assert.equal(result.model, attempts[0].model);
+    assert.equal(result.providerKey, 'Groq 2');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('keeps Gemini out of personal tasks and uses its strongest stable models for public work', () => {
-  assert.equal(getAiRoutePlan('ask').some(route => route.provider === 'gemini'), false);
+test('uses task-specific Gemini capacity and leads direct action planning with the strongest structured model', () => {
+  assert.equal(getAiRoutePlan('ask').some(route => route.provider === 'gemini'), true);
+  assert.deepEqual(getAiRoutePlan('agent').slice(0, 2).map(route => `${route.provider}/${route.model}`), [
+    'gemini/gemini-3.5-flash',
+    'groq/openai/gpt-oss-120b',
+  ]);
   const publicRoutes = getAiRoutePlan('publicAsk');
   assert.deepEqual(publicRoutes.slice(0, 2).map(route => `${route.provider}/${route.model}`), [
     'gemini/gemini-3.5-flash',
     'gemini/gemini-3.1-flash-lite',
   ]);
+  assert.equal(getAiRoutePlan('agent').at(-1)?.model, 'gemma-4-31b');
+  assert.equal(getAiRoutePlan('log')[0]?.model, 'gemini-3.1-flash-lite');
+  assert.deepEqual(new Set(getAiRoutePlan('ask').map(route => route.provider)), new Set(['groq', 'cerebras', 'gemini', 'openrouter']));
 });
 
 test('falls from the same flagship model on all Groq keys to Cerebras flagship', async () => {
@@ -84,13 +92,14 @@ test('falls from the same flagship model on all Groq keys to Cerebras flagship',
     assert.equal(attempts[2].model, 'gpt-oss-120b');
     assert.equal(attempts[2].authorization, 'Bearer cerebras-secret');
     assert.equal(result.model, 'cerebras/gpt-oss-120b');
+    assert.equal(result.providerKey, 'Cerebras');
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();
   }
 });
 
-test('uses only explicit free OpenRouter models with ZDR and no credit-spending alias', async () => {
+test('uses only explicit free OpenRouter models and no credit-spending alias', async () => {
   const originalFetch = globalThis.fetch;
   const restoreEnv = isolateProviderEnv({ OPENROUTER_KEY_PTMOTIVATOR: 'openrouter-secret' });
   let requestBody: Record<string, unknown> = {};
@@ -103,7 +112,9 @@ test('uses only explicit free OpenRouter models with ZDR and no credit-spending 
   try {
     for (const route of getAiRoutePlan('ask').filter(route => route.provider === 'openrouter')) {
       assert.match(route.model, /:free$/);
+      assert.notEqual(route.model, 'openrouter/free');
     }
+    assert.equal(getAiRoutePlan('publicAsk').some(route => route.model === 'openrouter/free'), false);
     const result = await callGroqChat([], 'ask', {
       messages: [],
       max_completion_tokens: 900,
@@ -112,8 +123,9 @@ test('uses only explicit free OpenRouter models with ZDR and no credit-spending 
     assert.match(String(requestBody.model), /:free$/);
     assert.equal(requestBody.max_tokens, 900);
     assert.equal(requestBody.max_completion_tokens, undefined);
-    assert.deepEqual(requestBody.provider, { zdr: true, data_collection: 'deny', allow_fallbacks: true });
+    assert.deepEqual(requestBody.provider, { allow_fallbacks: true });
     assert.match(result.model, /^openrouter\/.+:free$/);
+    assert.equal(result.providerKey, 'OpenRouter');
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();
@@ -140,7 +152,36 @@ test('normalizes Gemini responses into the existing chat-completion shape', asyn
       response_format: { type: 'json_object' },
     });
     assert.equal(result.model, 'gemini/gemini-3.5-flash');
+    assert.equal(result.providerKey, 'Gemini');
     assert.equal(result.data.choices[0].message.content, '{"answer":"Gemini public answer"}');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('rejects JSON that only claims success without an action draft and continues to another provider', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'cerebras-secret' });
+  const attempts: string[] = [];
+  globalThis.fetch = async (input) => {
+    attempts.push(String(input));
+    if (String(input).includes('api.groq.com')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"answer":"I drafted the change for you."}' } }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"agentPlan":{"actions":[{"type":"widget_set"}]}}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'GROQ_KEY_PTMOTIVATOR', value: 'groq-secret-1' },
+      { name: 'GROQ_KEY2_PTMOTIVATOR', value: 'groq-secret-2' },
+    ], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { requireAgentDraft: true });
+    assert.equal(attempts.length, 2);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+    assert.deepEqual(result.attemptedModels, ['openai/gpt-oss-120b']);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();

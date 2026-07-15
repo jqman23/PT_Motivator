@@ -18,6 +18,9 @@ test('builds widget and app-title setting plans without depending on model JSON'
   });
   const calendar = buildDeterministicAgentFallback({ question: 'Turn off calendar', today: '2026-07-15' });
   const title = buildDeterministicAgentFallback({ question: 'Change the app title to Recovery Board', today: '2026-07-15' });
+  const desiredTimer = buildDeterministicAgentFallback({ question: 'I want the timer gone please', today: '2026-07-15' });
+  const terseSummary = buildDeterministicAgentFallback({ question: 'Daily summary off', today: '2026-07-15' });
+  const desiredTitle = buildDeterministicAgentFallback({ question: 'The app title should be Recovery Board', today: '2026-07-15' });
   assert.equal(widget?.actions[0]?.type, 'widget_set');
   assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].key : '', 'dailySummary');
   assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].enabled : true, false);
@@ -31,6 +34,9 @@ test('builds widget and app-title setting plans without depending on model JSON'
   assert.equal(calendar?.actions[0]?.type === 'widget_set' ? calendar.actions[0].key : '', 'calendar');
   assert.equal(calendar?.actions[0]?.type === 'widget_set' ? calendar.actions[0].enabled : true, false);
   assert.equal(title?.actions[0]?.type === 'app_title_set' ? title.actions[0].title : '', 'Recovery Board');
+  assert.equal(desiredTimer?.actions[0]?.type === 'widget_set' ? desiredTimer.actions[0].enabled : true, false);
+  assert.equal(terseSummary?.actions[0]?.type === 'widget_set' ? terseSummary.actions[0].key : '', 'dailySummary');
+  assert.equal(desiredTitle?.actions[0]?.type === 'app_title_set' ? desiredTitle.actions[0].title : '', 'Recovery Board');
 });
 
 test('builds bounded numeric health plans on the selected or explicit day', () => {
@@ -72,6 +78,84 @@ test('builds a compound completion and appended-note plan for an exact exercise 
   assert.equal(plan?.actions[1]?.type === 'exercise_note_change' ? plan.actions[1].text : '', 'i did 1 set');
 });
 
+test('compiles a filled workout starter into every requested review action', () => {
+  const plan = buildDeterministicAgentFallback({
+    question: 'On [today], mark [prone McKenzie] complete. Log [1] sets of [12] with [weight, if any], and add this note: [test].',
+    today: '2026-07-15',
+    selectedDate: '2026-07-15',
+    explicitDates: ['2026-07-15'],
+    exercises: [
+      { id: 'mckenzie', name: 'Prone McKenzie Extension' },
+      { id: 'prone-leg', name: 'Prone Leg Raise' },
+    ],
+  });
+
+  assert.deepEqual(plan?.actions.map(action => action.type), ['completion_set', 'exercise_note_change', 'metrics_set']);
+  assert.equal(plan?.actions[0].type === 'completion_set' ? plan.actions[0].exerciseId : '', 'mckenzie');
+  assert.equal(plan?.actions[1].type === 'exercise_note_change' ? plan.actions[1].text : '', 'test');
+  assert.deepEqual(plan?.actions[2].type === 'metrics_set' ? {
+    sets: plan.actions[2].sets,
+    reps: plan.actions[2].reps,
+    weight: plan.actions[2].weight,
+  } : {}, { sets: 1, reps: 12, weight: null });
+});
+
+test('does not guess when a partial exercise name matches multiple exercises equally', () => {
+  const plan = buildDeterministicAgentFallback({
+    question: 'Mark calf stretch complete today',
+    today: '2026-07-15',
+    exercises: [
+      { id: 'standing', name: 'Standing Calf Stretch' },
+      { id: 'wall', name: 'Wall Calf Stretch' },
+    ],
+  });
+  assert.equal(plan, undefined);
+});
+
+test('compiles every filled wellness starter field and ignores untouched placeholders', () => {
+  const filled = buildDeterministicAgentFallback({
+    question: 'For [today], set my pain to [6], energy to [4.5], mood to [5], and sleep to [7]. Add this health note: [Feet were sore].',
+    today: '2026-07-15', explicitDates: ['2026-07-15'],
+  });
+  assert.deepEqual(filled?.actions.map(action => action.type), [
+    'health_change', 'health_change', 'health_change', 'health_change', 'health_change',
+  ]);
+  assert.deepEqual(filled?.actions.map(action => action.type === 'health_change' ? [action.field, action.value] : []), [
+    ['sleep_hours', 7], ['pain', 6], ['energy', 4.5], ['mood', 5], ['general_notes', 'Feet were sore'],
+  ]);
+
+  const untouched = buildDeterministicAgentFallback({
+    question: 'For [date], set my pain to [0–10], energy to [0–10], mood to [0–10], and sleep to [hours]. Add this health note: [details].',
+    today: '2026-07-15',
+  });
+  assert.equal(untouched, undefined);
+});
+
+test('compiles filled doctor, scheduling, exercise-management, and navigation starters', () => {
+  const doctor = buildDeterministicAgentFallback({
+    question: 'Create a [symptom] doctor note titled [Heel burning] for [Dr. Fox]. Include: [Burning after standing]. Link it to [today].',
+    today: '2026-07-15', explicitDates: ['2026-07-15'],
+  });
+  const session = buildDeterministicAgentFallback({
+    question: 'Please [add] a [PT] session on [today] with this note: [Board prep].',
+    today: '2026-07-15', explicitDates: ['2026-07-15'],
+  });
+  const edit = buildDeterministicAgentFallback({
+    question: 'Please [edit] [Standing Calf Stretch]. Details: [cue Keep heel down, sets 2 x 30 sec, tips Stop if sharp].',
+    today: '2026-07-15', exercises: [{ id: 'calf', name: 'Standing Calf Stretch' }],
+  });
+  const navigate = buildDeterministicAgentFallback({
+    question: 'Take me to [Standing Calf Stretch].',
+    today: '2026-07-15', exercises: [{ id: 'calf', name: 'Standing Calf Stretch' }],
+  });
+
+  assert.equal(doctor?.actions[0].type, 'doctor_note_upsert');
+  assert.equal(doctor?.actions[0].type === 'doctor_note_upsert' ? doctor.actions[0].patch.body : '', 'Burning after standing');
+  assert.equal(session?.actions[0].type === 'pt_session_upsert' ? session.actions[0].note : '', 'Board prep');
+  assert.deepEqual(edit?.actions.map(action => action.type), ['exercise_update']);
+  assert.equal(navigate?.actions[0].type === 'navigate' ? navigate.actions[0].exerciseId : '', 'calf');
+});
+
 test('does not infer completion when the user only asks to append a note about doing a set', () => {
   const plan = buildDeterministicAgentFallback({
     question: 'Add a note to Standing Calf Stretch that I did 1 set',
@@ -92,6 +176,16 @@ test('uses the previous user instruction to resolve a terse note follow-up', () 
   });
   assert.deepEqual(plan?.actions.map(action => action.type), ['exercise_note_change']);
   assert.equal(plan?.actions[0]?.type === 'exercise_note_change' ? plan.actions[0].text : '', 'I did 1 set');
+});
+
+test('compiles desired-state workout wording without relying on a specific command sentence', () => {
+  const plan = buildDeterministicAgentFallback({
+    question: 'Prone McKenzie is done today — 1 x 12, note test',
+    today: '2026-07-15',
+    exercises: [{ id: 'mckenzie', name: 'Prone McKenzie Extension' }],
+  });
+  assert.deepEqual(plan?.actions.map(action => action.type), ['completion_set', 'exercise_note_change', 'metrics_set']);
+  assert.equal(plan?.actions[1]?.type === 'exercise_note_change' ? plan.actions[1].text : '', 'test');
 });
 
 test('builds PT and training session plans from natural schedule statements', () => {

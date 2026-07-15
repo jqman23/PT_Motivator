@@ -502,7 +502,7 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
                 <span>Review required</span>
               </div>
               <button type="button" onClick={onApply} disabled={busy || selectedCount === 0} className="min-h-11 w-full rounded-xl bg-[#1F2F46] px-3 text-sm font-bold text-white shadow-sm disabled:opacity-40" style={{ touchAction: 'manipulation' }}>
-                {busy ? 'Applying safely…' : `Apply ${selectedCount} change${selectedCount === 1 ? '' : 's'}`}
+                {busy ? 'Applying…' : `Apply ${selectedCount} change${selectedCount === 1 ? '' : 's'}`}
               </button>
             </>
           )}
@@ -826,9 +826,11 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           : [],
         confirmedExercise: data.reply?.confirmedExercise,
         model: data.model,
+        providerKey: typeof data.providerKey === 'string' ? data.providerKey : undefined,
         searchedDays: Number.isFinite(Number(data.searchedDays)) ? Number(data.searchedDays) : undefined,
         comparedDays: Number.isFinite(Number(data.comparedDays)) && Number(data.comparedDays) > 0 ? Number(data.comparedDays) : undefined,
         rerankerModel: typeof data.rerankerModel === 'string' ? data.rerankerModel : undefined,
+        rerankerProviderKey: typeof data.rerankerProviderKey === 'string' ? data.rerankerProviderKey : undefined,
         rerankedCandidates: Number.isFinite(Number(data.rerankedCandidates)) ? Number(data.rerankedCandidates) : undefined,
         degraded: data.degraded === true,
         agentPlan,
@@ -1060,23 +1062,23 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 p-2.5 sm:p-3">
+            <div className="grid grid-cols-2 gap-1.5 p-2 sm:grid-cols-3 sm:p-2.5">
               {AI_ACTION_STARTERS.map(action => (
                 <button
                   key={action.id}
                   type="button"
                   onClick={() => handleActionStarter(action.prompt)}
-                  className="group min-h-[7.15rem] rounded-xl border border-stone-200/80 bg-white/85 p-2.5 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_8px_20px_rgba(71,59,43,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
+                  className="group min-h-[5.7rem] rounded-xl border border-stone-200/80 bg-white/85 p-2 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_8px_20px_rgba(71,59,43,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
                   style={{ touchAction: 'manipulation' }}
                   aria-label={`${action.title}. ${action.description}`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
                     <span className="text-sm text-stone-300 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-500" aria-hidden="true">›</span>
                   </div>
-                  <p className="mt-1.5 text-[7px] font-extrabold uppercase tracking-[0.13em]" style={{ color: action.accent }}>{action.label}</p>
-                  <h3 className="text-[12px] font-bold leading-tight text-stone-800">{action.title}</h3>
-                  <p className="mt-0.5 line-clamp-2 text-[9px] leading-snug text-stone-500">{action.description}</p>
+                  <p className="mt-1 text-[6.5px] font-extrabold uppercase tracking-[0.11em]" style={{ color: action.accent }}>{action.label}</p>
+                  <h3 className="text-[11px] font-bold leading-tight text-stone-800">{action.title}</h3>
+                  <p className="mt-0.5 line-clamp-1 text-[8px] leading-snug text-stone-500">{action.description}</p>
                 </button>
               ))}
             </div>
@@ -1181,11 +1183,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               <div key={message.id} className="space-y-2">
                 <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm leading-relaxed text-stone-700 whitespace-pre-wrap">
                   <InlineAnswerDates text={message.content} today={today} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} />
-                  {(reply?.model || reply?.searchedDays || reply?.rerankerModel) && (
+                  {(reply?.model || reply?.providerKey || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
                       {reply?.comparedDays ? <span>Compared all {reply.comparedDays} days</span> : reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
-                      {reply?.rerankerModel && !reply?.comparedDays ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates</span> : null}
+                      {reply?.rerankerModel && !reply?.comparedDays ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates{reply.rerankerProviderKey ? ` · ${reply.rerankerProviderKey}` : ''}</span> : null}
                       {reply?.model ? <span>{reply.degraded ? 'Fallback result' : reply.model}</span> : null}
+                      {reply?.providerKey ? <span>{reply.providerKey}</span> : null}
                     </div>
                   )}
                 </div>
@@ -1217,12 +1220,6 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
                 {!reply?.agentPlan && agentErrors[message.id] && (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{agentErrors[message.id]}</p>
-                )}
-
-                {!reply?.agentPlan && !agentErrors[message.id] && (reply?.agentPlanningStatus === 'missing' || reply?.agentPlanningStatus === 'invalid') && (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Agent mode recognized this as a command, but no safe action plan was produced. Specify the exact item, date, and change so it can prepare an Apply card.
-                  </p>
                 )}
 
                 {!!reply?.dateLinks?.length && (

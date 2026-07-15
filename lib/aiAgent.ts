@@ -741,6 +741,65 @@ const FALLBACK_WIDGET_TARGETS: Array<{ key: AgentWidgetKey; pattern: RegExp; lab
   { key: 'info', pattern: /\b(?:exercise guide|info)\b/i, label: 'Exercise Guide' },
 ];
 
+const ACTION_STARTER_PLACEHOLDERS = new Set([
+  'date', 'exercise', 'sets', 'reps or duration', 'weight, if any', 'details', '0–10', 'hours',
+  'add / edit / move / remove', 'exercise name', 'exact change, category, cue, sets, or tips',
+  'question / symptom / visit / result / plan', 'title', 'provider', 'add / remove', 'pt / training',
+  'date range / all saved history', 'what happened, what to compare, or the pattern to find',
+  'pattern or metrics', 'date range', 'table / line chart / bar chart', 'what i want to understand',
+  'exercise note / health note / doctor note', 'date or note', 'exercise or note name',
+  'day, exercise, calendar, doctor notes, settings, report, timer, or another screen',
+  'showing or hiding a widget / changing the app title / adding, renaming, or removing a category',
+]);
+
+function withoutTemplateBrackets(value: string) {
+  // Action starters deliberately use brackets as fill-in affordances. Once submitted, their
+  // filled contents are ordinary user values. Untouched placeholders are removed so ranges like
+  // [0–10] can never be misread as an actual score.
+  return value.replace(/\[([^\]\n]{1,240})\]/g, (_match, content: string) => (
+    ACTION_STARTER_PLACEHOLDERS.has(content.toLowerCase().replace(/\s+/g, ' ').trim()) ? '' : content
+  )).replace(/\s+/g, ' ').trim();
+}
+
+function exerciseMention(value: string, exercises: Array<{ id: string; name: string }>) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const exact = [...exercises]
+    .filter(item => item.id && item.name && normalized.includes(item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (exact) return exact;
+
+  const questionTokens = normalized.split(' ').filter(Boolean);
+  const questionTokenSet = new Set(questionTokens);
+  const candidates = exercises.flatMap(item => {
+    if (!item.id || !item.name) return [];
+    const nameTokens = item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+    if (!nameTokens.length) return [];
+    const matched = nameTokens.filter(token => questionTokenSet.has(token)).length;
+    let longestRun = 0;
+    for (let start = 0; start < nameTokens.length; start += 1) {
+      for (let length = nameTokens.length - start; length > longestRun; length -= 1) {
+        if (normalized.includes(nameTokens.slice(start, start + length).join(' '))) {
+          longestRun = length;
+          break;
+        }
+      }
+    }
+    const enoughEvidence = nameTokens.length === 1
+      ? nameTokens[0].length >= 4 && matched === 1
+      : matched >= 2 && matched / nameTokens.length >= 0.5 && longestRun >= 2;
+    return enoughEvidence ? [{ item, score: matched * 20 + longestRun * 12 + (matched / nameTokens.length) * 10 }] : [];
+  }).sort((a, b) => b.score - a.score || b.item.name.length - a.item.name.length);
+
+  if (!candidates.length) return undefined;
+  if (candidates[1] && candidates[0].score - candidates[1].score < 8) return undefined;
+  return candidates[0].item;
+}
+
+function actionDetailField(details: string, field: 'category' | 'cue' | 'sets' | 'tips') {
+  const match = details.match(new RegExp(`\\b${field}\\s*(?:is|=|:)?\\s*(.+?)(?=\\s*[,;]\\s*(?:category|cue|sets|tips)\\b|$)`, 'i'));
+  return match?.[1]?.trim().replace(/[.!?]+$/, '') ?? '';
+}
+
 export function buildDeterministicAgentFallback(context: {
   question: string;
   today: string;
@@ -753,8 +812,16 @@ export function buildDeterministicAgentFallback(context: {
 }): AgentPlan | undefined {
   const { question, today, selectedDate, explicitDates = [], exercises = [], categories = [], doctorNotes = [], priorUserMessages = [] } = context;
   const shortApproval = /^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/i.test(question.trim());
-  const instructionQuestion = shortApproval && priorUserMessages.length ? priorUserMessages.at(-1)! : question;
+  const instructionQuestion = withoutTemplateBrackets(shortApproval && priorUserMessages.length ? priorUserMessages.at(-1)! : question);
   if (/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(instructionQuestion)) {
+    const navigationDate = explicitDates.at(-1);
+    if (navigationDate && /\b(?:day|date|today|tomorrow|yesterday|\d{1,2}[/-]\d{1,2}|\d{4}-\d{2}-\d{2})\b/i.test(instructionQuestion)) {
+      return normalizeAgentPlan({
+        version: 1,
+        summary: `Open ${navigationDate}`,
+        actions: [{ id: 'navigate-date-1', type: 'navigate', destination: 'date', date: navigationDate, reason: `You asked to open ${navigationDate}.` }],
+      });
+    }
     const target = FALLBACK_NAVIGATION_TARGETS.find(item => item.pattern.test(instructionQuestion));
     if (target) {
       return normalizeAgentPlan({
@@ -765,20 +832,24 @@ export function buildDeterministicAgentFallback(context: {
     }
   }
 
+  const widgetTarget = FALLBACK_WIDGET_TARGETS.find(item => item.pattern.test(instructionQuestion));
   const widgetVerb = instructionQuestion.match(/\b(show|hide|enable|disable|turn on|turn off)\b/i)?.[1]?.toLowerCase();
-  if (widgetVerb) {
-    const target = FALLBACK_WIDGET_TARGETS.find(item => item.pattern.test(instructionQuestion));
-    if (target) {
-      const enabled = widgetVerb === 'show' || widgetVerb === 'enable' || widgetVerb === 'turn on';
-      return normalizeAgentPlan({
-        version: 1,
-        summary: `${enabled ? 'Show' : 'Hide'} ${target.label}`,
-        actions: [{ id: 'widget-1', type: 'widget_set', key: target.key, enabled, reason: `You asked to ${enabled ? 'show' : 'hide'} ${target.label}.` }],
-      });
-    }
+  const widgetEnabled = widgetVerb
+    ? widgetVerb === 'show' || widgetVerb === 'enable' || widgetVerb === 'turn on'
+    : /\b(?:shown|visible|enabled|back|available)\b/i.test(instructionQuestion) || /\bon[.!?]*$/i.test(instructionQuestion) ? true
+      : /\b(?:off|hidden|disabled|gone|away)\b/i.test(instructionQuestion) || /\b(?:no|without)\s+(?:the\s+)?/i.test(instructionQuestion) ? false
+        : undefined;
+  if (widgetTarget && widgetEnabled !== undefined) {
+    return normalizeAgentPlan({
+      version: 1,
+      summary: `${widgetEnabled ? 'Show' : 'Hide'} ${widgetTarget.label}`,
+      actions: [{ id: 'widget-1', type: 'widget_set', key: widgetTarget.key, enabled: widgetEnabled, reason: `You asked to ${widgetEnabled ? 'show' : 'hide'} ${widgetTarget.label}.` }],
+    });
   }
 
-  const titleMatch = instructionQuestion.match(/\b(?:set|change|rename|update)\s+(?:the\s+)?(?:app|application)\s+title\s+(?:to|as)\s+["“]?(.+?)["”]?[.!?]*$/i);
+  const titleMatch = instructionQuestion.match(/\b(?:set|change|rename|update)\s+(?:the\s+)?(?:app|application)\s+title\s+(?:to|as)\s+["“]?(.+?)["”]?[.!?]*$/i)
+    ?? instructionQuestion.match(/\b(?:call|name)\s+(?:the\s+)?(?:app|application)\s+["“]?(.+?)["”]?[.!?]*$/i)
+    ?? instructionQuestion.match(/\b(?:app|application)\s+title\s+(?:should|needs? to|has to)\s+be\s+["“]?(.+?)["”]?[.!?]*$/i);
   if (titleMatch?.[1]?.trim()) return normalizeAgentPlan({
     version: 1,
     summary: `Change the app title to ${titleMatch[1].trim()}`,
@@ -808,9 +879,7 @@ export function buildDeterministicAgentFallback(context: {
   });
 
   const normalizedQuestion = normalizedInstruction;
-  const exercise = [...exercises]
-    .filter(item => item.id && item.name && normalizedQuestion.includes(item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
-    .sort((a, b) => b.name.length - a.name.length)[0];
+  const exercise = exerciseMention(normalizedQuestion, exercises);
   if (exercise) {
     if (/\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) {
       const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
@@ -820,10 +889,38 @@ export function buildDeterministicAgentFallback(context: {
         actions: [{ id: 'photo-exercise-1', type: 'photo_attach', target: 'exercise_note', date: actionDate, exerciseId: exercise.id, reason: `You asked to attach a photo to ${exercise.name}.` }],
       });
     }
-    const notePattern = /\b(?:add|append|save|record|write|make)\s+(?:a\s+)?note(?:\s+(?:to|for)\s+.{1,180}?)?\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i;
-    const noteMatch = instructionQuestion.match(notePattern);
+    const details = instructionQuestion.match(/\bdetails\s*:\s*(.+)$/i)?.[1]?.trim() ?? '';
+    const moveRequested = /\bmove\b/i.test(instructionQuestion);
+    const editRequested = /\b(?:edit|update|change|modify)\b/i.test(instructionQuestion);
+    if (moveRequested || editRequested) {
+      const categoryName = actionDetailField(details, 'category')
+        || instructionQuestion.match(/\bmove\b[\s\S]*?\bto\s+(?:the\s+)?(.+?)(?:\s+category)?[.!?]*$/i)?.[1]?.trim()
+        || '';
+      const patch = Object.fromEntries([
+        ['cue', actionDetailField(details, 'cue')],
+        ['sets', actionDetailField(details, 'sets')],
+        ['tips', actionDetailField(details, 'tips') ? actionDetailField(details, 'tips').split(/\s*\|\s*|\s*;\s*/).filter(Boolean) : undefined],
+      ].filter(([, value]) => Array.isArray(value) ? value.length : Boolean(value)));
+      const actions: Array<Record<string, unknown>> = [];
+      if (Object.keys(patch).length) actions.push({
+        id: 'exercise-update-1', type: 'exercise_update', exerciseId: exercise.id, patch,
+        reason: `You asked to edit ${exercise.name}.`,
+      });
+      if (categoryName) actions.push({
+        id: 'exercise-move-1', type: 'exercise_move', exerciseId: exercise.id, categoryName,
+        reason: `You asked to move ${exercise.name} to ${categoryName}.`,
+      });
+      if (actions.length) return normalizeAgentPlan({
+        version: 1,
+        summary: `Prepare ${actions.length === 1 ? 'an update' : `${actions.length} updates`} for ${exercise.name}`,
+        actions,
+      });
+    }
+    const notePattern = /\b(?:add|append|save|record|write|make)\s+(?:(?:a|this|the)\s+)?note(?:\s+(?:to|for)\s+.{1,180}?)?\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i;
+    const noteMatch = instructionQuestion.match(notePattern)
+      ?? instructionQuestion.match(/(?:^|[,;—-])\s*note\s*:?[ \t]*["“]?(.+?)["”]?[.!?]*$/i);
     const beforeNote = noteMatch?.index === undefined ? instructionQuestion : instructionQuestion.slice(0, noteMatch.index);
-    const completionRequested = /\bcheck(?:ed)?\s+(?:it\s+)?off\b|\bmark(?:ed)?\b.{0,28}\b(?:complete|completed|done)\b|\b(?:i|we)\s+(?:did|completed|finished|performed)\b/i.test(beforeNote);
+    const completionRequested = /\bcheck(?:ed)?\s+(?:it\s+)?off\b|\bmark(?:ed)?\b.{0,28}\b(?:complete|completed|done)\b|\b(?:i|we)\s+(?:did|completed|finished|performed)\b|\b(?:is|was)\s+(?:complete|completed|done)\b/i.test(beforeNote);
     const currentNoteText = noteMatch?.[1]?.trim().replace(/[.!?]+$/, '').slice(0, 8_000) ?? '';
     const priorNoteText = priorUserMessages.toReversed().flatMap(message => {
       const normalizedMessage = message.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -831,7 +928,7 @@ export function buildDeterministicAgentFallback(context: {
       const match = message.match(notePattern);
       return match?.[1] ? [match[1].trim().replace(/[.!?]+$/, '').slice(0, 8_000)] : [];
     })[0] ?? '';
-    const asksForNote = /\b(?:add|append|save|record|write|make)\s+(?:a\s+)?note\b/i.test(instructionQuestion);
+    const asksForNote = /\b(?:add|append|save|record|write|make)\s+(?:(?:a|this|the)\s+)?note\b/i.test(instructionQuestion);
     const noteText = currentNoteText || (asksForNote ? priorNoteText : '');
     const metricsClearRequested = /\b(?:clear|remove|reset|delete)\b.{0,32}\b(?:metrics?|sets?|reps?|weight|duration)\b/i.test(instructionQuestion);
     const setsValue = modelNumber(instructionQuestion.match(/\b(\d+)\s*sets?\b/i)?.[1] ?? instructionQuestion.match(/\b(\d+)\s*[x×]\s*\d+\b/i)?.[1]);
@@ -899,6 +996,33 @@ export function buildDeterministicAgentFallback(context: {
         reason: `You explicitly asked to remove ${exercise.name}.`,
       }],
     });
+
+    if (/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(instructionQuestion)) {
+      return normalizeAgentPlan({
+        version: 1,
+        summary: `Open ${exercise.name}`,
+        actions: [{ id: 'navigate-exercise-1', type: 'navigate', destination: 'exercise', exerciseId: exercise.id, reason: `You asked to open ${exercise.name}.` }],
+      });
+    }
+  }
+
+  const exerciseAdd = instructionQuestion.match(/\b(?:please\s+)?(?:add|create)\s+(?:a\s+new\s+)?(?:exercise\s+)?(.+?)(?:\.\s*details\s*:\s*(.+))?$/i);
+  if (!exercise && exerciseAdd) {
+    const name = exerciseAdd[1]?.trim().replace(/[.!?]+$/, '');
+    const details = exerciseAdd[2]?.trim() ?? '';
+    const categoryName = actionDetailField(details, 'category');
+    const cue = actionDetailField(details, 'cue');
+    const sets = actionDetailField(details, 'sets');
+    const tipsText = actionDetailField(details, 'tips');
+    if (name && categoryName && cue) return normalizeAgentPlan({
+      version: 1,
+      summary: `Add ${name}`,
+      actions: [{
+        id: 'exercise-add-1', type: 'exercise_add', categoryName,
+        exercise: { name, cat: categoryName, cue, sets, tips: tipsText ? tipsText.split(/\s*\|\s*|\s*;\s*/).filter(Boolean) : [] },
+        reason: `You asked to add ${name}.`,
+      }],
+    });
   }
 
   const doctorNote = [...doctorNotes]
@@ -923,6 +1047,25 @@ export function buildDeterministicAgentFallback(context: {
     });
   }
 
+  const doctorCreate = instructionQuestion.match(/\bcreate\s+(?:a\s+)?(question|symptom|visit|result|plan)\s+doctor\s+note\b/i);
+  if (doctorCreate) {
+    const kind = doctorCreate[1].toLowerCase();
+    const title = instructionQuestion.match(/\b(?:titled|called)\s+(.+?)(?=\s+for\b|\.\s*(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '')
+      || `${kind[0].toUpperCase()}${kind.slice(1)} note`;
+    const provider = instructionQuestion.match(/\bfor\s+(.+?)(?=\.\s*(?:include|link)\b|\s+(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
+    const body = instructionQuestion.match(/\binclude\s*:\s*(.+?)(?=\s+link\s+it\s+to\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
+    const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+    return normalizeAgentPlan({
+      version: 1,
+      summary: `Create ${title}`,
+      actions: [{
+        id: 'doctor-create-1', type: 'doctor_note_upsert', mode: 'create',
+        patch: { kind, title, provider, body, linkedDates: [actionDate] },
+        reason: `You asked to create a ${kind} doctor note.`,
+      }],
+    });
+  }
+
   const doctorQuestionMatch = instructionQuestion.match(/\b(?:ask|remind me to ask)\s+(?:my\s+)?(doctor|pt|provider)\s+(.+?)[.!?]*$/i);
   if (doctorQuestionMatch) {
     const provider = doctorQuestionMatch[1].toUpperCase() === 'PT' ? 'PT' : doctorQuestionMatch[1];
@@ -941,12 +1084,12 @@ export function buildDeterministicAgentFallback(context: {
   const sessionKind = /\btraining(?: session| appointment)?\b/i.test(instructionQuestion) ? 'training'
     : /\b(?:pt|physical therapy)(?: session| appointment)?\b/i.test(instructionQuestion) ? 'pt'
       : null;
-  const sessionRequested = sessionKind && (/\b(?:add|schedule|log|record|mark|save|update|remove|delete|cancel|unmark)\b/i.test(instructionQuestion)
-    || /\b(?:i (?:have|had)|there(?:'s| is)|my)\s+(?:a\s+)?(?:pt|physical therapy|training)\b/i.test(instructionQuestion));
+  const sessionRequested = sessionKind && (/\b(?:add|schedule|log|record|mark|save|update|remove|delete|cancel|unmark|book)\b|\bget rid of\b/i.test(instructionQuestion)
+    || /\b(?:i (?:have|had)|there(?:'s| is)|my|there should be|put down)\s+(?:a\s+)?(?:pt|physical therapy|training)\b/i.test(instructionQuestion));
   if (sessionKind && sessionRequested) {
     const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
-    const removing = /\b(?:remove|delete|cancel|unmark)\b/i.test(instructionQuestion);
-    const sessionNote = instructionQuestion.match(/\b(?:with|add|include)\s+(?:a\s+)?note\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim();
+    const removing = /\b(?:remove|delete|cancel|unmark)\b|\bget rid of\b/i.test(instructionQuestion);
+    const sessionNote = instructionQuestion.match(/\b(?:with|add|include)\s+(?:(?:a|this|the)\s+)?note\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim();
     return normalizeAgentPlan({
       version: 1,
       summary: `${removing ? 'Remove' : 'Add or update'} ${sessionKind === 'pt' ? 'PT' : 'training'} session for ${actionDate}`,
@@ -960,6 +1103,49 @@ export function buildDeterministicAgentFallback(context: {
       }],
     });
   }
+
+  const healthActions: Array<Record<string, unknown>> = [];
+  const healthActionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+  const canSetHealth = /\b(?:set|record|log|change|update|put|save|track|mark)\b/i.test(instructionQuestion)
+    || /\b(?:pain|energy|mood|sleep quality)\b\s*(?:is|was|at|=)\s*-?\d/i.test(instructionQuestion)
+    || /\bi slept\s+\d/i.test(instructionQuestion);
+  if (canSetHealth) {
+    const metricDefinitions: Array<{ field: AgentHealthField; label: string; pattern: RegExp }> = [
+      { field: 'sleep_quality', label: 'sleep quality', pattern: /\bsleep\s+quality\b[^0-9-]{0,32}(-?\d+(?:\.\d+)?)/i },
+      { field: 'sleep_hours', label: 'sleep hours', pattern: /\b(?:sleep(?!\s+quality)|slept|hours\s+slept)\b[^0-9-]{0,32}(-?\d+(?:\.\d+)?)/i },
+      { field: 'pain', label: 'pain', pattern: /\bpain\b[^0-9-]{0,32}(-?\d+(?:\.\d+)?)/i },
+      { field: 'energy', label: 'energy', pattern: /\benergy\b[^0-9-]{0,32}(-?\d+(?:\.\d+)?)/i },
+      { field: 'mood', label: 'mood', pattern: /\bmood\b[^0-9-]{0,32}(-?\d+(?:\.\d+)?)/i },
+    ];
+    for (const metricDefinition of metricDefinitions) {
+      const matchedValue = metricDefinition.pattern.exec(instructionQuestion)?.[1];
+      if (matchedValue === undefined) continue;
+      healthActions.push({
+        id: `health-${healthActions.length + 1}`,
+        type: 'health_change',
+        date: healthActionDate,
+        field: metricDefinition.field,
+        mode: 'replace',
+        value: Number(matchedValue),
+        reason: `You asked to record ${metricDefinition.label} as ${matchedValue}.`,
+      });
+    }
+  }
+  const generalHealthNote = instructionQuestion.match(/\b(?:add|append|save|record|write)\s+(?:(?:a|this|the)\s+)?(?:health|general)\s+note\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim().replace(/^[\s.!?]+|[\s.!?]+$/g, '');
+  if (generalHealthNote) healthActions.push({
+    id: 'health-general-note',
+    type: 'health_change',
+    date: healthActionDate,
+    field: 'general_notes',
+    mode: 'append',
+    value: generalHealthNote,
+    reason: 'You asked to append to the general health note.',
+  });
+  if (healthActions.length) return normalizeAgentPlan({
+    version: 1,
+    summary: `${healthActions.length === 1 ? 'Prepare 1 wellness update' : `Prepare ${healthActions.length} wellness updates`} for ${healthActionDate}`,
+    actions: healthActions,
+  });
 
   const healthNoteMatch = instructionQuestion.match(/\b(pain|general|health|treatment|sleep quality|sleep|energy|mood)\s+notes?\b/i);
   if (healthNoteMatch && /\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) {

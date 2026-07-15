@@ -1,4 +1,4 @@
-export type GroqTask = 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'standardize' | 'summary';
+export type GroqTask = 'agent' | 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'standardize' | 'summary';
 
 export type GroqApiKey = {
   name: string;
@@ -73,17 +73,21 @@ const OPENROUTER_FREE_MODELS: Array<{ model: string; jsonMode: boolean }> = [
   { model: 'qwen/qwen3-next-80b-a3b-instruct:free', jsonMode: true },
   { model: 'nvidia/nemotron-3-super-120b-a12b:free', jsonMode: true },
   { model: 'google/gemma-4-31b-it:free', jsonMode: true },
+  { model: 'nvidia/nemotron-3-ultra-550b-a55b:free', jsonMode: false },
+  { model: 'nousresearch/hermes-3-llama-3.1-405b:free', jsonMode: false },
+  { model: 'meta-llama/llama-3.3-70b-instruct:free', jsonMode: false },
   { model: 'google/gemma-4-26b-a4b-it:free', jsonMode: true },
   { model: 'openai/gpt-oss-20b:free', jsonMode: true },
+  { model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', jsonMode: false },
   { model: 'tencent/hy3:free', jsonMode: false },
-  { model: 'nvidia/nemotron-3-ultra-550b-a55b:free', jsonMode: false },
-  { model: 'meta-llama/llama-3.3-70b-instruct:free', jsonMode: false },
-  { model: 'nousresearch/hermes-3-llama-3.1-405b:free', jsonMode: false },
   { model: 'poolside/laguna-m.1:free', jsonMode: false },
+  { model: 'cohere/north-mini-code:free', jsonMode: false },
+  { model: 'poolside/laguna-xs-2.1:free', jsonMode: false },
   { model: 'nvidia/nemotron-3-nano-30b-a3b:free', jsonMode: false },
+  { model: 'nvidia/nemotron-nano-12b-v2-vl:free', jsonMode: false },
+  { model: 'nvidia/nemotron-nano-9b-v2:free', jsonMode: false },
+  { model: 'meta-llama/llama-3.2-3b-instruct:free', jsonMode: false },
 ];
-
-const PUBLIC_OPENROUTER_TAIL = { model: 'openrouter/free', jsonMode: false };
 const disabledKeys = new Set<string>();
 const cooldowns = new Map<string, number>();
 
@@ -125,6 +129,10 @@ const PUBLIC_ASSISTANT_CHAIN = [
 ];
 
 const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
+  // Direct commands get their own route so structured planners can lead without consuming the
+  // scarce strongest-model quota for every conversational history question.
+  agent: PERSONAL_ASSISTANT_CHAIN,
+
   // Personal history, symptoms, and day logs stay on standard hosted models. Compound can invoke
   // external tools, so it is reserved for clearly non-personal public/general questions.
   ask: PERSONAL_ASSISTANT_CHAIN,
@@ -254,12 +262,22 @@ export function getAiRoutePlan(task: GroqTask): AiRoute[] {
   const openRouter = OPENROUTER_FREE_MODELS.map(route => ({ provider: 'openrouter' as const, ...route }));
   if (task === 'rerank') return groqModels.map(groqRoute);
 
+  if (task === 'agent') return uniqueRoutes([
+    { provider: 'gemini', model: 'gemini-3.5-flash', jsonMode: true },
+    ...groqModels.slice(0, 1).map(groqRoute),
+    { provider: 'cerebras', model: CEREBRAS_PRODUCTION_MODEL, jsonMode: true },
+    { provider: 'gemini', model: 'gemini-3.1-flash-lite', jsonMode: true },
+    ...groqModels.slice(1, 3).map(groqRoute),
+    ...openRouter,
+    ...groqModels.slice(3).map(groqRoute),
+    { provider: 'cerebras', model: CEREBRAS_PREVIEW_MODEL, jsonMode: true },
+  ]);
+
   if (task === 'publicAsk') return uniqueRoutes([
     ...GEMINI_PUBLIC_MODELS.map(model => ({ provider: 'gemini' as const, model, jsonMode: true })),
     ...groqModels.slice(0, 2).map(groqRoute),
     { provider: 'cerebras', model: CEREBRAS_PRODUCTION_MODEL, jsonMode: true },
     ...openRouter,
-    { provider: 'openrouter', ...PUBLIC_OPENROUTER_TAIL },
     ...groqModels.slice(2).map(groqRoute),
   ]);
 
@@ -273,12 +291,21 @@ export function getAiRoutePlan(task: GroqTask): AiRoute[] {
   const shortTaskCerebras: AiRoute[] = task === 'log' || task === 'edit' || task === 'standardize' || task === 'summary'
     ? [{ provider: 'cerebras', model: CEREBRAS_SHORT_CONTEXT_MODEL, jsonMode: true }]
     : [];
+  const geminiRoutes: AiRoute[] = task === 'log' || task === 'edit' || task === 'summary'
+    ? [{ provider: 'gemini', model: 'gemini-3.1-flash-lite', jsonMode: true }]
+    : [
+        { provider: 'gemini', model: 'gemini-3.5-flash', jsonMode: true },
+        { provider: 'gemini', model: 'gemini-3.1-flash-lite', jsonMode: true },
+      ];
 
   return uniqueRoutes([
+    ...geminiRoutes.slice(0, task === 'log' || task === 'edit' || task === 'summary' ? 1 : 0),
     ...premiumGroq.slice(0, 1),
     cerebrasRoutes[0],
+    ...geminiRoutes.slice(task === 'log' || task === 'edit' || task === 'summary' ? 1 : 0, 1),
     ...premiumGroq.slice(1),
     ...shortTaskCerebras,
+    ...geminiRoutes.slice(1),
     ...openRouter,
     ...remainingGroq,
     cerebrasRoutes[1],
@@ -312,8 +339,6 @@ function requestBodyForModel(body: Record<string, unknown>, route: AiRoute) {
       delete next.max_completion_tokens;
     }
     next.provider = {
-      zdr: true,
-      data_collection: 'deny',
       allow_fallbacks: true,
     };
   }
@@ -398,13 +423,66 @@ function modelLabel(route: AiRoute) {
   return route.provider === 'groq' ? route.model : `${route.provider}/${route.model}`;
 }
 
+function providerKeyLabel(provider: AiProvider, keyName: string) {
+  if (provider === 'groq') {
+    const number = keyName.match(/^GROQ_KEY(\d*)_PTMOTIVATOR$/)?.[1] || '1';
+    return `Groq ${number}`;
+  }
+  if (provider === 'cerebras') return 'Cerebras';
+  if (provider === 'gemini') return 'Gemini';
+  return 'OpenRouter';
+}
+
 function retryDelayMs(response: Response) {
   const seconds = Number(response.headers.get('retry-after'));
   return Number.isFinite(seconds) && seconds > 0 ? Math.min(300_000, seconds * 1000) : 30_000;
 }
 
-export async function callGroqChat(apiKeys: GroqApiKey[], task: GroqTask, body: Record<string, unknown>) {
+function parsedJsonObject(value: unknown): Record<string, unknown> | null {
+  const content = String(value ?? '').trim();
+  if (!content) return null;
+  const candidates = [
+    content,
+    content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, ''),
+    content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue;
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // Try the next extraction shape.
+    }
+  }
+  return null;
+}
+
+function containsAgentDraft(value: Record<string, unknown>) {
+  const plan = value.agentPlan && typeof value.agentPlan === 'object' && !Array.isArray(value.agentPlan)
+    ? value.agentPlan as Record<string, unknown>
+    : value.agent_plan && typeof value.agent_plan === 'object' && !Array.isArray(value.agent_plan)
+      ? value.agent_plan as Record<string, unknown>
+      : value.plan && typeof value.plan === 'object' && !Array.isArray(value.plan)
+        ? value.plan as Record<string, unknown>
+        : value;
+  const actions = Array.isArray(plan.actions) ? plan.actions
+    : Array.isArray(plan.proposedActions) ? plan.proposedActions
+      : Array.isArray(plan.proposed_actions) ? plan.proposed_actions
+        : [];
+  const clarification = String(value.clarification ?? plan.clarification ?? '').trim();
+  const answer = String(value.answer ?? '').trim();
+  return actions.length > 0 || clarification.length > 0 || answer.endsWith('?');
+}
+
+export async function callGroqChat(
+  apiKeys: GroqApiKey[],
+  task: GroqTask,
+  body: Record<string, unknown>,
+  options: { requireAgentDraft?: boolean } = {},
+) {
   const attempts: Attempt[] = [];
+  const expectsJsonObject = Boolean(body.response_format && typeof body.response_format === 'object');
 
   // This legacy-named entry point is now the provider router. Each Groq model still exhausts
   // keys 1-4 before the route advances, while Cerebras, Gemini, and free OpenRouter capacity
@@ -430,7 +508,21 @@ export async function callGroqChat(apiKeys: GroqApiKey[], task: GroqTask, body: 
             ? (data as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
             : '';
           if (String(candidate ?? '').trim()) {
-            return { data, model: label, attemptedModels: attempts.map(item => item.model) };
+            const parsedCandidate = expectsJsonObject || options.requireAgentDraft ? parsedJsonObject(candidate) : null;
+            if (expectsJsonObject && !parsedCandidate) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'INVALID_JSON_RESPONSE', detail: 'Provider returned text instead of the required JSON object.' });
+              break;
+            }
+            if (options.requireAgentDraft && (!parsedCandidate || !containsAgentDraft(parsedCandidate))) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_AGENT_DRAFT', detail: 'Provider returned JSON without a proposed action or a concrete clarification.' });
+              break;
+            }
+            return {
+              data,
+              model: label,
+              providerKey: providerKeyLabel(route.provider, apiKey.name),
+              attemptedModels: attempts.map(item => item.model),
+            };
           }
           attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'EMPTY_RESPONSE', detail: 'Provider returned no assistant content.' });
           continue;
