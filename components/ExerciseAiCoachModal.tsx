@@ -550,7 +550,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         {historyOpen ? (
-          <div className="min-h-0 flex-1 overflow-y-auto border-t border-stone-200/70 bg-white/35" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
+          <div className="min-h-0 flex-1 overflow-y-auto border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-200/70 bg-[#F6F1E7]/95 px-5 py-3 backdrop-blur">
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-stone-800">Chat history</h3>
@@ -583,7 +583,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                 const isCurrent = session.id === conversationId;
                 const awaitingDelete = pendingDeleteId === session.id;
                 return (
-                  <div key={session.id} className="flex items-stretch border-b border-stone-200/70 bg-white/60">
+                  <div key={session.id} className={`flex items-stretch border-b border-stone-200/70 transition-colors ${isCurrent ? 'bg-[#E9F0EB]' : 'bg-transparent hover:bg-white/30'}`}>
                     <button type="button" onClick={() => void openSavedConversation(session)} disabled={Boolean(openingChatId)} className="min-w-0 flex-1 px-5 py-3.5 text-left disabled:opacity-60" style={{ touchAction: 'manipulation' }}>
                       <div className="flex items-start justify-between gap-3">
                         <p className="min-w-0 truncate text-sm font-semibold text-stone-800">{session.title || 'Untitled conversation'}</p>
@@ -662,7 +662,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tap to open the day</p>
                     {reply.dateLinks.map(link => (
-                      <button key={`${message.id}-${link.date}`} onClick={() => openDate(link.date)} className="w-full rounded-2xl border border-[#D8E4DB] bg-[#F8FBF8] px-3 py-3 text-left transition hover:shadow-sm" style={{ touchAction: 'manipulation' }}>
+                      <button key={`${message.id}-${link.date}`} onClick={() => openDate(link.date)} className="w-full rounded-2xl border border-[#D3DDD5] bg-[#EEF2ED] px-3 py-3 text-left transition hover:border-[#BFCFC3] hover:bg-[#E9EFEA]" style={{ touchAction: 'manipulation' }}>
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-stone-800">{link.label || displayDate(link.date)}</p>
@@ -677,13 +677,13 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                 )}
 
                 {reply?.confirmedExercise && (
-                  <div className="rounded-2xl border border-[#E4ECE6] bg-[#F8FBF8] p-3">
+                  <div className="rounded-2xl border border-[#D3DDD5] bg-[#EEF2ED] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-[#7E9B86]">App-ready exercise draft</p>
                         <h3 className="font-serif text-lg font-semibold text-stone-800 mt-1">{reply.confirmedExercise.name}</h3>
                       </div>
-                      {reply.confirmedExercise.confidence && <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold uppercase text-stone-400">{reply.confirmedExercise.confidence}</span>}
+                      {reply.confirmedExercise.confidence && <span className="rounded-full bg-[#F6F1E7] px-2 py-1 text-[9px] font-bold uppercase text-stone-400">{reply.confirmedExercise.confidence}</span>}
                     </div>
                     {reply.confirmedExercise.cat && <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-stone-400">{reply.confirmedExercise.cat}</p>}
                     {reply.confirmedExercise.cue && <p className="text-sm text-stone-600 mt-2 leading-snug">{reply.confirmedExercise.cue}</p>}
@@ -693,10 +693,10 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                         {reply.confirmedExercise.tips.slice(0, 6).map((tip, index) => <li key={index} className="text-xs text-stone-600 leading-snug">• {tip}</li>)}
                       </ul>
                     )}
-                    {reply.confirmedExercise.nextStep && <p className="mt-2 rounded-xl bg-white px-2.5 py-2 text-xs text-stone-500"><span className="font-semibold">Next:</span> {reply.confirmedExercise.nextStep}</p>}
+                    {reply.confirmedExercise.nextStep && <p className="mt-2 rounded-xl bg-[#F6F1E7] px-2.5 py-2 text-xs text-stone-500"><span className="font-semibold">Next:</span> {reply.confirmedExercise.nextStep}</p>}
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button onClick={() => void copyDraft(message.id, reply.confirmedExercise!, 'text')} className="py-2.5 rounded-xl text-xs font-bold" style={{ background: '#E4ECE6', color: '#476653', touchAction: 'manipulation' }}>Copy description</button>
-                      <button onClick={() => void copyDraft(message.id, reply.confirmedExercise!, 'json')} className="py-2.5 rounded-xl bg-white border border-stone-200 text-xs font-bold text-stone-600" style={{ touchAction: 'manipulation' }}>Copy JSON</button>
+                      <button onClick={() => void copyDraft(message.id, reply.confirmedExercise!, 'json')} className="py-2.5 rounded-xl border border-stone-200 bg-[#F6F1E7] text-xs font-bold text-stone-600" style={{ touchAction: 'manipulation' }}>Copy JSON</button>
                     </div>
                     {copyStatus[message.id] && <p className="mt-2 text-center text-[10px] font-semibold text-[#7E9B86]">{copyStatus[message.id]}</p>}
                   </div>
