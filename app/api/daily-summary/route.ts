@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getLogForRange, getNotesForDate, getHealthForDate, getConfigs, setConfigs } from '@/lib/db';
-import { callGroqChat, getGroqModelChain } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 const APP_TIME_ZONE = process.env.PT_MOTIVATOR_TIME_ZONE || 'America/Anchorage';
@@ -34,7 +34,7 @@ export async function POST() {
   const yesterday = offsetDateStr(today, -1);
 
   try {
-    const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
+    const apiKeys = getGroqApiKeys();
 
     // Reuse only a real cached recap. Older code could cache a null result for the whole day,
     // which made every later tap on the sun button appear to do nothing.
@@ -56,7 +56,7 @@ export async function POST() {
 
     // Do not cache configuration failures as a completed daily summary. That allows the next
     // tap to retry immediately after the environment is corrected.
-    if (!apiKey) {
+    if (!apiKeys.length) {
       return NextResponse.json({
         summary: UNAVAILABLE_SUMMARY,
         date: yesterday,
@@ -128,7 +128,7 @@ export async function POST() {
       session: session ? { kind: session.kind === 'training' ? 'training' : 'pt', note: stripSecretNotes(session.note) } : null,
     });
 
-    const { data, model } = await callGroqChat(apiKey, 'summary', {
+    const { data, model } = await callGroqChat(apiKeys, 'summary', {
       messages: [
         {
           role: 'system',

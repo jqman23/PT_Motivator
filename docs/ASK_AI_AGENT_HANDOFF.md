@@ -193,7 +193,7 @@ Personal history and symptom questions use the personal model chain:
 
 Clearly public/non-personal questions may try `groq/compound-mini` and `groq/compound` before that chain. Compound models are intentionally excluded from personal-history requests because they may invoke external tools.
 
-The main Ask AI answer budget is currently 950 completion tokens. Model chains can be overridden with the bounded `GROQ_MODELS_PTMOTIVATOR_*` environment variables defined in `lib/groq.ts`.
+The main Ask AI answer budget is currently 950 completion tokens. Model chains can be overridden with the bounded `GROQ_MODELS_PTMOTIVATOR_*` environment variables defined in `lib/groq.ts`. Each model is tried with `GROQ_KEY_PTMOTIVATOR`, then `GROQ_KEY2_PTMOTIVATOR`, `GROQ_KEY3_PTMOTIVATOR`, and `GROQ_KEY4_PTMOTIVATOR` before the cascade advances to the next model. Missing and duplicate keys are skipped.
 
 Operational context discussed during development: the available `gpt-oss-120b` limit was 8K TPM and 200K TPD. The retrieval architecture was designed so deterministic ranking and compact reranking reduce the amount of history sent to the main model.
 

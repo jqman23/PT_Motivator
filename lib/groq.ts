@@ -1,7 +1,13 @@
-export type GroqTask = 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'summary';
+export type GroqTask = 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'standardize' | 'summary';
+
+export type GroqApiKey = {
+  name: string;
+  value: string;
+};
 
 type Attempt = {
   model: string;
+  keyName: string;
   status: number;
   statusText: string;
   detail: string;
@@ -90,6 +96,9 @@ const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
   // Enhance is lower volume and benefits from richer output, but still has many fallbacks.
   enhance: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
 
+  // Note cleanup historically preferred 70b. Preserve that behavior before broader fallbacks.
+  standardize: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
+
   // Tiny daily recap: keep it cheap and avoid competing with heavier routes.
   summary: ['llama-3.1-8b-instant', 'openai/gpt-oss-20b', 'qwen/qwen3-32b', 'llama-3.3-70b-versatile'],
 };
@@ -124,14 +133,33 @@ export function getGroqModelChain(task: GroqTask) {
   const legacySingle = envList('GROQ_MODEL_PTMOTIVATOR');
 
   // Specific env vars go first if present. The legacy single model remains only as a fallback
-  // so one old env var does not force every task onto the same rate-limited model.
+  // so one old env var does not force every task onto the same rate-limited model. Standardize
+  // is the exception because its former standalone route used that variable as its primary model.
   return unique([
     ...specificList,
     ...specificSingle,
+    ...(task === 'standardize' ? legacySingle : []),
     ...DEFAULT_MODEL_CHAINS[task],
     ...globalList,
-    ...legacySingle,
+    ...(task === 'standardize' ? [] : legacySingle),
   ]);
+}
+
+export function getGroqApiKeys(): GroqApiKey[] {
+  const configured = [
+    { name: 'GROQ_KEY_PTMOTIVATOR', value: process.env.GROQ_KEY_PTMOTIVATOR },
+    { name: 'GROQ_KEY2_PTMOTIVATOR', value: process.env.GROQ_KEY2_PTMOTIVATOR },
+    { name: 'GROQ_KEY3_PTMOTIVATOR', value: process.env.GROQ_KEY3_PTMOTIVATOR },
+    { name: 'GROQ_KEY4_PTMOTIVATOR', value: process.env.GROQ_KEY4_PTMOTIVATOR },
+  ];
+  const seen = new Set<string>();
+
+  return configured.flatMap(({ name, value }) => {
+    const clean = value?.trim();
+    if (!clean || seen.has(clean)) return [];
+    seen.add(clean);
+    return [{ name, value: clean }];
+  });
 }
 
 function groqDetailFromText(text: string) {
@@ -147,12 +175,6 @@ function groqDetailFromText(text: string) {
   }
 }
 
-function shouldTryNext(status: number) {
-  // 429 is the common quota case. 400/404 can be model-specific body or availability issues.
-  // Auth and account billing failures should not be hidden by cycling every model.
-  return ![401, 402, 403].includes(status);
-}
-
 function requestBodyForModel(body: Record<string, unknown>, model: string) {
   const next: Record<string, unknown> = { ...body, model };
 
@@ -165,40 +187,42 @@ function requestBodyForModel(body: Record<string, unknown>, model: string) {
   return next;
 }
 
-export async function callGroqChat(apiKey: string, task: GroqTask, body: Record<string, unknown>) {
+export async function callGroqChat(apiKeys: GroqApiKey[], task: GroqTask, body: Record<string, unknown>) {
   const models = getGroqModelChain(task);
   const attempts: Attempt[] = [];
 
+  // Keep model as the outer loop: exhaust keys 1-4 for the best model before degrading quality.
   for (const model of models) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), model.startsWith('groq/compound') ? 45000 : 30000);
+    for (const apiKey of apiKeys) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), model.startsWith('groq/compound') ? 45000 : 30000);
 
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBodyForModel(body, model)),
-        signal: controller.signal,
-      });
+      try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey.value}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBodyForModel(body, model)),
+          signal: controller.signal,
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        return { data, model, attemptedModels: attempts.map(item => item.model) };
+        if (res.ok) {
+          const data = await res.json();
+          return { data, model, attemptedModels: attempts.map(item => item.model) };
+        }
+
+        const detail = groqDetailFromText(await res.text());
+        attempts.push({ model, keyName: apiKey.name, status: res.status, statusText: res.statusText, detail });
+      } catch (error) {
+        const detail = error instanceof Error && error.name === 'AbortError'
+          ? 'Request timed out'
+          : error instanceof Error ? error.message : String(error ?? 'Network error');
+        attempts.push({ model, keyName: apiKey.name, status: 0, statusText: 'FETCH_ERROR', detail });
+      } finally {
+        clearTimeout(timeout);
       }
-
-      const detail = groqDetailFromText(await res.text());
-      attempts.push({ model, status: res.status, statusText: res.statusText, detail });
-      if (!shouldTryNext(res.status)) break;
-    } catch (error) {
-      const detail = error instanceof Error && error.name === 'AbortError'
-        ? 'Request timed out'
-        : error instanceof Error ? error.message : String(error ?? 'Network error');
-      attempts.push({ model, status: 0, statusText: 'FETCH_ERROR', detail });
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

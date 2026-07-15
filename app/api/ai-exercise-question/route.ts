@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
-import { callGroqChat, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqTask } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqApiKey, type GroqTask } from '@/lib/groq';
 import { getConfig } from '@/lib/db';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
@@ -412,7 +412,7 @@ function dayForReranker(record: RankedHistoryDay<DayRecord>) {
 }
 
 async function rerankHistoryDays(
-  apiKey: string,
+  apiKeys: GroqApiKey[],
   candidates: RankedHistoryDay<DayRecord>[],
   question: string,
   aiInstructions: string[],
@@ -422,7 +422,7 @@ async function rerankHistoryDays(
   if (candidates.length <= 8) return { days: deterministic, model: '', candidateCount: 0 };
 
   try {
-    const result = await callGroqChat(apiKey, 'rerank', {
+    const result = await callGroqChat(apiKeys, 'rerank', {
       messages: [
         {
           role: 'system',
@@ -536,8 +536,8 @@ function cleanExerciseDraft(raw: unknown) {
 
 export async function POST(req: NextRequest) {
   try {
-    const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
+    const apiKeys = getGroqApiKeys();
+    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
 
     const requestBody = await req.json() as Record<string, unknown>;
     const serializedQuestion = String(requestBody.question ?? '').slice(0, 3000);
@@ -583,7 +583,7 @@ export async function POST(req: NextRequest) {
         today: appToday,
         limit: 24,
       });
-      const reranked = await rerankHistoryDays(apiKey, candidates, cleanQuestion, conversationAiInstructions, history);
+      const reranked = await rerankHistoryDays(apiKeys, candidates, cleanQuestion, conversationAiInstructions, history);
       rankedDays = reranked.days;
       rerankerModel = reranked.model;
       rerankedCandidates = reranked.candidateCount;
@@ -677,7 +677,7 @@ export async function POST(req: NextRequest) {
 
     let result: Awaited<ReturnType<typeof callGroqChat>>;
     try {
-      result = await callGroqChat(apiKey, groqTask, {
+      result = await callGroqChat(apiKeys, groqTask, {
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: JSON.stringify(promptContext) },

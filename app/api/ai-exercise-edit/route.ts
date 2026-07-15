@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Exercise } from '@/lib/exercises';
-import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
 
 function cleanText(value: unknown, limit = 1400) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -60,8 +60,8 @@ function normalizeExercisePatch(raw: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   let task: 'edit' | 'enhance' = 'edit';
   try {
-    const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    if (!apiKey) return NextResponse.json({ error: 'Missing GROQ_KEY_PTMOTIVATOR' }, { status: 500 });
+    const apiKeys = getGroqApiKeys();
+    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
 
     const { instruction, exercise, mode } = await req.json();
     const cleanInstruction = cleanText(instruction, 1600);
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
       ? 'Identify the best known exercise or variation, correct obvious mistakes only if confident, and fill the app fields. Keep cue very short; put full steps in tips. Do not invent unsupported details.'
       : cleanInstruction;
 
-    const { data, model, attemptedModels } = await callGroqChat(apiKey, task, {
+    const { data, model, attemptedModels } = await callGroqChat(apiKeys, task, {
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: JSON.stringify({ instruction: finalInstruction, mode: isEnhance ? 'enhance' : 'custom', exercise: current }) },

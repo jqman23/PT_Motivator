@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callGroqChat, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, groqErrorPayload } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 function cleanText(value: unknown, limit = 4000) {
@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'title or note required' }, { status: 400 });
     }
 
-    const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    if (!apiKey) return NextResponse.json(localFallback({ title, body: noteBody }));
+    const apiKeys = getGroqApiKeys();
+    if (!apiKeys.length) return NextResponse.json(localFallback({ title, body: noteBody }));
 
     const system = [
       'You rewrite my notes for a doctor visit. Return compact JSON only.',
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       relatedDates,
     });
 
-    const { data, model, attemptedModels } = await callGroqChat(apiKey, 'enhance', {
+    const { data, model, attemptedModels } = await callGroqChat(apiKeys, 'enhance', {
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },

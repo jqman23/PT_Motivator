@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRecentNotes } from '@/lib/db';
-import { callGroqChat, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
+import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload } from '@/lib/groq';
 import { stripSecretNotes } from '@/lib/secretNotes';
 
 type ExerciseBrief = {
@@ -127,11 +127,11 @@ export async function POST(req: NextRequest) {
   let attemptedModels: string[] = [];
 
   try {
-    const apiKey = process.env.GROQ_KEY_PTMOTIVATOR;
-    if (!apiKey) {
+    const apiKeys = getGroqApiKeys();
+    if (!apiKeys.length) {
       return NextResponse.json({
-        error: 'Missing GROQ_KEY_PTMOTIVATOR',
-        detail: 'The server environment variable GROQ_KEY_PTMOTIVATOR is not set, so AI Add cannot call Groq.',
+        error: 'Missing Groq API keys',
+        detail: 'No PT Motivator Groq API key is configured, so AI Add cannot call Groq.',
         model: DEFAULT_MODEL,
       }, { status: 500 });
     }
@@ -202,7 +202,7 @@ export async function POST(req: NextRequest) {
       health,
     });
 
-    const { data, model, attemptedModels: triedModels } = await callGroqChat(apiKey, 'log', {
+    const { data, model, attemptedModels: triedModels } = await callGroqChat(apiKeys, 'log', {
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userPayload },
