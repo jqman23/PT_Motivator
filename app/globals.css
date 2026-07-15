@@ -24,6 +24,23 @@ body {
   overscroll-behavior: none;
 }
 
+.secret-note-editor[data-empty="true"]::before {
+  color: #d6d3d1;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.secret-note-editor,
+.secret-note-editor * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.secret-note-editor [contenteditable="false"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
   main > div > div.mb-6 > div.flex.items-center.justify-between:first-child button[title]:hover {
     background: #fafaf9 !important;
