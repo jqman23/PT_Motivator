@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const EMPTY_DRAFT = {
   mode: 'reps',
@@ -112,7 +112,9 @@ export default function ExerciseGestureEnhancer() {
   const [hasCurrent, setHasCurrent] = useState(false);
   const [seededFromLast, setSeededFromLast] = useState(false);
   const [placeholders, setPlaceholders] = useState({ sets: '3', value: '10' });
+  const [viewportShift, setViewportShift] = useState({ x: 0, y: 0 });
   const dirtyRef = useRef(false);
+  const formRef = useRef(null);
   const setsRef = useRef(null);
   const valueRef = useRef(null);
   const kindRef = useRef(null);
@@ -126,11 +128,12 @@ export default function ExerciseGestureEnhancer() {
       if (!card) return;
       const title = card.querySelector('.text-sm.font-semibold');
       const rect = (title || card).getBoundingClientRect();
-      const halfWidth = 125;
+      const halfWidth = 113;
       const x = Math.max(halfWidth + 8, Math.min(window.innerWidth - halfWidth - 8, event.detail?.clientX || rect.left + rect.width / 2));
       const placeBelow = rect.top < 130;
       const y = placeBelow ? rect.bottom + 5 : rect.top - 5;
 
+      setViewportShift({ x: 0, y: 0 });
       setActive({
         exerciseId: card.dataset.exerciseCardId,
         exerciseName: exerciseNameFromCard(card),
@@ -145,6 +148,28 @@ export default function ExerciseGestureEnhancer() {
     window.addEventListener('pt-exercise-quick-log', openQuickLog);
     return () => window.removeEventListener('pt-exercise-quick-log', openQuickLog);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!active || !formRef.current) return;
+    const rect = formRef.current.getBoundingClientRect();
+    const margin = 8;
+    const nextX = rect.left < margin
+      ? margin - rect.left
+      : rect.right > window.innerWidth - margin
+        ? window.innerWidth - margin - rect.right
+        : 0;
+    const nextY = rect.top < margin
+      ? margin - rect.top
+      : rect.bottom > window.innerHeight - margin
+        ? window.innerHeight - margin - rect.bottom
+        : 0;
+
+    if (nextX || nextY) {
+      setViewportShift(current => (
+        current.x === nextX && current.y === nextY ? current : { x: nextX, y: nextY }
+      ));
+    }
+  }, [active, draft.mode, error, loading, saving, viewportShift.x, viewportShift.y]);
 
   useEffect(() => {
     if (!active) return;
@@ -266,13 +291,14 @@ export default function ExerciseGestureEnhancer() {
         onClick={() => void saveAndClose()}
       />
       <form
+        ref={formRef}
         data-pt-quick-log="true"
         className="fixed z-[110] rounded-xl border border-stone-200 bg-[#F6F1E7] p-2 shadow-2xl"
         style={{
-          width: 'min(250px, calc(100vw - 16px))',
+          width: 'min(226px, calc(100vw - 16px))',
           left: active.x,
           top: active.y,
-          transform: active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+          transform: `${active.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'} translate(${viewportShift.x}px, ${viewportShift.y}px)`,
         }}
         onClick={event => event.stopPropagation()}
         onPointerDown={event => event.stopPropagation()}
@@ -366,7 +392,7 @@ export default function ExerciseGestureEnhancer() {
                 <button
                   type="button"
                   onClick={() => updateDraft({ durationUnit: draft.durationUnit === 'sec' ? 'min' : 'sec' })}
-                  className="shrink-0 text-[8px] font-bold leading-none text-stone-400"
+                  className="shrink-0 text-[8px] font-bold text-stone-400"
                   title="Toggle seconds or minutes"
                 >
                   {draft.durationUnit}
@@ -377,7 +403,7 @@ export default function ExerciseGestureEnhancer() {
                 onClick={() => updateDraft({
                   scopeMultiplier: draft.scopeMultiplier === 1 ? 2 : draft.scopeMultiplier === 2 ? 4 : 1,
                 })}
-                className="min-w-8 shrink-0 rounded-md bg-stone-100 px-1.5 py-1 text-center text-[11px] font-black leading-none text-stone-600"
+                className="shrink-0 rounded bg-stone-100 px-1 py-0.5 text-[9px] font-black text-stone-500"
                 aria-label={`Scope multiplier ${draft.scopeMultiplier}. Tap for next multiplier.`}
                 title="×1 one side; ×2 both legs or directions; ×4 both legs and both directions"
               >
