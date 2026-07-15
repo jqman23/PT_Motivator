@@ -190,7 +190,15 @@ function InlineAnswerDates({ text, today, summaries, onPreview }: {
         type="button"
         onClick={() => onPreview(summary)}
         className="inline border-0 bg-transparent p-0 font-semibold text-[#476653] underline decoration-[#8EAA96] decoration-1 underline-offset-2"
-        style={{ touchAction: 'manipulation' }}
+        style={{
+          touchAction: 'manipulation',
+          fontFamily: 'inherit',
+          fontSize: 'inherit',
+          lineHeight: 'inherit',
+          letterSpacing: 'inherit',
+          verticalAlign: 'baseline',
+          WebkitAppearance: 'none',
+        }}
         aria-label={`Show a quick summary for ${displayDate(segment.date)}`}
       >
         {label}
@@ -370,6 +378,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
   const openDate = (date: string) => {
     persistConversation();
+    try { sessionStorage.removeItem(AI_COACH_ACTIVE_KEY); } catch {}
     localStorage.setItem('pt-selected-date', date);
     window.location.reload();
   };
