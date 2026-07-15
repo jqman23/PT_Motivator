@@ -5,6 +5,7 @@ import { Exercise } from '@/lib/exercises';
 import { SmartDbMatch } from '@/components/SmartAddTypes';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import SecretTextarea from './SecretTextarea';
+import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 
 type DateLink = {
   date: string;
@@ -249,7 +250,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
       const reply: AiReply = {
         answer: String(data.reply?.answer || 'I need one more detail to answer that.'),
-        options: Array.isArray(data.reply?.options) ? data.reply.options.slice(0, 4) : [],
+        options: normalizeAiReplyOptions(data.reply?.options),
         dateLinks: Array.isArray(data.reply?.dateLinks) ? data.reply.dateLinks.slice(0, 5) : [],
         confirmedExercise: data.reply?.confirmedExercise,
         model: data.model,
