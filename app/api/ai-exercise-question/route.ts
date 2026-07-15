@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { callGroqChat, getGroqApiKeys, getGroqModelChain, groqErrorPayload, GroqRouteError, type GroqApiKey, type GroqTask } from '@/lib/groq';
-import { getConfig } from '@/lib/db';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
-import { buildWholeHistoryComparison, strongFallbackDays, supportedDateLinkDates } from '@/lib/aiHistoryScope';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
+import { normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -344,50 +344,128 @@ function instructionsFromFields(row: Record<string, unknown>, fields: string[]) 
 }
 
 async function loadDayRecords(startDate: string, endDate: string, exerciseMap: Map<string, ExerciseContext>, ptSessions: unknown) {
-  const results = await Promise.allSettled([
-    sql`SELECT date::text, exercise_id FROM workout_log WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND completed = true ORDER BY date`,
-    sql`SELECT date::text, exercise_id, note FROM exercise_notes WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND note != '' ORDER BY date`,
-    sql`SELECT date::text, pain, energy, mood, sleep_hours, sleep_quality, pain_notes, general_notes, treatment_notes, sleep_notes, energy_notes, mood_notes FROM health_log WHERE date >= ${startDate}::date AND date <= ${endDate}::date ORDER BY date`,
-  ]);
+  const rows = await sql`
+    SELECT date, source, payload
+    FROM (
+      SELECT
+        date::text AS date,
+        'workout'::text AS source,
+        jsonb_build_object('exerciseId', exercise_id, 'completed', completed) AS payload
+      FROM workout_log
+      WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND completed = true
 
-  const logRows = results[0].status === 'fulfilled' ? results[0].value as Array<Record<string, unknown>> : [];
-  const noteRows = results[1].status === 'fulfilled' ? results[1].value as Array<Record<string, unknown>> : [];
-  const healthRows = results[2].status === 'fulfilled' ? results[2].value as Array<Record<string, unknown>> : [];
+      UNION ALL
+
+      SELECT
+        date::text AS date,
+        'workout_day'::text AS source,
+        jsonb_build_object('entryCount', COUNT(*)) AS payload
+      FROM workout_log
+      WHERE date >= ${startDate}::date AND date <= ${endDate}::date
+      GROUP BY date
+
+      UNION ALL
+
+      SELECT
+        date::text AS date,
+        'note'::text AS source,
+        jsonb_build_object('exerciseId', exercise_id, 'note', LEFT(note, 2400)) AS payload
+      FROM exercise_notes
+      WHERE date >= ${startDate}::date AND date <= ${endDate}::date AND note != ''
+
+      UNION ALL
+
+      SELECT
+        date::text AS date,
+        'health'::text AS source,
+        jsonb_build_object(
+          'pain', pain,
+          'energy', energy,
+          'mood', mood,
+          'sleep_hours', sleep_hours,
+          'sleep_quality', sleep_quality,
+          'pain_notes', LEFT(COALESCE(pain_notes, ''), 1200),
+          'general_notes', LEFT(COALESCE(general_notes, ''), 1800),
+          'treatment_notes', LEFT(COALESCE(treatment_notes, ''), 1200),
+          'sleep_notes', LEFT(COALESCE(sleep_notes, ''), 900),
+          'energy_notes', LEFT(COALESCE(energy_notes, ''), 900),
+          'mood_notes', LEFT(COALESCE(mood_notes, ''), 900)
+        ) AS payload
+      FROM health_log
+      WHERE date >= ${startDate}::date AND date <= ${endDate}::date
+
+      UNION ALL
+
+      SELECT
+        date::text AS date,
+        'metrics'::text AS source,
+        jsonb_build_object(
+          'exerciseId', exercise_id,
+          'sets', sets_count,
+          'reps', reps_count,
+          'durationSeconds', duration_seconds,
+          'weight', weight_value,
+          'weightUnit', weight_unit,
+          'scopeMultiplier', scope_multiplier
+        ) AS payload
+      FROM exercise_metrics
+      WHERE date >= ${startDate}::date AND date <= ${endDate}::date
+    ) AS bounded_history
+    ORDER BY date, source
+  `;
+
   const sessions = Array.isArray(ptSessions) ? ptSessions as Array<{ date?: string; kind?: string; note?: string }> : [];
   const records = new Map<string, DayRecord>();
 
   const getDay = (date: string) => {
     const existing = records.get(date);
     if (existing) return existing;
-    const next: DayRecord = { date, completed: [], exerciseNotes: [], health: null, session: null, aiInstructions: [] };
+    const next: DayRecord = { date, completed: [], exerciseNotes: [], health: null, session: null, aiInstructions: [], workoutEntries: [], exerciseMetrics: [], workoutTracked: false, workoutEntryCount: 0 };
     records.set(date, next);
     return next;
   };
 
-  for (const row of logRows) {
+  for (const row of rows) {
     const date = validDate(row.date);
-    const id = cleanText(row.exercise_id, 100);
-    if (!date || !id) continue;
-    getDay(date).completed.push(exerciseMap.get(id)?.name ?? id);
-  }
-
-  for (const row of noteRows) {
-    const date = validDate(row.date);
-    const id = cleanText(row.exercise_id, 100);
-    if (!date || !id) continue;
-    const rawNote = String(row.note ?? '');
-    const day = getDay(date);
-    day.aiInstructions?.push(...extractAiInstructions(rawNote));
-    const note = cleanText(stripSecretNotes(rawNote), 700);
-    if (note) day.exerciseNotes.push({ exerciseId: id, exercise: exerciseMap.get(id)?.name ?? id, note });
-  }
-
-  for (const row of healthRows) {
-    const date = validDate(row.date);
+    const source = cleanText(row.source, 20);
+    const payload = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+      ? row.payload as Record<string, unknown>
+      : {};
     if (!date) continue;
     const day = getDay(date);
-    day.health = compactHealth(row);
-    day.aiInstructions?.push(...instructionsFromFields(row, ['pain_notes', 'general_notes', 'treatment_notes', 'sleep_notes', 'energy_notes', 'mood_notes']));
+    if (source === 'workout') {
+      const id = cleanText(payload.exerciseId, 100);
+      if (!id) continue;
+      const exercise = exerciseMap.get(id)?.name ?? id;
+      day.workoutEntries?.push({ exerciseId: id, exercise, completed: true });
+      if (!day.completed.includes(exercise)) day.completed.push(exercise);
+    } else if (source === 'workout_day') {
+      day.workoutTracked = true;
+      day.workoutEntryCount = numeric(payload.entryCount) ?? 0;
+    } else if (source === 'note') {
+      const id = cleanText(payload.exerciseId, 100);
+      if (!id) continue;
+      const rawNote = String(payload.note ?? '');
+      day.aiInstructions?.push(...extractAiInstructions(rawNote));
+      const note = cleanText(stripSecretNotes(rawNote), 700);
+      if (note) day.exerciseNotes.push({ exerciseId: id, exercise: exerciseMap.get(id)?.name ?? id, note });
+    } else if (source === 'health') {
+      day.health = compactHealth(payload);
+      day.aiInstructions?.push(...instructionsFromFields(payload, ['pain_notes', 'general_notes', 'treatment_notes', 'sleep_notes', 'energy_notes', 'mood_notes']));
+    } else if (source === 'metrics') {
+      const id = cleanText(payload.exerciseId, 100);
+      if (!id) continue;
+      day.exerciseMetrics?.push({
+        exerciseId: id,
+        exercise: exerciseMap.get(id)?.name ?? id,
+        sets: numeric(payload.sets),
+        reps: numeric(payload.reps),
+        durationSeconds: numeric(payload.durationSeconds),
+        weight: numeric(payload.weight),
+        weightUnit: cleanText(payload.weightUnit, 12) || 'lb',
+        scopeMultiplier: numeric(payload.scopeMultiplier) ?? 1,
+      });
+    }
   }
 
   for (const session of sessions) {
@@ -417,8 +495,16 @@ function reasonForDay(record: RankedHistoryDay<DayRecord>, question: string) {
   if (health?.generalNote) return cleanText(health.generalNote, 150);
   if (health?.painNote) return `Pain note: ${cleanText(health.painNote, 130)}`;
   if (health?.pain !== null && health?.pain !== undefined) return `Pain ${health.pain}/10${record.completed.length ? ` · ${record.completed.length} exercises completed` : ''}`;
-  if (record.completed.length) return `${record.completed.slice(0, 3).join(', ')}${record.completed.length > 3 ? ` +${record.completed.length - 3} more` : ''}`;
+  const activities = activityNames(record);
+  if (activities.length) return `${activities.slice(0, 3).join(', ')}${activities.length > 3 ? ` +${activities.length - 3} more` : ''}`;
   return 'Related saved activity';
+}
+
+function activityNames(record: DayRecord) {
+  return Array.from(new Set([
+    ...record.completed,
+    ...(record.exerciseMetrics ?? []).map(metric => metric.exercise),
+  ]));
 }
 
 function naturalList(values: string[]) {
@@ -442,6 +528,14 @@ function summarizeDay(record: DayRecord): string | null {
     const exercises = record.completed.slice(0, 2);
     const extra = record.completed.length - exercises.length;
     facts.push(`completed ${extra > 0 ? `${exercises.join(', ')}, plus ${extra} more exercise${extra === 1 ? '' : 's'}` : naturalList(exercises)}`);
+  }
+
+  const metricOnlyExercises = (record.exerciseMetrics ?? [])
+    .map(metric => metric.exercise)
+    .filter(exercise => !record.completed.includes(exercise));
+  if (metricOnlyExercises.length) {
+    const exercises = Array.from(new Set(metricOnlyExercises)).slice(0, 2);
+    facts.push(`logged workout metrics for ${naturalList(exercises)}`);
   }
 
   const health = record.health ?? {};
@@ -477,6 +571,8 @@ function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
     date: record.date,
     weekday: new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
     completedExercises: record.completed.slice(0, 8),
+    workoutEntries: (record.workoutEntries ?? []).slice(0, 80),
+    exerciseMetrics: (record.exerciseMetrics ?? []).slice(0, 12),
     exerciseNotes: record.exerciseNotes.slice(0, 4).map(note => ({ ...note, note: cleanText(note.note, 220) })),
     health: {
       pain: health.pain,
@@ -504,6 +600,7 @@ function dayForReranker(record: RankedHistoryDay<DayRecord>) {
     weekday: new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
     evidence: record.evidence.slice(0, 3),
     completed: record.completed.slice(0, 5),
+    exerciseMetrics: (record.exerciseMetrics ?? []).slice(0, 5).map(metric => ({ exercise: metric.exercise, sets: metric.sets, reps: metric.reps, durationSeconds: metric.durationSeconds })),
     exerciseNotes: record.exerciseNotes.slice(0, 3).map(note => ({
       exercise: note.exercise,
       note: cleanText(note.note, 140),
@@ -602,7 +699,7 @@ function buildAnalytics(records: DayRecord[]) {
   const nonPtPain = records.filter(record => !record.session).map(record => numeric(record.health?.pain));
   return {
     dateRange: records.length ? { start: records[0].date, end: records[records.length - 1].date } : null,
-    activeDays: records.filter(record => record.completed.length).length,
+    activeDays: records.filter(record => activityNames(record).length).length,
     loggedHealthDays: records.filter(record => record.health).length,
     ptSessions: ptDates.length,
     trainingSessions: trainingDates.length,
@@ -649,10 +746,129 @@ function cleanExerciseDraft(raw: unknown) {
   };
 }
 
+function completionCoverageReply(records: DayRecord[], window: BoundedHistoryWindow, trackedExercises: ExerciseContext[]) {
+  const { performedNames, missedNames, trackerExerciseCount } = buildExerciseCompletionCoverage(records, trackedExercises);
+  const list = (values: string[], empty: string) => values.length ? values.map(value => `• ${value}`).join('\n') : empty;
+  const missedHeading = missedNames.length
+    ? `Not recorded at all (${missedNames.length} of ${trackerExerciseCount} exercises currently on your tracker):`
+    : `You recorded every exercise currently on your tracker at least once.`;
+  const answer = [
+    `I checked every calendar day from ${window.startDate} through ${window.endDate} directly—all ${window.dayCount} days, not a relevance sample.`,
+    missedHeading,
+    missedNames.length ? list(missedNames, '') : '',
+    `Recorded at least once (${performedNames.length}):`,
+    list(performedNames, '• None found'),
+    'I counted completed checkmarks and saved workout metrics as activity. “Not recorded” is compared with the exercises currently on your tracker; the app does not store a historical copy of which exercises were assigned on each past day.',
+  ].filter(Boolean).join('\n\n');
+
+  const activeRecords = records.filter(record => activityNames(record).length);
+  const dateLinks = activeRecords.slice(-5).reverse().map(record => ({
+    date: record.date,
+    label: new Date(`${record.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    reason: `${activityNames(record).length} exercise${activityNames(record).length === 1 ? '' : 's'} recorded`,
+  }));
+  const dateSummaries = activeRecords.slice(-8).flatMap(record => {
+    const summary = summarizeDay(record);
+    return summary ? [{ date: record.date, summary }] : [];
+  });
+  return { answer, dateLinks, dateSummaries };
+}
+
+function shortDateLabel(date: string) {
+  const [, month, day] = date.split('-');
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function displayMetric(value: unknown, suffix = '') {
+  const number = numeric(value);
+  return number === null ? '—' : `${formatNumberForVisual(number)}${suffix}`;
+}
+
+function formatNumberForVisual(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
+function buildHistoryVisualizations(question: string, records: DayRecord[], window: BoundedHistoryWindow | null): AiVisualization[] {
+  const scoped = window ? recordsForWindow(records, window) as DayRecord[] : records.slice(-14);
+  if (!scoped.length) return [];
+  const rangeText = window ? `${window.startDate} through ${window.endDate}` : `${scoped[0].date} through ${scoped.at(-1)?.date}`;
+  const asksTable = /\btable\b/i.test(question);
+  const asksBar = /\bbar(?: graph| chart)?\b/i.test(question);
+  const asksLine = /\bline(?: graph| chart)?\b|\btrend\b/i.test(question);
+  const visuals: unknown[] = [];
+
+  if (asksTable) {
+    visuals.push({
+      id: 'daily-pattern-table',
+      type: 'table',
+      title: `${scoped.length}-day pattern overview`,
+      subtitle: rangeText,
+      columns: ['Date', 'Recorded activity', 'Pain', 'Energy', 'Mood', 'Sleep'],
+      rows: scoped.map(record => {
+        const health = record.health ?? {};
+        const activities = activityNames(record);
+        const sleep = [
+          numeric(health.sleepHours) === null ? '' : `${displayMetric(health.sleepHours)}h`,
+          numeric(health.sleepQuality) === null ? '' : `quality ${displayMetric(health.sleepQuality)}`,
+        ].filter(Boolean).join(' · ');
+        return [
+          shortDateLabel(record.date),
+          activities.length ? activities.join(', ') : 'No exercise activity recorded',
+          displayMetric(health.pain),
+          displayMetric(health.energy),
+          displayMetric(health.mood),
+          sleep || '—',
+        ];
+      }),
+      footnote: 'Activity includes completed checkmarks and saved workout metrics. Empty cells mean no value was saved.',
+    });
+  }
+
+  if (!asksTable || asksLine) {
+    const metricDefinitions = [
+      { name: 'Pain', key: 'pain', requested: /\bpain\b/i.test(question) },
+      { name: 'Energy', key: 'energy', requested: /\benergy\b/i.test(question) },
+      { name: 'Mood', key: 'mood', requested: /\bmood\b/i.test(question) },
+      { name: 'Sleep quality', key: 'sleepQuality', requested: /\bsleep(?: quality)?\b/i.test(question) },
+    ];
+    const specificallyRequested = metricDefinitions.filter(metric => metric.requested);
+    const chosenMetrics = specificallyRequested.length ? specificallyRequested : metricDefinitions.slice(0, 3);
+    const series = chosenMetrics.map(metric => ({
+      name: metric.name,
+      values: scoped.map(record => numeric(record.health?.[metric.key])),
+      unit: '/10',
+    })).filter(metric => metric.values.some(value => value !== null));
+    if (series.length) visuals.push({
+      id: 'health-pattern-lines',
+      type: 'line',
+      title: 'Health patterns over time',
+      subtitle: rangeText,
+      labels: scoped.map(record => shortDateLabel(record.date)),
+      series,
+      yLabel: 'Score (0–10)',
+      footnote: 'Lines connect saved values; missing values are left blank rather than estimated.',
+    });
+  }
+
+  if (!asksTable && (asksBar || !asksLine)) {
+    visuals.push({
+      id: 'daily-activity-bars',
+      type: 'bar',
+      title: 'Recorded exercise activity',
+      subtitle: rangeText,
+      labels: scoped.map(record => shortDateLabel(record.date)),
+      series: [{ name: 'Exercises', values: scoped.map(record => activityNames(record).length), unit: 'count' }],
+      yLabel: 'Exercises recorded',
+      footnote: 'Counts unique exercises with a completed checkmark or saved workout metrics on each day.',
+    });
+  }
+
+  return normalizeAiVisualizations(visuals);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKeys = getGroqApiKeys();
-    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
 
     const requestBody = await req.json() as Record<string, unknown>;
     const serializedQuestion = String(requestBody.question ?? '').slice(0, 3000);
@@ -665,6 +881,24 @@ export async function POST(req: NextRequest) {
     const exerciseMap = new Map(exercises.map(exercise => [exercise.id, exercise]));
     const appToday = validDate(requestBody.today) ?? toDateStr(new Date());
     const selectedDate = validDate(requestBody.selectedDate);
+    const appContext = requestBody.appContext && typeof requestBody.appContext === 'object' && !Array.isArray(requestBody.appContext)
+      ? requestBody.appContext as Record<string, unknown>
+      : {};
+    const categoryContext = Array.isArray(appContext.categories) ? appContext.categories.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const row = item as Record<string, unknown>;
+      const id = cleanText(row.id, 120);
+      const name = cleanText(row.name, 120);
+      if (!id || !name) return [];
+      const exerciseIds = Array.isArray(row.exerciseIds)
+        ? row.exerciseIds.map(value => cleanText(value, 100)).filter(Boolean).slice(0, 250)
+        : [];
+      return [{ id, name, color: cleanText(row.color, 30), exerciseIds }];
+    }).slice(0, 30) : [];
+    const trackerExerciseIds = new Set(categoryContext.flatMap(category => category.exerciseIds));
+    const trackedExercises = trackerExerciseIds.size
+      ? exercises.filter(exercise => trackerExerciseIds.has(exercise.id))
+      : exercises;
     const conversationText = `${history.map(message => message.content).join(' ')} ${cleanQuestion}`;
     const conversationAiInstructions = cleanInstructions([
       ...history.flatMap(message => message.aiInstructions),
@@ -672,12 +906,26 @@ export async function POST(req: NextRequest) {
     ], 8, 300);
     const currentQuestionDates = extractDates(cleanQuestion, appToday, selectedDate);
     const explicitDates = extractDates(conversationText, appToday, selectedDate);
+    const priorUserMessages = history.filter(message => message.role === 'user').map(message => message.content);
+    const correctionFollowUp = isHistoryCorrectionFollowUp(cleanQuestion);
+    const currentHistoryWindow = resolveBoundedHistoryWindow(cleanQuestion, appToday);
+    const mayCarryPriorWindow = isHistoryScopeFollowUp(cleanQuestion) && !isWholeHistoryComparisonRequest(cleanQuestion);
+    const historyWindow = currentHistoryWindow
+      ?? (mayCarryPriorWindow ? resolveHistoryWindowFromConversation(cleanQuestion, priorUserMessages, appToday) : null);
     const agentIntent = isAgentRequest(cleanQuestion)
       || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
     const priorUserQuestion = history.toReversed().find(message => message.role === 'user')?.content ?? '';
+    const priorHistoryIntent = priorUserMessages.some(message => isHistoryQuestion(message));
+    const completionCoverageIntent = isExerciseCompletionCoverageRequest(cleanQuestion)
+      || (correctionFollowUp && priorUserMessages.some(message => isExerciseCompletionCoverageRequest(message)));
+    const visualizationIntent = isVisualizationRequest(cleanQuestion);
     const wholeHistoryIntent = isWholeHistoryComparisonRequest(cleanQuestion)
       || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion));
-    const historyIntent = isHistoryQuestion(cleanQuestion) || (!agentIntent && explicitDates.length > 0);
+    const historyIntent = isHistoryQuestion(cleanQuestion)
+      || (!agentIntent && explicitDates.length > 0)
+      || (!agentIntent && correctionFollowUp && priorHistoryIntent)
+      || completionCoverageIntent
+      || visualizationIntent;
     const patternIntent = isPatternQuestion(cleanQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
     const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || questionAiInstructions.length > 0;
@@ -691,22 +939,53 @@ export async function POST(req: NextRequest) {
     if (shouldLoadHistory) {
       const defaultStart = shiftDate(appToday, -(MAX_HISTORY_DAYS - 1));
       const oldestExplicit = explicitDates.length ? [...explicitDates].sort()[0] : null;
-      const startDate = oldestExplicit && oldestExplicit < defaultStart ? oldestExplicit : defaultStart;
-      const ptSessions = await getConfig('ptSessions');
-      dayRecords = await loadDayRecords(startDate, appToday, exerciseMap, ptSessions);
-      const candidates = rankHistoryDays(dayRecords, {
-        question: cleanQuestion,
-        context: [history.map(message => message.content).join(' '), ...conversationAiInstructions].join(' '),
-        explicitDates,
-        selectedDate,
-        today: appToday,
-        limit: 24,
+      const startDate = historyWindow?.startDate ?? (oldestExplicit && oldestExplicit < defaultStart ? oldestExplicit : defaultStart);
+      const endDate = historyWindow?.endDate ?? appToday;
+      dayRecords = await loadDayRecords(startDate, endDate, exerciseMap, appContext.ptSessions);
+      if (historyWindow && historyWindow.dayCount <= 31) {
+        rankedDays = recordsForWindow(dayRecords, historyWindow).map(record => ({
+          ...record,
+          score: 100,
+          evidence: ['Within the complete requested date range'],
+        }));
+      } else {
+        const candidates = rankHistoryDays(dayRecords, {
+          question: cleanQuestion,
+          context: [history.map(message => message.content).join(' '), ...conversationAiInstructions].join(' '),
+          explicitDates,
+          selectedDate,
+          today: appToday,
+          limit: 24,
+        });
+        const reranked = apiKeys.length
+          ? await rerankHistoryDays(apiKeys, candidates, cleanQuestion, conversationAiInstructions, history)
+          : { days: candidates.slice(0, 8), model: '', candidateCount: 0 };
+        rankedDays = reranked.days;
+        rerankerModel = reranked.model;
+        rerankedCandidates = reranked.candidateCount;
+      }
+      analytics = patternIntent || wholeHistoryIntent || visualizationIntent ? buildAnalytics(historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords) : null;
+    }
+
+    if (completionCoverageIntent && historyWindow) {
+      const scopedRecords = recordsForWindow(dayRecords, historyWindow) as DayRecord[];
+      const deterministic = completionCoverageReply(scopedRecords, historyWindow, trackedExercises);
+      return NextResponse.json({
+        reply: {
+          answer: deterministic.answer,
+          options: [],
+          dateLinks: deterministic.dateLinks,
+          dateSummaries: deterministic.dateSummaries,
+          visualizations: visualizationIntent ? buildHistoryVisualizations(cleanQuestion, scopedRecords, historyWindow) : [],
+        },
+        model: '',
+        attemptedModels: [],
+        usedPersonalHistory: true,
+        searchedDays: historyWindow.dayCount,
+        comparedDays: historyWindow.dayCount,
+        rerankerModel: '',
+        rerankedCandidates: 0,
       });
-      const reranked = await rerankHistoryDays(apiKeys, candidates, cleanQuestion, conversationAiInstructions, history);
-      rankedDays = reranked.days;
-      rerankerModel = reranked.model;
-      rerankedCandidates = reranked.candidateCount;
-      analytics = patternIntent || wholeHistoryIntent ? buildAnalytics(dayRecords) : null;
     }
 
     const agentExerciseQuery = agentIntent
@@ -720,9 +999,6 @@ export async function POST(req: NextRequest) {
     ].filter(date => date <= appToday));
 
     const sourceMatches = Array.isArray(requestBody.sourceMatches) ? requestBody.sourceMatches.slice(0, 8) : [];
-    const appContext = requestBody.appContext && typeof requestBody.appContext === 'object' && !Array.isArray(requestBody.appContext)
-      ? requestBody.appContext as Record<string, unknown>
-      : {};
     let doctorNotesContext: Array<Record<string, unknown>> = [];
     const doctorContextText = agentIntent ? conversationText : cleanQuestion;
     if (/doctor|provider|appointment question|medical note|follow[- ]?up/i.test(doctorContextText)) {
@@ -751,6 +1027,8 @@ export async function POST(req: NextRequest) {
       'You are the intelligent assistant inside PT Motivator. You are not limited to identifying exercises.',
       'You can answer normal follow-up questions, explain or construct exercises, reason over the supplied app history, compare logged patterns, and help the user find a remembered date.',
       'The supplied day records are authoritative. Never invent a completed exercise, symptom, metric, appointment, or date. If the records do not support the memory, say that clearly.',
+      'boundedHistoryComparison covers every calendar date in a requested range, including dates with no saved data. For bounded-window claims, use that complete comparison instead of treating candidateDays as a relevance sample.',
+      'Never claim a date has no activity when boundedHistoryComparison shows completedExercises or metricExercises. Saved workout metrics are evidence of activity even if a completion checkbox is absent.',
       'When answering which-day or when questions, cite the best supported date in the answer and include it in dateLinks so the user can tap it.',
       'Return a dateLink only when that exact date is materially discussed in the answer or explicitly requested by the user. Otherwise return an empty dateLinks array. Never add merely related or nearby days.',
       'Write every specific calendar date in answer as YYYY-MM-DD. The interface will display it in the user-friendly local format.',
@@ -771,9 +1049,11 @@ export async function POST(req: NextRequest) {
       'For many completion changes based on note text, emit one bulk_completion_from_note action rather than listing dates. The server will deterministically find and preview matches.',
       'A photo_attach action only opens a user-controlled photo chooser during review. Never invent photo data or claim access to the photo library. Propose at most one photo_attach action per plan.',
       'Navigation is a navigate action. It may target date, exercise, health, doctorNotes, doctorNote, settings, exerciseTypes, library, calendar, ptSessions, treatments, progressReport, dataExport, exerciseGuide, manageExercises, masterDatabase, timer, or top.',
+      'When visualizationRequested is true, return one or two concise visualizations based only on supplied factual data. Use table for a requested table, line for numeric trends, and bar for counts or comparisons. Never estimate missing values.',
+      'Visualization shape: {id,type:"table",title,subtitle,columns:[...],rows:[[...]],footnote} or {id,type:"line"|"bar",title,subtitle,labels:[...],series:[{name,values:[number|null],unit}],yLabel,footnote}. Keep at most 31 labels or rows and four series.',
       'Supported write action shapes are: completion_set{date,exerciseId,completed}; exercise_note_change{date,exerciseId,mode,text}; health_change{date,field,mode,value}; metrics_set{date,exerciseId,sets,reps,durationSeconds,weight,weightUnit,scopeMultiplier}; metrics_clear{date,exerciseId}; exercise_add{exercise:{name,cat,cue,sets,tips,optional,programs,imageSearch,mainImageUrl,mainImageUrls,mainVideoUrl},categoryName}; exercise_update{exerciseId,patch}; exercise_move{exerciseId,categoryName}; exercise_remove{exerciseId}; category_upsert{categoryId,name,color}; category_remove{categoryId}; doctor_note_upsert{noteId,mode,patch}; doctor_note_remove{noteId}; pt_session_upsert{date,kind,note}; pt_session_remove{date,kind}; widget_set{key,enabled}; app_title_set{title}; photo_attach{target,date,exerciseId,noteId}; bulk_completion_from_note{exerciseId,phrase,field,startDate,endDate,completed}.',
       'Every action needs a short reason. Keep direct plans to at most twelve actions. Destructive actions are allowed only when explicitly requested because the interface will flag them separately.',
-      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]},"agentPlan":{"version":1,"summary":"","actions":[{"id":"action-1","type":"","reason":""}]}}.',
+      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"visualizations":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]},"agentPlan":{"version":1,"summary":"","actions":[{"id":"action-1","type":"","reason":""}]}}.',
       'Omit confirmedExercise when it is not relevant. options must contain zero to four short tap-to-send answers written from the user perspective, such as "It happens while walking" or "Mostly afterward".',
       'Never put assistant questions, suggested questions, instructions, or generic prompts in options. If useful answer choices are not clear, return an empty options array.',
     ].join(' ');
@@ -786,14 +1066,16 @@ export async function POST(req: NextRequest) {
       today: appToday,
       currentlySelectedDate: selectedDate,
       candidateDays: rankedDays.map(dayForPrompt),
+      boundedHistoryComparison: historyWindow ? buildBoundedHistoryComparison(dayRecords, historyWindow) : null,
       wholeHistoryComparison: wholeHistoryIntent ? buildWholeHistoryComparison(dayRecords) : null,
       historyAnalytics: analytics,
+      visualizationRequested: visualizationIntent,
       relevantExercisesInApp: matchedExerciseContext,
       externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
       availableExerciseCategories: Array.from(new Set(exercises.map(exercise => exercise.cat).filter(Boolean))).slice(0, 30),
       appContext: {
         appTitle: cleanText(appContext.appTitle, 80),
-        categories: Array.isArray(appContext.categories) ? appContext.categories.slice(0, 30) : [],
+        categories: categoryContext,
         ptSessions: Array.isArray(appContext.ptSessions) ? appContext.ptSessions.slice(0, 100) : [],
         widgetPrefs: appContext.widgetPrefs && typeof appContext.widgetPrefs === 'object' ? appContext.widgetPrefs : {},
       },
@@ -803,8 +1085,10 @@ export async function POST(req: NextRequest) {
       agentPlanningDirective: agentIntent
         ? 'This request is a direct app command. Return a valid non-empty agentPlan for review, or ask exactly one clarification question if a required target or value is missing. Do not merely explain how the user could do it manually.'
         : null,
-      instructions: wholeHistoryIntent
-        ? 'wholeHistoryComparison contains one compact row for every loaded saved day. Use all of its rows for overall, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
+      instructions: historyWindow
+        ? `boundedHistoryComparison contains every one of the ${historyWindow.dayCount} calendar days from ${historyWindow.startDate} through ${historyWindow.endDate}. Use the full range for all claims and never infer missing activity from candidate sampling.`
+        : wholeHistoryIntent
+          ? 'wholeHistoryComparison contains one compact row for every loaded saved day. Use all of its rows for overall, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
         : rankedDays.length
           ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
         : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
@@ -818,6 +1102,8 @@ export async function POST(req: NextRequest) {
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
       priorUserMessages: history.filter(message => message.role === 'user').map(message => message.content),
     }) : undefined;
+
+    if (!apiKeys.length) return NextResponse.json({ error: 'Missing Groq API keys' }, { status: 500 });
 
     let result: Awaited<ReturnType<typeof callGroqChat>>;
     try {
@@ -836,6 +1122,9 @@ export async function POST(req: NextRequest) {
         label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
         reason: reasonForDay(day, cleanQuestion),
       }));
+      const fallbackVisualizations = visualizationIntent
+        ? buildHistoryVisualizations(cleanQuestion, historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords, historyWindow)
+        : [];
       if (error instanceof GroqRouteError) {
         if (deterministicAgentPlan) {
           return NextResponse.json({
@@ -845,6 +1134,7 @@ export async function POST(req: NextRequest) {
                 : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`,
               options: [],
               dateLinks: [],
+              visualizations: fallbackVisualizations,
               agentPlan: deterministicAgentPlan,
               agentPlanningStatus: 'planned',
             },
@@ -852,8 +1142,8 @@ export async function POST(req: NextRequest) {
             model: '',
             attemptedModels: error.attempts.map(attempt => attempt.model),
             usedPersonalHistory: shouldLoadHistory,
-            searchedDays: shouldLoadHistory ? dayRecords.length : 0,
-            comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
+            searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
+            comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
             rerankerModel,
             rerankedCandidates,
           });
@@ -867,14 +1157,15 @@ export async function POST(req: NextRequest) {
                 : 'The AI response failed, and I could not identify a strongly supported date without risking an irrelevant suggestion.',
             options: [],
             dateLinks: fallbackLinks,
+            visualizations: fallbackVisualizations,
             agentPlanningStatus: agentIntent ? 'missing' : undefined,
           },
           degraded: true,
           model: '',
           attemptedModels: error.attempts.map(attempt => attempt.model),
           usedPersonalHistory: shouldLoadHistory,
-          searchedDays: shouldLoadHistory ? dayRecords.length : 0,
-          comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
+          searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
+          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
           rerankerModel,
           rerankedCandidates,
         });
@@ -884,13 +1175,6 @@ export async function POST(req: NextRequest) {
 
     const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
     const raw = jsonFromText(rawContent);
-    const categoryContext = Array.isArray(appContext.categories) ? appContext.categories.flatMap(item => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-      const row = item as Record<string, unknown>;
-      const id = cleanText(row.id, 120);
-      const name = cleanText(row.name, 120);
-      return id && name ? [{ id, name }] : [];
-    }).slice(0, 30) : [];
     const modelPlanContext: AgentModelPlanContext = {
       question: cleanQuestion,
       today: appToday,
@@ -972,6 +1256,12 @@ export async function POST(req: NextRequest) {
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
     const dateLinks = agentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
+    const deterministicVisualizations = visualizationIntent
+      ? buildHistoryVisualizations(cleanQuestion, historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords, historyWindow)
+      : [];
+    const visualizations = deterministicVisualizations.length
+      ? deterministicVisualizations
+      : visualizationIntent ? normalizeAiVisualizations(raw.visualizations) : [];
 
     return NextResponse.json({
       reply: {
@@ -982,12 +1272,13 @@ export async function POST(req: NextRequest) {
         confirmedExercise: agentIntent ? undefined : cleanExerciseDraft(raw.confirmedExercise),
         agentPlan: normalizedAgentPlan,
         agentPlanningStatus,
+        visualizations,
       },
       model: result.model,
       attemptedModels: result.attemptedModels,
       usedPersonalHistory: shouldLoadHistory,
-      searchedDays: shouldLoadHistory ? dayRecords.length : 0,
-      comparedDays: wholeHistoryIntent ? dayRecords.length : 0,
+      searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
+      comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
       rerankerModel,
       rerankedCandidates,
     });

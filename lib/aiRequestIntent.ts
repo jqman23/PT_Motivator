@@ -1,6 +1,10 @@
 export function isAgentRequest(value: string) {
-  const text = value.toLowerCase().replace(/\s+/g, ' ').trim();
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (!text) return false;
+
+  if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|apply|change|delete|edit|log|record|remove|save|set|update)\b/.test(text)) {
+    return false;
+  }
 
   if (/\b(how (?:can|do|would) (?:i|you)|what (?:can|would) you|could you explain|can you imagine|should i|do you recommend|would it help|what if)\b/.test(text)) {
     return false;
@@ -18,6 +22,30 @@ export function isAgentRequest(value: string) {
   if (/\b\d+\s*sets?\b.{0,24}\b(?:of\s+)?\d+\s*reps?\b|\b\d+\s*sets?\s+of\s+\d+\b/.test(text)) return true;
 
   return /\b(?:add|append|apply|attach|change|check|clear|complete|create|delete|disable|done|edit|enable|finished|hide|log|mark|move|note|open|pin|put|record|remove|rename|replace|reorder|save|schedule|set|show|track|turn on|turn off|uncheck|update)\b/.test(text);
+}
+
+export function isExerciseCompletionCoverageRequest(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!/\b(?:exercise|exercises|movement|movements|stretch|stretches|workout)\b/.test(text)) return false;
+  return /\b(?:did not|didn't|didnt|not do|not done|not complete|not completed|never did|never completed|missed|skip(?:ped)?|unchecked|wasn't done|weren't done|was not done|were not done)\b/.test(text)
+    || /\bwhat\b.{0,32}\b(?:haven't|have not)\b.{0,24}\b(?:done|completed)\b/.test(text);
+}
+
+export function isHistoryCorrectionFollowUp(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  return /^(?:no[,!. ]+)?(?:look|check|search|try) (?:again|harder|more carefully)\b/.test(text)
+    || /\b(?:that(?:'s| is) not true|that's wrong|that is wrong|you(?:'re| are) missing|why can(?:'t| not) you see|check the actual records|look at the actual records|i did plenty|i logged plenty)\b/.test(text);
+}
+
+export function isHistoryScopeFollowUp(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (isHistoryCorrectionFollowUp(text)) return true;
+  if (/\b(?:that|those|them|same|above|previous answer|period|date range|time range)\b/.test(text)) return true;
+  return /^(?:and|also|what about|how about)\b.{0,64}$/.test(text);
+}
+
+export function isVisualizationRequest(value: string) {
+  return /\b(?:visuali[sz]e|visualization|graph|graphs|chart|charts|plot|plots|table|trend line|bar graph|line graph)\b/i.test(value);
 }
 
 export function isWholeHistoryComparisonRequest(value: string) {

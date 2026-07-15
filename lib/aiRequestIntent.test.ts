@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -27,6 +27,31 @@ test('does not turn advice or capability questions into commands', () => {
     'What can you change in the app?',
     'Do you recommend turning off reminders?',
   ]) assert.equal(isAgentRequest(request), false, request);
+});
+
+test('does not turn explicit no-change corrections into commands', () => {
+  for (const request of [
+    "Don't update anything—why can't you see my exercises?",
+    'Do not change the records; check again.',
+    "I'm not asking you to save anything, just answer me.",
+  ]) assert.equal(isAgentRequest(request), false, request);
+});
+
+test('recognizes completion coverage, correction follow-ups, and visualization requests', () => {
+  assert.equal(isExerciseCompletionCoverageRequest('What exercises did I not do at all the past 5 days?'), true);
+  assert.equal(isExerciseCompletionCoverageRequest('Which stretches have I never completed this week?'), true);
+  assert.equal(isExerciseCompletionCoverageRequest('What exercises did I do?'), false);
+  assert.equal(isHistoryCorrectionFollowUp('Look harder'), true);
+  assert.equal(isHistoryCorrectionFollowUp("That’s not true, I did plenty of exercises"), true);
+  assert.equal(isVisualizationRequest('Visualize my past five days in a table'), true);
+});
+
+test('only carries an earlier date window into a genuine follow-up', () => {
+  assert.equal(isHistoryScopeFollowUp('Visualize that as a table'), true);
+  assert.equal(isHistoryScopeFollowUp('What about energy?'), true);
+  assert.equal(isHistoryScopeFollowUp("That's not true—look harder"), true);
+  assert.equal(isHistoryScopeFollowUp('What was my worst day ever?'), false);
+  assert.equal(isHistoryScopeFollowUp('When did I first mention heel pain?'), false);
 });
 
 test('recognizes requests that require comparison across the whole loaded history', () => {

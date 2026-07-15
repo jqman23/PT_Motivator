@@ -16,6 +16,13 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
         dateLinks: [{ date: '2026-06-21', label: 'June 21' }, { date: 'not-a-date', label: 'Bad' }],
         comparedDays: 47,
         agentPlanningStatus: 'missing',
+        visualizations: [{
+          id: 'pain-trend',
+          type: 'line',
+          title: 'Pain trend',
+          labels: ['6/20', '6/21'],
+          series: [{ name: 'Pain', values: [4, 7], unit: '/10' }],
+        }],
       },
     },
     { id: 'bad', role: 'system', content: 'Do not store this.' },
@@ -26,6 +33,7 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
   assert.deepEqual(messages[1].reply?.dateLinks.map(link => link.date), ['2026-06-21']);
   assert.equal(messages[1].reply?.comparedDays, 47);
   assert.equal(messages[1].reply?.agentPlanningStatus, 'missing');
+  assert.equal(messages[1].reply?.visualizations?.[0].type, 'line');
 });
 
 test('builds useful history titles and previews', () => {

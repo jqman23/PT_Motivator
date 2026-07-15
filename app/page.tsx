@@ -955,7 +955,7 @@ export default function Home() {
             today={today}
             appContext={{
               appTitle,
-              categories: layout.map(category => ({ id: category.id, name: category.name, color: category.color })),
+              categories: layout.map(category => ({ id: category.id, name: category.name, color: category.color, exerciseIds: category.exerciseIds })),
               ptSessions,
               widgetPrefs,
             }}

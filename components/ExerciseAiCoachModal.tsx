@@ -5,6 +5,7 @@ import { Exercise } from '@/lib/exercises';
 import { SmartDbMatch } from '@/components/SmartAddTypes';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import SecretTextarea from './SecretTextarea';
+import AiVisualizationCard from './AiVisualizationCard';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
 import { isAgentRequest } from '@/lib/aiRequestIntent';
@@ -59,7 +60,7 @@ interface Props {
   onOpenDate: (date: string) => void;
   appContext: {
     appTitle: string;
-    categories: Array<{ id: string; name: string; color: string }>;
+    categories: Array<{ id: string; name: string; color: string; exerciseIds: string[] }>;
     ptSessions: Array<{ date: string; kind?: 'pt' | 'training'; note?: string }>;
     widgetPrefs: Record<string, boolean | undefined>;
   };
@@ -68,6 +69,109 @@ interface Props {
 }
 
 type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; createdAt: string };
+
+const AI_ACTION_STARTERS = [
+  {
+    id: 'log-workout',
+    label: 'Log & track',
+    title: 'Log a workout',
+    description: 'Completion, sets, reps, time, weight, or a note.',
+    symbol: '✓',
+    accent: '#476653',
+    tint: '#E5EFE7',
+    prompt: 'On [date], mark [exercise] complete. Log [sets] sets of [reps or duration] with [weight, if any], and add this note: [details].',
+  },
+  {
+    id: 'update-wellness',
+    label: 'Daily check-in',
+    title: 'Update wellness',
+    description: 'Pain, sleep, energy, mood, and health notes.',
+    symbol: '♥',
+    accent: '#A85E53',
+    tint: '#F6E8E4',
+    prompt: 'For [date], set my pain to [0–10], energy to [0–10], mood to [0–10], and sleep to [hours]. Add this health note: [details].',
+  },
+  {
+    id: 'manage-exercises',
+    label: 'Exercise library',
+    title: 'Manage exercises',
+    description: 'Add, edit, move, or remove exercises and categories.',
+    symbol: '+',
+    accent: '#5F7694',
+    tint: '#E8EEF5',
+    prompt: 'Please [add / edit / move / remove] [exercise name]. Details: [exact change, category, cue, sets, or tips].',
+  },
+  {
+    id: 'doctor-note',
+    label: 'Care notes',
+    title: 'Make a doctor note',
+    description: 'Create or update questions, symptoms, visits, and plans.',
+    symbol: '✚',
+    accent: '#836488',
+    tint: '#F0E8F2',
+    prompt: 'Create a [question / symptom / visit / result / plan] doctor note titled [title] for [provider]. Include: [details]. Link it to [date].',
+  },
+  {
+    id: 'schedule-session',
+    label: 'Schedule',
+    title: 'Add a PT session',
+    description: 'Add or remove PT and training appointments.',
+    symbol: '◷',
+    accent: '#A27433',
+    tint: '#F5ECD9',
+    prompt: 'Please [add / remove] a [PT / training] session on [date] with this note: [details].',
+  },
+  {
+    id: 'find-patterns',
+    label: 'History & insights',
+    title: 'Find a pattern',
+    description: 'Search saved days, compare trends, or find an event.',
+    symbol: '⌁',
+    accent: '#477986',
+    tint: '#E3F0F2',
+    prompt: 'Look across [date range / all saved history] and tell me [what happened, what to compare, or the pattern to find].',
+  },
+  {
+    id: 'visualize-patterns',
+    label: 'Charts & tables',
+    title: 'Visualize patterns',
+    description: 'Turn saved history into a polished table, line, or bar chart.',
+    symbol: '▥',
+    accent: '#55709A',
+    tint: '#E7ECF5',
+    prompt: 'Visualize [pattern or metrics] across [date range] as a [table / line chart / bar chart]. Focus on [what I want to understand].',
+  },
+  {
+    id: 'attach-photo',
+    label: 'Photos',
+    title: 'Attach a photo',
+    description: 'Add a photo to an exercise, health, or doctor note.',
+    symbol: '▧',
+    accent: '#8A6B45',
+    tint: '#F1E9DE',
+    prompt: 'Attach a photo to [exercise note / health note / doctor note] for [date or note]. The target is [exercise or note name].',
+  },
+  {
+    id: 'open-screen',
+    label: 'Navigate',
+    title: 'Open something',
+    description: 'Jump to a day, exercise, calendar, report, timer, or setting.',
+    symbol: '↗',
+    accent: '#486680',
+    tint: '#E5EDF3',
+    prompt: 'Take me to [day, exercise, calendar, doctor notes, settings, report, timer, or another screen].',
+  },
+  {
+    id: 'personalize-app',
+    label: 'Personalize',
+    title: 'Customize the app',
+    description: 'Show or hide widgets, rename the app, or organize categories.',
+    symbol: '◇',
+    accent: '#6A7350',
+    tint: '#EBEFDF',
+    prompt: 'Customize my app by [showing or hiding a widget / changing the app title / adding, renaming, or removing a category]. Exact change: [details].',
+  },
+] as const;
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -418,6 +522,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
   const [datePreview, setDatePreview] = useState<DateSummary | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [chatSessions, setChatSessions] = useState<AiChatSessionSummary[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -518,9 +623,25 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   const showChatHistory = () => {
+    setActionsOpen(false);
     setHistoryOpen(true);
     setPendingDeleteId('');
     if (!historyLoadedRef.current) void chatSaveQueueRef.current.then(() => loadChatHistory(true));
+  };
+
+  const showAiActions = () => {
+    setHistoryOpen(false);
+    setPendingDeleteId('');
+    setActionsOpen(true);
+  };
+
+  const handleActionStarter = (prompt: string) => {
+    setInput(prompt);
+    setActionsOpen(false);
+    setHistoryOpen(false);
+    setError('');
+    persistConversation(prompt, messages, conversationId);
+    window.setTimeout(() => composerRef.current?.querySelector<HTMLElement>('[role="textbox"]')?.focus(), 100);
   };
 
   const startNewConversation = () => {
@@ -531,6 +652,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setError('');
     setDatePreview(null);
     setHistoryOpen(false);
+    setActionsOpen(false);
     setPendingDeleteId('');
     setAgentSelections({});
     setAgentErrors({});
@@ -614,13 +736,14 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     const fn = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (datePreview) setDatePreview(null);
+      else if (actionsOpen) setActionsOpen(false);
       else if (historyOpen) setHistoryOpen(false);
       else closeModal();
     };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datePreview, historyOpen, onClose]);
+  }, [actionsOpen, datePreview, historyOpen, onClose]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -710,6 +833,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         degraded: data.degraded === true,
         agentPlan,
         agentPlanningStatus,
+        visualizations: Array.isArray(data.reply?.visualizations) ? data.reply.visualizations : [],
       };
 
       const assistantMessage: ChatMessage = {
@@ -867,16 +991,35 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">PT Motivator assistant</p>
-              <h2 id="ai-coach-title" className="font-serif text-xl font-semibold text-stone-800">Ask anything</h2>
+              <h2 id="ai-coach-title" className="font-serif text-xl font-semibold text-stone-800">{actionsOpen ? 'Ways I can help' : historyOpen ? 'Past chats' : 'Ask anything'}</h2>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => actionsOpen ? setActionsOpen(false) : showAiActions()}
+                className="flex h-9 w-9 items-center justify-center rounded-full border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
+                style={{ background: actionsOpen ? '#E5EFE7' : '#fff', borderColor: actionsOpen ? '#BFD0C3' : '#f5f5f4', color: actionsOpen ? '#476653' : '#78716c', boxShadow: actionsOpen ? '0 4px 14px rgba(71, 102, 83, 0.14)' : 'none', touchAction: 'manipulation' }}
+                title={actionsOpen ? 'Back to conversation' : 'What AI can do'}
+                aria-label={actionsOpen ? 'Back to conversation' : 'What AI can do'}
+                aria-pressed={actionsOpen}
+              >
+                {actionsOpen ? (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M16 10H4M9 5l-5 5 5 5" /></svg>
+                ) : (
+                  <span className="relative block h-4 w-4" aria-hidden="true">
+                    <span className="absolute left-0 top-[-3px] text-[15px] leading-none">✦</span>
+                    <span className="absolute bottom-[-2px] right-0 text-[9px] leading-none">✦</span>
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => historyOpen ? setHistoryOpen(false) : showChatHistory()}
                 className="flex h-9 w-9 items-center justify-center rounded-full border"
                 style={{ background: historyOpen ? '#EAF2F5' : '#fff', borderColor: historyOpen ? '#C6DCE9' : '#f5f5f4', color: historyOpen ? '#648399' : '#78716c', touchAction: 'manipulation' }}
-                title={historyOpen ? 'Back to conversation' : 'Chat history'}
-                aria-label={historyOpen ? 'Back to conversation' : 'Chat history'}
+                title={historyOpen ? 'Back to conversation' : 'Past chats'}
+                aria-label={historyOpen ? 'Back to conversation' : 'Past chats'}
+                aria-pressed={historyOpen}
               >
                 {historyOpen ? (
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M16 10H4M9 5l-5 5 5 5" /></svg>
@@ -884,20 +1027,66 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M4.2 6.1A7 7 0 1 1 3 10" /><path d="M3 3.5v4h4" /><path d="M10 6.5V10l2.5 1.5" /></svg>
                 )}
               </button>
-              {!historyOpen && messages.length > 0 && (
+              {!historyOpen && !actionsOpen && messages.length > 0 && (
                 <button type="button" onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
               )}
               <button type="button" onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
             </div>
           </div>
-          <p className="mt-2 w-full text-xs leading-snug text-stone-500">Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.</p>
+          <p className="mt-2 w-full text-xs leading-snug text-stone-500">
+            {actionsOpen
+              ? 'Choose a starting point below. I’ll place an editable request in chat for you.'
+              : historyOpen
+                ? 'Open a saved conversation or start fresh.'
+                : 'Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.'}
+          </p>
         </div>
 
-        {historyOpen ? (
+        {actionsOpen ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(36rem, calc(94dvh - 9rem))' }}>
+            <div className="relative overflow-hidden border-b border-[#D4DDD6] bg-gradient-to-br from-[#F8FBF8] via-[#EEF4EF] to-[#E8EFF2] px-5 py-4">
+              <div className="absolute -right-7 -top-8 h-24 w-24 rounded-full bg-white/60 blur-sm" aria-hidden="true" />
+              <div className="relative flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/80 bg-white/75 text-[#476653] shadow-[0_8px_24px_rgba(71,102,83,0.12)]" aria-hidden="true">
+                  <span className="text-xl leading-none">✦</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-extrabold text-stone-800">Pick an action. Make it yours.</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-stone-500">Tap any card, replace the words in [brackets], then send when you’re ready.</p>
+                </div>
+              </div>
+              <div className="relative mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#C8D8CC] bg-white/70 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-[#52705C]">
+                <span className="text-xs" aria-hidden="true">✓</span>
+                App changes always wait for your review
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 p-3 sm:p-4">
+              {AI_ACTION_STARTERS.map(action => (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => handleActionStarter(action.prompt)}
+                  className="group min-h-[9.4rem] rounded-2xl border border-stone-200/80 bg-white/85 p-3 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_10px_24px_rgba(71,59,43,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
+                  style={{ touchAction: 'manipulation' }}
+                  aria-label={`${action.title}. ${action.description}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl text-base font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
+                    <span className="pt-1 text-sm text-stone-300 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-500" aria-hidden="true">›</span>
+                  </div>
+                  <p className="mt-2.5 text-[8px] font-extrabold uppercase tracking-[0.14em]" style={{ color: action.accent }}>{action.label}</p>
+                  <h3 className="mt-0.5 text-[13px] font-bold leading-tight text-stone-800">{action.title}</h3>
+                  <p className="mt-1 text-[10px] leading-snug text-stone-500">{action.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : historyOpen ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-200/70 bg-[#F6F1E7]/95 px-5 py-3 backdrop-blur">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-stone-800">Chat history</h3>
+                <h3 className="text-sm font-bold text-stone-800">Saved conversations</h3>
               </div>
               <button type="button" onClick={startNewConversation} disabled={Boolean(openingChatId)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#C6DCE9] bg-[#F3F8FA] px-2.5 text-[11px] font-bold text-[#648399] disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
@@ -995,12 +1184,18 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                   <InlineAnswerDates text={message.content} today={today} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} />
                   {(reply?.model || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
-                      {reply?.comparedDays ? <span>Compared all {reply.comparedDays} saved days</span> : reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
+                      {reply?.comparedDays ? <span>Compared all {reply.comparedDays} days</span> : reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}
                       {reply?.rerankerModel && !reply?.comparedDays ? <span>{reply.rerankerModel.includes('scout') ? 'Scout' : 'AI'} ranked {reply.rerankedCandidates ?? 0} candidates</span> : null}
                       {reply?.model ? <span>{reply.degraded ? 'Fallback result' : reply.model}</span> : null}
                     </div>
                   )}
                 </div>
+
+                {!!reply?.visualizations?.length && (
+                  <div className="space-y-3">
+                    {reply.visualizations.map(visual => <AiVisualizationCard key={visual.id} visual={visual} />)}
+                  </div>
+                )}
 
                 {reply?.agentPlan && (
                   <AgentPlanCard

@@ -9,6 +9,23 @@ export type HistorySession = {
   note: string;
 };
 
+export type HistoryWorkoutEntry = {
+  exerciseId: string;
+  exercise: string;
+  completed: boolean;
+};
+
+export type HistoryExerciseMetric = {
+  exerciseId: string;
+  exercise: string;
+  sets: number | null;
+  reps: number | null;
+  durationSeconds: number | null;
+  weight: number | null;
+  weightUnit: string;
+  scopeMultiplier: number;
+};
+
 export type HistoryDayRecord = {
   date: string;
   completed: string[];
@@ -16,6 +33,10 @@ export type HistoryDayRecord = {
   health: Record<string, unknown> | null;
   session: HistorySession | null;
   aiInstructions?: string[];
+  workoutEntries?: HistoryWorkoutEntry[];
+  exerciseMetrics?: HistoryExerciseMetric[];
+  workoutTracked?: boolean;
+  workoutEntryCount?: number;
 };
 
 export type RankedHistoryDay<T extends HistoryDayRecord = HistoryDayRecord> = T & {
@@ -32,7 +53,7 @@ export type HistoryRankingOptions = {
   limit?: number;
 };
 
-type FieldKey = 'exerciseNotes' | 'session' | 'healthPrimary' | 'treatment' | 'healthOther' | 'completed' | 'metadata';
+type FieldKey = 'exerciseNotes' | 'exerciseMetrics' | 'session' | 'healthPrimary' | 'treatment' | 'healthOther' | 'completed' | 'metadata';
 
 type SearchField = {
   key: FieldKey;
@@ -80,6 +101,7 @@ const STOP_WORDS = new Set([
 
 const FIELD_WEIGHTS: Record<FieldKey, number> = {
   exerciseNotes: 3.5,
+  exerciseMetrics: 2.4,
   session: 3.2,
   healthPrimary: 3,
   treatment: 2.9,
@@ -242,6 +264,7 @@ function indexDay<T extends HistoryDayRecord>(record: T): IndexedDay<T> {
     record,
     fields: [
       makeField('exerciseNotes', 'exercise notes', record.exerciseNotes.map(note => `${note.exercise} ${note.note}`).join(' ')),
+      makeField('exerciseMetrics', 'exercise metrics', (record.exerciseMetrics ?? []).map(metric => `${metric.exercise} ${metric.sets ?? ''} sets ${metric.reps ?? ''} reps ${metric.durationSeconds ?? ''} seconds ${metric.weight ?? ''} ${metric.weightUnit}`).join(' ')),
       makeField('session', 'PT or training notes', record.session ? `${record.session.kind} physical therapy ${record.session.note}` : ''),
       makeField('healthPrimary', 'pain or general health notes', [textValue(health.painNote), textValue(health.generalNote)].join(' ')),
       makeField('treatment', 'treatment notes', textValue(health.treatmentNote)),
@@ -393,7 +416,13 @@ function structuredScores<T extends HistoryDayRecord>(records: T[], plan: QueryP
     if (plan.asksPain && (numericValue(record.health?.pain) !== null || hasHealthText(record, ['painNote']))) {
       add(record, 4, 'Pain or symptom information recorded on this day');
     }
-    if (plan.asksExercise && record.completed.length) add(record, 3, `${record.completed.length} completed exercise${record.completed.length === 1 ? '' : 's'}`);
+    if (plan.asksExercise && (record.completed.length || record.exerciseMetrics?.length)) {
+      const count = new Set([
+        ...record.completed,
+        ...(record.exerciseMetrics ?? []).map(metric => metric.exercise),
+      ]).size;
+      add(record, 3, `${count} performed exercise${count === 1 ? '' : 's'} recorded`);
+    }
   }
   return scores;
 }

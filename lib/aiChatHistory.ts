@@ -1,5 +1,7 @@
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
 import { normalizeAgentPlan, type AgentPreviewItem, type PreviewedAgentPlan } from './aiAgent.ts';
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { normalizeAiVisualizations, type AiVisualization } from './aiVisualizations.ts';
 
 export type StoredAiDateLink = {
   date: string;
@@ -38,6 +40,7 @@ export type StoredAiReply = {
   degraded?: boolean;
   agentPlan?: PreviewedAgentPlan;
   agentPlanningStatus?: 'planned' | 'clarification' | 'missing' | 'invalid';
+  visualizations?: AiVisualization[];
 };
 
 export type StoredAiChatMessage = {
@@ -150,6 +153,7 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     agentPlanningStatus: raw.agentPlanningStatus === 'planned' || raw.agentPlanningStatus === 'clarification' || raw.agentPlanningStatus === 'missing' || raw.agentPlanningStatus === 'invalid'
       ? raw.agentPlanningStatus
       : undefined,
+    visualizations: normalizeAiVisualizations(raw.visualizations),
   };
 }
 
