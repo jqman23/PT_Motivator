@@ -28,12 +28,17 @@ body {
   color: #d6d3d1;
   content: attr(data-placeholder);
   pointer-events: none;
+  position: absolute;
 }
 
 .secret-note-editor,
 .secret-note-editor * {
   -webkit-user-select: text;
   user-select: text;
+}
+
+.secret-note-editor {
+  position: relative;
 }
 
 .secret-note-editor [contenteditable="false"] {

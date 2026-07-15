@@ -217,6 +217,16 @@ function secretAtDeletionBoundary(root: HTMLDivElement, direction: 'backward' | 
   return candidate.dataset.secretBoundary === expectedBoundary ? candidate.dataset.secretId ?? null : null;
 }
 
+function openSecretAtCaret(root: HTMLDivElement) {
+  const selection = window.getSelection();
+  if (!selection?.anchorNode) return null;
+  const anchorElement = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode.parentElement;
+  const secret = anchorElement?.closest<HTMLElement>('[data-secret="true"][data-locked="false"]');
+  return secret && root.contains(secret) ? secret.dataset.secretId ?? null : null;
+}
+
 function captureTypingScroll(root: HTMLDivElement): TypingScrollSnapshot | null {
   if (!window.matchMedia('(max-width: 639px) and (pointer: coarse)').matches) return null;
 
@@ -463,6 +473,15 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
     replaceEditor(next, { secretId, position: 'after' });
   };
 
+  const lockOpenSecretAtCaret = () => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    const secretId = openSecretAtCaret(editor);
+    if (!secretId) return false;
+    lockSecret(secretId);
+    return true;
+  };
+
   const showUnlock = (secretId: string, control: HTMLElement) => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -558,7 +577,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           }
           if (inputType !== 'insertParagraph' && inputType !== 'insertLineBreak') return;
           event.preventDefault();
-          handlePlainTextInsertion('\n');
+          if (!lockOpenSecretAtCaret()) handlePlainTextInsertion('\n');
           stabilizeScrollAfterTyping();
         }}
         onKeyDown={event => {
@@ -575,7 +594,7 @@ export default function SecretTextarea({ value, onChange, placeholder, rows = 2,
           }
           if (event.key !== 'Enter') return;
           event.preventDefault();
-          handlePlainTextInsertion('\n');
+          if (!lockOpenSecretAtCaret()) handlePlainTextInsertion('\n');
           stabilizeScrollAfterTyping();
         }}
         onPaste={event => {
