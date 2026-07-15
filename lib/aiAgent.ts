@@ -725,6 +725,22 @@ const FALLBACK_NAVIGATION_TARGETS = [
   { destination: 'health', pattern: /\bhealth(?: tracker)?\b/i, label: 'Health' },
 ] as const;
 
+const FALLBACK_WIDGET_TARGETS: Array<{ key: AgentWidgetKey; pattern: RegExp; label: string }> = [
+  { key: 'dailySummary', pattern: /\bdaily summary\b/i, label: 'Daily Summary' },
+  { key: 'doctorNotes', pattern: /\bdoctor(?:'s)? notes?\b/i, label: 'Doctor Notes' },
+  { key: 'masterDatabase', pattern: /\bmaster database\b/i, label: 'Master Database' },
+  { key: 'manage', pattern: /\bmanage exercises?\b/i, label: 'Manage Exercises' },
+  { key: 'ptSessions', pattern: /\b(?:pt|physical therapy) sessions?\b/i, label: 'PT Sessions' },
+  { key: 'ptReport', pattern: /\b(?:pt report|data export)\b/i, label: 'Data Export' },
+  { key: 'reporting', pattern: /\b(?:progress report|reporting)\b/i, label: 'Progress Report' },
+  { key: 'aiCoach', pattern: /\b(?:ask ai|ai coach|ai assistant)\b/i, label: 'Ask AI' },
+  { key: 'library', pattern: /\b(?:exercise )?library\b/i, label: 'Library' },
+  { key: 'calendar', pattern: /\bcalendar\b/i, label: 'Calendar' },
+  { key: 'treatments', pattern: /\b(?:treatments?|medications?|meds)\b/i, label: 'Treatments' },
+  { key: 'timer', pattern: /\btimer\b/i, label: 'Timer' },
+  { key: 'info', pattern: /\b(?:exercise guide|info)\b/i, label: 'Exercise Guide' },
+];
+
 export function buildDeterministicAgentFallback(context: {
   question: string;
   today: string;
@@ -747,6 +763,26 @@ export function buildDeterministicAgentFallback(context: {
       });
     }
   }
+
+  const widgetVerb = instructionQuestion.match(/\b(show|hide|enable|disable|turn on|turn off)\b/i)?.[1]?.toLowerCase();
+  if (widgetVerb && /\b(?:widget|button|control|icon)\b/i.test(instructionQuestion)) {
+    const target = FALLBACK_WIDGET_TARGETS.find(item => item.pattern.test(instructionQuestion));
+    if (target) {
+      const enabled = widgetVerb === 'show' || widgetVerb === 'enable' || widgetVerb === 'turn on';
+      return normalizeAgentPlan({
+        version: 1,
+        summary: `${enabled ? 'Show' : 'Hide'} ${target.label}`,
+        actions: [{ id: 'widget-1', type: 'widget_set', key: target.key, enabled, reason: `You asked to ${enabled ? 'show' : 'hide'} ${target.label}.` }],
+      });
+    }
+  }
+
+  const titleMatch = instructionQuestion.match(/\b(?:set|change|rename|update)\s+(?:the\s+)?(?:app|application)\s+title\s+(?:to|as)\s+["“]?(.+?)["”]?[.!?]*$/i);
+  if (titleMatch?.[1]?.trim()) return normalizeAgentPlan({
+    version: 1,
+    summary: `Change the app title to ${titleMatch[1].trim()}`,
+    actions: [{ id: 'app-title-1', type: 'app_title_set', title: titleMatch[1].trim(), reason: 'You asked to change the app title.' }],
+  });
 
   const normalizedQuestion = instructionQuestion.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const exercise = [...exercises]

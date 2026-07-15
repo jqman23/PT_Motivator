@@ -10,6 +10,15 @@ test('builds safe navigation plans for explicit destinations', () => {
   assert.equal(buildDeterministicAgentFallback({ question: 'What settings are available?', today: '2026-07-15' }), undefined);
 });
 
+test('builds widget and app-title setting plans without depending on model JSON', () => {
+  const widget = buildDeterministicAgentFallback({ question: 'Hide the daily summary widget', today: '2026-07-15' });
+  const title = buildDeterministicAgentFallback({ question: 'Change the app title to Recovery Board', today: '2026-07-15' });
+  assert.equal(widget?.actions[0]?.type, 'widget_set');
+  assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].key : '', 'dailySummary');
+  assert.equal(widget?.actions[0]?.type === 'widget_set' ? widget.actions[0].enabled : true, false);
+  assert.equal(title?.actions[0]?.type === 'app_title_set' ? title.actions[0].title : '', 'Recovery Board');
+});
+
 test('builds bounded numeric health plans on the selected or explicit day', () => {
   const selected = buildDeterministicAgentFallback({
     question: 'Set my pain to 4',

@@ -65,6 +65,31 @@ function agentActionTarget(action: AgentAction) {
   }
 }
 
+function actionFamilyWasRequested(action: AgentAction, question: string) {
+  switch (action.type) {
+    case 'completion_set': return /\b(?:check|uncheck|complete|completed|done|finished|mark)\b/i.test(question);
+    case 'exercise_note_change': return /\bnote\b/i.test(question);
+    case 'health_change': return /\b(?:pain|energy|mood|sleep|health|treatment|general note)\b/i.test(question);
+    case 'metrics_set':
+    case 'metrics_clear': return /\b(?:metrics?|sets?|reps?|weight|duration|seconds?|minutes?)\b/i.test(question);
+    case 'exercise_add':
+    case 'exercise_update':
+    case 'exercise_move':
+    case 'exercise_remove': return /\b(?:exercise|stretch|movement|drill|sets?|cue|instructions?|category)\b/i.test(question);
+    case 'category_upsert':
+    case 'category_remove': return /\bcategor(?:y|ies)\b/i.test(question);
+    case 'doctor_note_upsert':
+    case 'doctor_note_remove': return /\b(?:doctor|provider|medical note|question|follow[- ]?up|next steps?|response)\b/i.test(question);
+    case 'pt_session_upsert':
+    case 'pt_session_remove': return /\b(?:session|appointment)\b/i.test(question) && /\b(?:pt|physical therapy|training)\b/i.test(question);
+    case 'widget_set': return /\b(?:widget|button|control|icon)\b/i.test(question);
+    case 'app_title_set': return /\b(?:app|application)\s+title\b/i.test(question);
+    case 'photo_attach': return /\b(?:photo|picture|image)\b/i.test(question);
+    case 'bulk_completion_from_note': return /\b(?:anytime|every time|whenever|all days|across)\b/i.test(question);
+    case 'navigate': return /\b(?:open|go to|take me to|bring me to|show me)\b/i.test(question);
+  }
+}
+
 type ExerciseContext = {
   id: string;
   name: string;
@@ -835,10 +860,13 @@ export async function POST(req: NextRequest) {
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
     };
     const modelAgentPlan = agentIntent ? normalizeModelAgentPlan(raw, modelPlanContext) : undefined;
+    const relevantModelActions = deterministicAgentPlan && modelAgentPlan
+      ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, cleanQuestion))
+      : modelAgentPlan?.actions ?? [];
     const deterministicTargets = new Set(deterministicAgentPlan?.actions.map(agentActionTarget) ?? []);
     const combinedActions = deterministicAgentPlan && modelAgentPlan
-      ? [...modelAgentPlan.actions.filter(action => !deterministicTargets.has(agentActionTarget(action))), ...deterministicAgentPlan.actions]
-      : deterministicAgentPlan?.actions ?? modelAgentPlan?.actions ?? [];
+      ? [...relevantModelActions.filter(action => !deterministicTargets.has(agentActionTarget(action))), ...deterministicAgentPlan.actions]
+      : deterministicAgentPlan?.actions ?? relevantModelActions;
     let normalizedAgentPlan = combinedActions.length ? normalizeAgentPlan({
       summary: deterministicAgentPlan && modelAgentPlan ? `Review ${combinedActions.length} requested app changes` : deterministicAgentPlan?.summary ?? modelAgentPlan?.summary,
       actions: coalesceAgentActions(combinedActions),
