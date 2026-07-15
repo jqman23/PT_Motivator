@@ -147,6 +147,20 @@ export async function initDb() {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS ai_chat_sessions_updated_idx ON ai_chat_sessions (updated_at DESC, id DESC)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai_agent_runs (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL DEFAULT '',
+      actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+      undo_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'applied',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      undone_at TIMESTAMPTZ
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS ai_agent_runs_created_idx ON ai_agent_runs (created_at DESC)`;
 }
 
 export async function getLogForRange(startDate: string, endDate: string) {

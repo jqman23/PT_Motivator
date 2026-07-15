@@ -15,6 +15,13 @@ import {
   type StoredAiExerciseDraft,
   type StoredAiReply,
 } from '@/lib/aiChatHistory';
+import {
+  agentActionNeedsPhoto,
+  isAgentWriteAction,
+  normalizeAgentPlan,
+  type AgentAction,
+  type PreviewedAgentPlan,
+} from '@/lib/aiAgent';
 
 type DateSummary = StoredAiDateSummary;
 type ExerciseDraft = StoredAiExerciseDraft;
@@ -48,10 +55,55 @@ interface Props {
   today: string;
   onClose: () => void;
   onOpenDate: (date: string) => void;
+  appContext: {
+    appTitle: string;
+    categories: Array<{ id: string; name: string; color: string }>;
+    ptSessions: Array<{ date: string; kind?: 'pt' | 'training'; note?: string }>;
+    widgetPrefs: Record<string, boolean | undefined>;
+  };
+  onAgentApplied: (result: { runId: string; label: string; affectedDates: string[]; changedConfig: Record<string, unknown> }) => void;
+  onAgentNavigate: (action: Extract<AgentAction, { type: 'navigate' }>) => void;
 }
+
+type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; createdAt: string };
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read that photo.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareAgentPhoto(file: File): Promise<AgentPhoto> {
+  const original = await readFile(file);
+  const dataUrl = await new Promise<string>(resolve => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, 1100 / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return resolve(original);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.76));
+    };
+    image.onerror = () => resolve(original);
+    image.src = original;
+  });
+  return {
+    id: `agent-photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name || 'AI chat photo',
+    type: dataUrl.startsWith('data:image/jpeg') ? 'image/jpeg' : file.type || 'image/jpeg',
+    dataUrl,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function errorMessage(res: Response, data: { error?: string; detail?: string; hint?: string }) {
@@ -239,7 +291,109 @@ async function copyValue(value: string) {
   else fallbackCopy(value);
 }
 
-export default function ExerciseAiCoachModal({ exercises, selectedDate, today, onClose, onOpenDate }: Props) {
+function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onToggle, onApply, onNavigate, onChoosePhoto, onCopyJson }: {
+  plan: PreviewedAgentPlan;
+  selectedIds: string[];
+  busy: boolean;
+  error: string;
+  copyStatus: string;
+  photo?: AgentPhoto;
+  onToggle: (actionId: string) => void;
+  onApply: () => void;
+  onNavigate: (action: Extract<AgentAction, { type: 'navigate' }>) => void;
+  onChoosePhoto: () => void;
+  onCopyJson: () => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const previewById = new Map(plan.previewItems.map(item => [item.actionId, item]));
+  const visibleActions = showAll ? plan.actions : plan.actions.slice(0, 6);
+  const writeActions = plan.actions.filter(isAgentWriteAction);
+  const selectedCount = writeActions.filter(action => selectedIds.includes(action.id)).length;
+  const selectedNeedsPhoto = writeActions.some(action => selectedIds.includes(action.id) && agentActionNeedsPhoto(action));
+  const applied = Boolean(plan.appliedRunId && !plan.undoneAt);
+  const undone = Boolean(plan.undoneAt);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#C7D6CB] bg-[#EEF2ED]">
+      <div className="flex items-start justify-between gap-3 border-b border-[#D3DDD5] px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#DCE8DF] text-[#52705C]" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M10 2.8l1.15 3.25L14.4 7.2l-3.25 1.15L10 11.6 8.85 8.35 5.6 7.2l3.25-1.15L10 2.8Z" /><path d="M15.2 12.1l.62 1.73 1.73.62-1.73.62-.62 1.73-.62-1.73-1.73-.62 1.73-.62.62-1.73Z" /></svg>
+            </span>
+            <p className="text-[10px] font-bold uppercase text-[#52705C]">Proposed app actions</p>
+          </div>
+          <p className="mt-1 text-sm font-semibold leading-snug text-stone-800">{plan.summary}</p>
+        </div>
+        <button type="button" onClick={onCopyJson} className="shrink-0 text-[10px] font-bold text-stone-400" title="Copy action-plan JSON">JSON</button>
+      </div>
+
+      <div className="divide-y divide-[#D8E0DA]">
+        {visibleActions.map(action => {
+          const preview = previewById.get(action.id);
+          const navigation = action.type === 'navigate';
+          const selected = selectedIds.includes(action.id);
+          return (
+            <div key={action.id} className="flex min-w-0 items-start gap-2.5 px-3 py-2.5">
+              {navigation ? (
+                <button type="button" onClick={() => onNavigate(action)} className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#BFCFC3] bg-[#F6F1E7] text-[#52705C]" aria-label={preview?.title || 'Open destination'}>
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M7 4h9v9M16 4 6 14" /><path d="M13 16H4V7" /></svg>
+                </button>
+              ) : (
+                <input type="checkbox" checked={selected} disabled={applied || undone || busy} onChange={() => onToggle(action.id)} className="mt-1 h-4 w-4 shrink-0 accent-[#6F8C78]" aria-label={`Include ${preview?.title || action.type}`} />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-xs font-semibold leading-snug text-stone-700">{preview?.title || action.type.replaceAll('_', ' ')}</p>
+                  {preview?.risk === 'destructive' && <span className="text-[8px] font-bold uppercase text-[#A85E53]">Overwrite/delete</span>}
+                  {preview?.risk === 'bulk' && <span className="text-[8px] font-bold uppercase text-[#8B6B32]">Bulk</span>}
+                </div>
+                {preview?.detail && <p className="mt-0.5 break-words text-[10px] leading-snug text-stone-500">{preview.detail}</p>}
+                {action.reason && <p className="mt-0.5 text-[9px] leading-snug text-stone-400">{action.reason}</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {plan.actions.length > 6 && (
+        <button type="button" onClick={() => setShowAll(value => !value)} className="w-full border-t border-[#D8E0DA] py-2 text-[10px] font-bold text-[#64806D]">
+          {showAll ? 'Show fewer' : `Show ${plan.actions.length - 6} more`}
+        </button>
+      )}
+
+      {selectedNeedsPhoto && !applied && (
+        <div className="border-t border-[#D3DDD5] px-3 py-2.5">
+          <button type="button" onClick={onChoosePhoto} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#BFCFC3] bg-[#F6F1E7] py-2 text-xs font-bold text-[#52705C] disabled:opacity-50">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2" /><circle cx="7" cy="8" r="1.4" /><path d="m4.5 14 3.4-3 2.4 2 2.3-2.2 2.9 3.2" /></svg>
+            {photo ? `Selected: ${photo.name}` : 'Choose photo'}
+          </button>
+        </div>
+      )}
+
+      {error && <p className="border-t border-red-100 bg-red-50 px-3 py-2 text-[11px] text-red-600">{error}</p>}
+      {copyStatus && <p className="border-t border-[#D3DDD5] px-3 py-1.5 text-center text-[10px] font-semibold text-[#64806D]">{copyStatus}</p>}
+      {writeActions.length > 0 && (
+        <div className="flex items-center gap-2 border-t border-[#D3DDD5] px-3 py-2.5">
+          {applied ? (
+            <div className="flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#DCE8DF] text-xs font-bold text-[#52705C]">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="m4 10 4 4 8-8" /></svg>
+              Applied
+            </div>
+          ) : undone ? (
+            <div className="flex min-h-9 flex-1 items-center justify-center rounded-lg bg-stone-200/70 text-xs font-bold text-stone-500">Undone</div>
+          ) : (
+            <button type="button" onClick={onApply} disabled={busy || selectedCount === 0} className="min-h-9 flex-1 rounded-lg bg-[#1F2F46] px-3 text-xs font-bold text-white disabled:opacity-40" style={{ touchAction: 'manipulation' }}>
+              {busy ? 'Applying safely…' : `Apply ${selectedCount} selected`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ExerciseAiCoachModal({ exercises, selectedDate, today, onClose, onOpenDate, appContext, onAgentApplied, onAgentNavigate }: Props) {
   const initialConversation = useMemo(() => restoreConversation(), []);
   const [conversationId, setConversationId] = useState(initialConversation.id);
   const [input, setInput] = useState(initialConversation.input);
@@ -256,11 +410,17 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [historySaveError, setHistorySaveError] = useState(false);
   const [openingChatId, setOpeningChatId] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState('');
+  const [agentSelections, setAgentSelections] = useState<Record<string, string[]>>({});
+  const [agentBusyMessageId, setAgentBusyMessageId] = useState('');
+  const [agentErrors, setAgentErrors] = useState<Record<string, string>>({});
+  const [agentPhotos, setAgentPhotos] = useState<Record<string, AgentPhoto>>({});
+  const [photoTargetMessageId, setPhotoTargetMessageId] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const historyLoadedRef = useRef(false);
   const historyRequestRef = useRef(false);
   const chatSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const agentPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const clearStoredConversation = () => {
     try {
@@ -357,6 +517,9 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setDatePreview(null);
     setHistoryOpen(false);
     setPendingDeleteId('');
+    setAgentSelections({});
+    setAgentErrors({});
+    setAgentPhotos({});
     persistConversation('', [], nextId);
   };
 
@@ -378,6 +541,9 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       setMessages(restored);
       setInput('');
       setError('');
+      setAgentSelections({});
+      setAgentErrors({});
+      setAgentPhotos({});
       setHistoryOpen(false);
       persistConversation('', restored, session.id);
     } catch {
@@ -410,6 +576,26 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   }, [conversationId, messages]);
 
   useEffect(() => {
+    const handleAgentUndone = (event: Event) => {
+      const runId = String((event as CustomEvent<{ runId?: string }>).detail?.runId ?? '');
+      if (!runId) return;
+      let matched = false;
+      const nextMessages = normalizeAiChatMessages(messages.map(message => {
+        if (message.reply?.agentPlan?.appliedRunId !== runId) return message;
+        matched = true;
+        return { ...message, reply: { ...message.reply, agentPlan: { ...message.reply.agentPlan, undoneAt: new Date().toISOString() } } };
+      }));
+      if (!matched) return;
+      setMessages(nextMessages);
+      persistConversation(input, nextMessages);
+      void saveChatSession(conversationId, nextMessages);
+    };
+    window.addEventListener('pt-ai-agent-undone', handleAgentUndone);
+    return () => window.removeEventListener('pt-ai-agent-undone', handleAgentUndone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, input, messages]);
+
+  useEffect(() => {
     const fn = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (datePreview) setDatePreview(null);
@@ -426,6 +612,19 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   }, [messages, loading, error]);
 
   const apiHistory = useMemo(() => historyForApi(messages), [messages]);
+
+  const previewAgentPlan = async (value: unknown): Promise<PreviewedAgentPlan | undefined> => {
+    const plan = normalizeAgentPlan(value);
+    if (!plan) return undefined;
+    const response = await fetch('/api/ai-agent/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: plan.summary, actions: plan.actions }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'The proposed changes could not be prepared.');
+    return data.plan as PreviewedAgentPlan;
+  };
 
   const ask = async (text: string) => {
     const serialized = text.trim();
@@ -451,6 +650,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           sourceMatches,
           selectedDate,
           today,
+          appContext,
           exercises: exercises.map(exercise => ({
             id: exercise.id,
             name: exercise.name,
@@ -463,6 +663,16 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       });
       const data = await res.json();
       if (!res.ok) throw new Error(errorMessage(res, data));
+
+      let agentPlan: PreviewedAgentPlan | undefined;
+      let agentPlanError = '';
+      if (data.reply?.agentPlan) {
+        try {
+          agentPlan = await previewAgentPlan(data.reply.agentPlan);
+        } catch (planError) {
+          agentPlanError = planError instanceof Error ? planError.message : 'The proposed changes could not be prepared.';
+        }
+      }
 
       const reply: AiReply = {
         answer: String(data.reply?.answer || 'I need one more detail to answer that.'),
@@ -480,6 +690,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         rerankerModel: typeof data.rerankerModel === 'string' ? data.rerankerModel : undefined,
         rerankedCandidates: Number.isFinite(Number(data.rerankedCandidates)) ? Number(data.rerankedCandidates) : undefined,
         degraded: data.degraded === true,
+        agentPlan,
       };
 
       const assistantMessage: ChatMessage = {
@@ -490,6 +701,10 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       };
       const completedMessages = normalizeAiChatMessages([...messages, userMessage, assistantMessage]);
       setMessages(completedMessages);
+      if (agentPlan) {
+        setAgentSelections(previous => ({ ...previous, [assistantMessage.id]: agentPlan.actions.filter(isAgentWriteAction).map(action => action.id) }));
+      }
+      if (agentPlanError) setAgentErrors(previous => ({ ...previous, [assistantMessage.id]: agentPlanError }));
       void saveChatSession(conversationId, completedMessages);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ask AI failed');
@@ -504,6 +719,104 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     persistConversation();
     try { sessionStorage.removeItem(AI_COACH_ACTIVE_KEY); } catch {}
     onOpenDate(date);
+  };
+
+  const selectedAgentActionIds = (message: ChatMessage, plan: PreviewedAgentPlan) =>
+    plan.appliedActionIds ?? agentSelections[message.id] ?? plan.actions.filter(isAgentWriteAction).map(action => action.id);
+
+  const toggleAgentAction = (message: ChatMessage, plan: PreviewedAgentPlan, actionId: string) => {
+    setAgentSelections(previous => {
+      const selected = previous[message.id] ?? plan.actions.filter(isAgentWriteAction).map(action => action.id);
+      return { ...previous, [message.id]: selected.includes(actionId) ? selected.filter(id => id !== actionId) : [...selected, actionId] };
+    });
+  };
+
+  const chooseAgentPhoto = (messageId: string) => {
+    setPhotoTargetMessageId(messageId);
+    agentPhotoInputRef.current?.click();
+  };
+
+  const handleAgentPhoto = async (file: File | undefined) => {
+    const messageId = photoTargetMessageId;
+    if (!file || !messageId) return;
+    setAgentErrors(previous => ({ ...previous, [messageId]: '' }));
+    try {
+      const photo = await prepareAgentPhoto(file);
+      if (photo.dataUrl.length > 2_000_000) throw new Error('That photo is still too large after compression. Choose a smaller image.');
+      setAgentPhotos(previous => ({ ...previous, [messageId]: photo }));
+    } catch (photoError) {
+      setAgentErrors(previous => ({ ...previous, [messageId]: photoError instanceof Error ? photoError.message : 'Could not prepare that photo.' }));
+    } finally {
+      setPhotoTargetMessageId('');
+      if (agentPhotoInputRef.current) agentPhotoInputRef.current.value = '';
+    }
+  };
+
+  const applyAgentPlan = async (message: ChatMessage, plan: PreviewedAgentPlan) => {
+    if (agentBusyMessageId || plan.appliedRunId) return;
+    const selectedIds = new Set(selectedAgentActionIds(message, plan));
+    const selectedActions = plan.actions.filter(action => isAgentWriteAction(action) && selectedIds.has(action.id));
+    if (!selectedActions.length) {
+      setAgentErrors(previous => ({ ...previous, [message.id]: 'Select at least one change.' }));
+      return;
+    }
+    const needsPhoto = selectedActions.some(agentActionNeedsPhoto);
+    if (needsPhoto && !agentPhotos[message.id]) {
+      setAgentErrors(previous => ({ ...previous, [message.id]: 'Choose the photo to attach before applying.' }));
+      return;
+    }
+    setAgentBusyMessageId(message.id);
+    setAgentErrors(previous => ({ ...previous, [message.id]: '' }));
+    try {
+      const requestId = `${conversationId.slice(-40)}-${message.id.slice(-40)}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 100);
+      const response = await fetch('/api/ai-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId,
+          label: plan.summary,
+          actions: selectedActions,
+          attachment: needsPhoto ? agentPhotos[message.id] : undefined,
+          chatSessionId: conversationId,
+          chatMessageId: message.id,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'The changes could not be applied.');
+      const appliedAt = new Date().toISOString();
+      const nextMessages = normalizeAiChatMessages(messages.map(item => item.id === message.id && item.reply?.agentPlan ? {
+        ...item,
+        reply: { ...item.reply, agentPlan: { ...item.reply.agentPlan, appliedRunId: String(data.runId), appliedAt, appliedActionIds: selectedActions.map(action => action.id) } },
+      } : item));
+      setMessages(nextMessages);
+      persistConversation(input, nextMessages);
+      await saveChatSession(conversationId, nextMessages);
+      setAgentPhotos(previous => {
+        const next = { ...previous };
+        delete next[message.id];
+        return next;
+      });
+      onAgentApplied({
+        runId: String(data.runId),
+        label: String(data.label || plan.summary),
+        affectedDates: Array.isArray(data.affectedDates) ? data.affectedDates.map(String) : [],
+        changedConfig: data.changedConfig && typeof data.changedConfig === 'object' ? data.changedConfig : {},
+      });
+    } catch (applyError) {
+      setAgentErrors(previous => ({ ...previous, [message.id]: applyError instanceof Error ? applyError.message : 'The changes could not be applied.' }));
+    } finally {
+      setAgentBusyMessageId('');
+    }
+  };
+
+  const copyAgentPlan = async (messageId: string, plan: PreviewedAgentPlan) => {
+    try {
+      await copyValue(JSON.stringify({ version: plan.version, summary: plan.summary, actions: plan.actions }, null, 2));
+      setCopyStatus(previous => ({ ...previous, [messageId]: 'Plan JSON copied ✓' }));
+    } catch {
+      setCopyStatus(previous => ({ ...previous, [messageId]: 'Copy failed' }));
+    }
+    window.setTimeout(() => setCopyStatus(previous => ({ ...previous, [messageId]: '' })), 1600);
   };
 
   const copyDraft = async (messageId: string, draft: ExerciseDraft, format: 'text' | 'json') => {
@@ -658,6 +971,29 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                   )}
                 </div>
 
+                {reply?.agentPlan && (
+                  <AgentPlanCard
+                    plan={reply.agentPlan}
+                    selectedIds={selectedAgentActionIds(message, reply.agentPlan)}
+                    busy={agentBusyMessageId === message.id}
+                    error={agentErrors[message.id] || ''}
+                    copyStatus={copyStatus[message.id] || ''}
+                    photo={agentPhotos[message.id]}
+                    onToggle={actionId => toggleAgentAction(message, reply.agentPlan!, actionId)}
+                    onApply={() => void applyAgentPlan(message, reply.agentPlan!)}
+                    onNavigate={action => {
+                      persistConversation();
+                      onAgentNavigate(action);
+                    }}
+                    onChoosePhoto={() => chooseAgentPhoto(message.id)}
+                    onCopyJson={() => void copyAgentPlan(message.id, reply.agentPlan!)}
+                  />
+                )}
+
+                {!reply?.agentPlan && agentErrors[message.id] && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{agentErrors[message.id]}</p>
+                )}
+
                 {!!reply?.dateLinks?.length && (
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Tap to open the day</p>
@@ -720,6 +1056,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         <div ref={composerRef} className="px-5 pb-4 pt-1">
+          <input ref={agentPhotoInputRef} type="file" accept="image/*" className="hidden" onChange={event => void handleAgentPhoto(event.target.files?.[0])} />
           <SecretTextarea
             value={input}
             onChange={setInput}

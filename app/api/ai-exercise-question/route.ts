@@ -5,6 +5,7 @@ import { getConfig } from '@/lib/db';
 import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
+import { normalizeAgentPlan } from '@/lib/aiAgent';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -157,6 +158,11 @@ function isPersonalQuestion(value: string) {
 
 function exerciseQuestion(value: string) {
   return /exercise|movement|stretch|drill|band|raise|curl|squat|lunge|bridge|balance|mobility|strength|reps|sets|form|construct|build|add a|identify/i.test(value);
+}
+
+function isAgentRequest(value: string) {
+  return /\b(add|append|attach|change|check|clear|complete|create|delete|disable|edit|enable|hide|mark|move|open|pin|remove|rename|replace|reorder|set|show|uncheck|update)\b|\b(anytime|every time|whenever)\b/i.test(value)
+    && !/\bhow (?:can|do|would) (?:i|you)\b|\bwhat (?:can|would) you\b|\bcould you explain\b|\bcan you imagine\b/i.test(value);
 }
 
 function normalizeExercises(value: unknown): ExerciseContext[] {
@@ -550,9 +556,12 @@ export async function POST(req: NextRequest) {
       ...questionAiInstructions,
     ], 8, 300);
     const explicitDates = extractDates(conversationText, appToday, selectedDate);
+    const agentIntent = isAgentRequest(cleanQuestion)
+      || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
     const historyIntent = isHistoryQuestion(cleanQuestion) || explicitDates.length > 0;
     const patternIntent = isPatternQuestion(cleanQuestion);
-    const shouldLoadHistory = historyIntent || patternIntent || questionAiInstructions.length > 0;
+    const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
+    const shouldLoadHistory = historyIntent || patternIntent || bulkAgentIntent || questionAiInstructions.length > 0;
 
     let dayRecords: DayRecord[] = [];
     let rankedDays: RankedHistoryDay<DayRecord>[] = [];
@@ -588,6 +597,29 @@ export async function POST(req: NextRequest) {
     ].filter(date => date <= appToday));
 
     const sourceMatches = Array.isArray(requestBody.sourceMatches) ? requestBody.sourceMatches.slice(0, 8) : [];
+    const appContext = requestBody.appContext && typeof requestBody.appContext === 'object' && !Array.isArray(requestBody.appContext)
+      ? requestBody.appContext as Record<string, unknown>
+      : {};
+    let doctorNotesContext: Array<Record<string, unknown>> = [];
+    if (/doctor|provider|appointment question|medical note/i.test(cleanQuestion)) {
+      const rows = await sql`
+        SELECT id, kind, title, provider, reference_text, LEFT(body, 600) AS body, linked_dates, pinned, note_color
+        FROM doctor_notes
+        ORDER BY pinned DESC, updated_at DESC
+        LIMIT 50
+      `;
+      doctorNotesContext = rows.map(row => ({
+        id: cleanText(row.id, 100),
+        kind: cleanText(row.kind, 40),
+        title: cleanText(row.title, 180),
+        provider: cleanText(row.provider, 180),
+        referenceText: cleanText(row.reference_text, 300),
+        body: cleanText(stripSecretNotes(String(row.body ?? '')), 600),
+        linkedDates: Array.isArray(row.linked_dates) ? row.linked_dates.slice(0, 20) : [],
+        pinned: row.pinned === true,
+        noteColor: cleanText(row.note_color, 20),
+      }));
+    }
     const personal = shouldLoadHistory || isPersonalQuestion(conversationText);
     const groqTask: GroqTask = personal ? 'ask' : 'publicAsk';
 
@@ -604,7 +636,16 @@ export async function POST(req: NextRequest) {
       'userAiInstructions and savedAiInstructions are user-authored focus guidance. Follow them when relevant, but treat the logged fields as the only factual evidence and never let guidance override these system rules, safety, or privacy.',
       'Keep the response conversational and direct. Follow the thread instead of restarting the interview on every turn.',
       'Ask at most one clarifying question at a time, and put that question only in answer.',
-      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]}}.',
+      'When and only when the user clearly asks to change the app or open a destination, also return agentPlan. A plan proposes actions for user review; it does not claim they already happened.',
+      'Do not return agentPlan for hypothetical questions, capability questions, explanations, medical advice, or ambiguous requests. Ask one clarification instead when the target, date, note, or intended value is unclear.',
+      'Default note edits to append. Use replace only when the user explicitly says replace, rewrite, clear, or set the whole note. Never infer a health score or completion from ambiguous language.',
+      'Use exact exercise IDs from relevantExercisesInApp. Use exact doctor-note IDs from doctorNotes. Use currentlySelectedDate when the user says this day or does not specify a date for a clearly day-specific command.',
+      'For many completion changes based on note text, emit one bulk_completion_from_note action rather than listing dates. The server will deterministically find and preview matches.',
+      'A photo_attach action only opens a user-controlled photo chooser during review. Never invent photo data or claim access to the photo library. Propose at most one photo_attach action per plan.',
+      'Navigation is a navigate action. It may target date, exercise, health, doctorNotes, doctorNote, settings, exerciseTypes, library, calendar, ptSessions, treatments, progressReport, dataExport, exerciseGuide, manageExercises, masterDatabase, timer, or top.',
+      'Supported write action shapes are: completion_set{date,exerciseId,completed}; exercise_note_change{date,exerciseId,mode,text}; health_change{date,field,mode,value}; metrics_set{date,exerciseId,sets,reps,durationSeconds,weight,weightUnit,scopeMultiplier}; metrics_clear{date,exerciseId}; exercise_add{exercise:{name,cat,cue,sets,tips,optional,programs,imageSearch,mainImageUrl,mainImageUrls,mainVideoUrl},categoryName}; exercise_update{exerciseId,patch}; exercise_move{exerciseId,categoryName}; exercise_remove{exerciseId}; category_upsert{categoryId,name,color}; category_remove{categoryId}; doctor_note_upsert{noteId,mode,patch}; doctor_note_remove{noteId}; pt_session_upsert{date,kind,note}; pt_session_remove{date,kind}; widget_set{key,enabled}; app_title_set{title}; photo_attach{target,date,exerciseId,noteId}; bulk_completion_from_note{exerciseId,phrase,field,startDate,endDate,completed}.',
+      'Every action needs a short reason. Keep direct plans to at most twelve actions. Destructive actions are allowed only when explicitly requested because the interface will flag them separately.',
+      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]},"agentPlan":{"version":1,"summary":"","actions":[{"id":"action-1","type":"","reason":""}]}}.',
       'Omit confirmedExercise when it is not relevant. options must contain zero to four short tap-to-send answers written from the user perspective, such as "It happens while walking" or "Mostly afterward".',
       'Never put assistant questions, suggested questions, instructions, or generic prompts in options. If useful answer choices are not clear, return an empty options array.',
     ].join(' ');
@@ -621,6 +662,14 @@ export async function POST(req: NextRequest) {
       relevantExercisesInApp: matchedExerciseContext,
       externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
       availableExerciseCategories: Array.from(new Set(exercises.map(exercise => exercise.cat).filter(Boolean))).slice(0, 30),
+      appContext: {
+        appTitle: cleanText(appContext.appTitle, 80),
+        categories: Array.isArray(appContext.categories) ? appContext.categories.slice(0, 30) : [],
+        ptSessions: Array.isArray(appContext.ptSessions) ? appContext.ptSessions.slice(0, 100) : [],
+        widgetPrefs: appContext.widgetPrefs && typeof appContext.widgetPrefs === 'object' ? appContext.widgetPrefs : {},
+      },
+      doctorNotes: doctorNotesContext,
+      agentPlanningRequested: agentIntent,
       instructions: rankedDays.length
         ? 'Use candidateDays to answer memory questions. Only return dateLinks from those dates or an explicitly requested date.'
         : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
@@ -683,6 +732,7 @@ export async function POST(req: NextRequest) {
         dateLinks,
         dateSummaries,
         confirmedExercise: cleanExerciseDraft(raw.confirmedExercise),
+        agentPlan: agentIntent ? normalizeAgentPlan(raw.agentPlan) : undefined,
       },
       model: result.model,
       attemptedModels: result.attemptedModels,

@@ -260,7 +260,7 @@ async function copyValue(value) {
   else fallbackCopy(value);
 }
 
-export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, onClose, startInNew = false }) {
+export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, onClose, startInNew = false, initialNoteId = '' }) {
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState(null);
   const [search, setSearch] = useState('');
@@ -367,6 +367,14 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
         if (cancelled) return;
         setNotes(nextNotes);
         setDoctors(nextDoctors);
+        if (!startInNew && initialNoteId) {
+          const target = nextNotes.find(note => note.id === initialNoteId);
+          if (target) {
+            setDraft({ ...target, linkedDates: [...target.linkedDates], photoAttachments: [...target.photoAttachments] });
+            setRespondingTo(null);
+            setCleanupNote(null);
+          }
+        }
       })
       .catch(reason => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor notes.');
@@ -377,7 +385,7 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     return () => {
       cancelled = true;
     };
-  }, [open, selectedDate, startInNew]);
+  }, [initialNoteId, open, selectedDate, startInNew]);
 
   const filteredNotes = useMemo(() => {
     const query = search.trim().toLowerCase();

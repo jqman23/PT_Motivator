@@ -1,3 +1,6 @@
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { normalizeAgentPlan, type AgentPreviewItem, type PreviewedAgentPlan } from './aiAgent.ts';
+
 export type StoredAiDateLink = {
   date: string;
   label: string;
@@ -32,6 +35,7 @@ export type StoredAiReply = {
   rerankerModel?: string;
   rerankedCandidates?: number;
   degraded?: boolean;
+  agentPlan?: PreviewedAgentPlan;
 };
 
 export type StoredAiChatMessage = {
@@ -103,6 +107,31 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     }
   }
 
+  let agentPlan: PreviewedAgentPlan | undefined;
+  const normalizedPlan = normalizeAgentPlan(raw.agentPlan);
+  if (normalizedPlan && raw.agentPlan && typeof raw.agentPlan === 'object' && !Array.isArray(raw.agentPlan)) {
+    const rawPlan = raw.agentPlan as Record<string, unknown>;
+    const actionIds = new Set(normalizedPlan.actions.map(action => action.id));
+    const previewItems: AgentPreviewItem[] = Array.isArray(rawPlan.previewItems) ? rawPlan.previewItems.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const preview = item as Record<string, unknown>;
+      const actionId = cleanText(preview.actionId, 80);
+      const risk: AgentPreviewItem['risk'] = preview.risk === 'navigation' || preview.risk === 'destructive' || preview.risk === 'bulk' ? preview.risk : 'change';
+      if (!actionIds.has(actionId)) return [];
+      return [{ actionId, title: cleanText(preview.title, 200), detail: cleanText(preview.detail, 500), risk }];
+    }).slice(0, normalizedPlan.actions.length) : [];
+    agentPlan = {
+      ...normalizedPlan,
+      previewItems,
+      appliedRunId: cleanText(rawPlan.appliedRunId, 120) || undefined,
+      appliedAt: cleanText(rawPlan.appliedAt, 60) || undefined,
+      appliedActionIds: Array.isArray(rawPlan.appliedActionIds)
+        ? rawPlan.appliedActionIds.map(item => cleanText(item, 80)).filter(id => actionIds.has(id)).slice(0, normalizedPlan.actions.length)
+        : undefined,
+      undoneAt: cleanText(rawPlan.undoneAt, 60) || undefined,
+    };
+  }
+
   return {
     answer,
     options,
@@ -114,6 +143,7 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     rerankerModel: cleanText(raw.rerankerModel, 120) || undefined,
     rerankedCandidates: cleanNumber(raw.rerankedCandidates),
     degraded: raw.degraded === true,
+    agentPlan,
   };
 }
 

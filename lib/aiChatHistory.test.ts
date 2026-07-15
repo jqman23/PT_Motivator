@@ -45,3 +45,32 @@ test('bounds long conversations to the most recent 100 messages', () => {
   assert.equal(messages[0].id, '5');
   assert.equal(messages.at(-1)?.id, '104');
 });
+
+test('persists reviewed agent plans and their apply and undo status', () => {
+  const messages = normalizeAiChatMessages([{
+    id: 'assistant-action',
+    role: 'assistant',
+    content: 'I prepared one change.',
+    reply: {
+      answer: 'I prepared one change.',
+      options: [],
+      dateLinks: [],
+      agentPlan: {
+        version: 1,
+        summary: 'Complete ankle band',
+        actions: [{ id: 'one', type: 'completion_set', date: '2026-07-15', exerciseId: 'ankle-band', completed: true }],
+        previewItems: [{ actionId: 'one', title: 'Complete Ankle Band', detail: '7/15/26', risk: 'change' }],
+        appliedRunId: 'agent-conversation-message',
+        appliedAt: '2026-07-15T12:00:00.000Z',
+        appliedActionIds: ['one'],
+        undoneAt: '2026-07-15T12:01:00.000Z',
+      },
+    },
+  }]);
+
+  const plan = messages[0].reply?.agentPlan;
+  assert.equal(plan?.actions.length, 1);
+  assert.equal(plan?.previewItems[0].title, 'Complete Ankle Band');
+  assert.deepEqual(plan?.appliedActionIds, ['one']);
+  assert.equal(plan?.undoneAt, '2026-07-15T12:01:00.000Z');
+});

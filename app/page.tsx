@@ -19,14 +19,16 @@ import PTReportModal from '@/components/PTReportModal';
 import WidgetSettingsModal, { WidgetPrefs } from '@/components/WidgetSettingsModal';
 import NotesModal from '@/components/NotesModal';
 import ExerciseAiCoachModal from '@/components/ExerciseAiCoachModal';
-import { AI_COACH_ACTIVE_KEY } from '@/lib/aiDatePresentation';
+import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY } from '@/lib/aiDatePresentation';
 import TypeSettingsModal from '@/components/TypeSettingsModal';
 import DoctorNotesWidget from '@/components/DoctorNotesWidget';
 import { ExerciseTypeMeta, getExerciseTypeDisplay, normalizeExerciseType } from '@/lib/exerciseTypes';
+import type { AgentAction } from '@/lib/aiAgent';
 
 type LogMap = Record<string, Record<string, boolean>>;
 type NotesMap = Record<string, string>;
 const EXERCISE_FILTER_STORAGE_KEY = 'pt-home-exercise-filters';
+const AGENT_UNDO_STORAGE_KEY = 'pt-agent-undo-run';
 type PTSessionKind = 'pt' | 'training';
 type PTSession = { date: string; kind?: PTSessionKind; note?: string };
 type UndoSnapshot = {
@@ -42,6 +44,7 @@ type UndoSnapshot = {
   widgetPrefs: WidgetPrefs;
   typeMeta: ExerciseTypeMeta;
 };
+type AgentUndoTarget = { runId: string; label: string };
 
 const QUOTES = [
   "You showed up. That's already half the work.",
@@ -193,6 +196,7 @@ export default function Home() {
   const [showAiCoach, setShowAiCoach] = useState(false);
   const [showDoctorNotes, setShowDoctorNotes] = useState(false);
   const [doctorNotesStartNew, setDoctorNotesStartNew] = useState(false);
+  const [doctorNoteInitialId, setDoctorNoteInitialId] = useState('');
   const [summaryLoading, setSummaryLoading] = useState(false);
 
   const [ptSessions, setPtSessions] = useState<PTSession[]>([]);
@@ -201,6 +205,7 @@ export default function Home() {
   const [programMeta, setProgramMeta] = useState<ExerciseProgramMeta>({});
   const [undoMessage, setUndoMessage] = useState('');
   const [canUndo, setCanUndo] = useState(false);
+  const [agentDataVersion, setAgentDataVersion] = useState(0);
 
   const weekStart = offsetDate(today, -6);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -208,6 +213,7 @@ export default function Home() {
   const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressUndoRef = useRef(false);
+  const agentUndoRef = useRef<AgentUndoTarget | null>(null);
   const allExercises = useMemo(() => exerciseLibrary, [exerciseLibrary]);
   const exerciseMap = useMemo(() => Object.fromEntries(allExercises.map(e => [e.id, e])), [allExercises]);
   const typeOptions = useMemo(
@@ -239,6 +245,13 @@ export default function Home() {
       if (stored && stored <= todayStr()) setSelectedDate(stored);
       try {
         if (sessionStorage.getItem(AI_COACH_ACTIVE_KEY) === '1') setShowAiCoach(true);
+      } catch {}
+      try {
+        const rawUndo = JSON.parse(localStorage.getItem(AGENT_UNDO_STORAGE_KEY) || 'null') as AgentUndoTarget | null;
+        if (rawUndo?.runId && rawUndo.label) {
+          agentUndoRef.current = rawUndo;
+          setCanUndo(true);
+        }
       } catch {}
     }, 0);
     return () => window.clearTimeout(timer);
@@ -383,8 +396,36 @@ export default function Home() {
     Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]).finally(() => setLoading(false));
   }, [loadLog, loadNotes, selectedDate]);
 
+  const refreshAfterAgentMutation = useCallback(async (changedConfig: Record<string, unknown>, affectedDates: string[]) => {
+    if (Array.isArray(changedConfig.exerciseLibrary)) setExerciseLibrary(changedConfig.exerciseLibrary as Exercise[]);
+    if (Array.isArray(changedConfig.layout)) setLayout(changedConfig.layout as CategoryConfig[]);
+    if (Array.isArray(changedConfig.ptSessions)) setPtSessions(changedConfig.ptSessions as PTSession[]);
+    if (changedConfig.widgetPrefs && typeof changedConfig.widgetPrefs === 'object' && !Array.isArray(changedConfig.widgetPrefs)) {
+      const nextPrefs = { ...DEFAULT_WIDGET_PREFS, ...changedConfig.widgetPrefs } as WidgetPrefs;
+      setWidgetPrefs(nextPrefs);
+      window.dispatchEvent(new CustomEvent('pt-widget-prefs-change', { detail: nextPrefs }));
+    }
+    if (typeof changedConfig.appTitle === 'string') setAppTitle(changedConfig.appTitle);
+    if (!affectedDates.length || affectedDates.includes(selectedDate)) await Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]);
+    setAgentDataVersion(version => version + 1);
+  }, [loadLog, loadNotes, selectedDate]);
+
+  const registerAgentApplied = useCallback((result: { runId: string; label: string; affectedDates: string[]; changedConfig: Record<string, unknown> }) => {
+    undoSnapshotRef.current = null;
+    const target = { runId: result.runId, label: result.label };
+    agentUndoRef.current = target;
+    try { localStorage.setItem(AGENT_UNDO_STORAGE_KEY, JSON.stringify(target)); } catch {}
+    setCanUndo(true);
+    setUndoMessage(`Applied: ${result.label}`);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoMessage(''), 2200);
+    void refreshAfterAgentMutation(result.changedConfig, result.affectedDates);
+  }, [refreshAfterAgentMutation]);
+
   const captureUndo = useCallback((label: string) => {
     if (suppressUndoRef.current) return;
+    agentUndoRef.current = null;
+    try { localStorage.removeItem(AGENT_UNDO_STORAGE_KEY); } catch {}
     undoSnapshotRef.current = {
       label,
       selectedDate,
@@ -402,6 +443,49 @@ export default function Home() {
   }, [appTitle, exerciseLibrary, hiddenDoneByDate, layout, log, notes, ptSessions, selectedDate, typeMeta, widgetPrefs]);
 
   const undoLastAction = useCallback(async () => {
+    const agentTarget = agentUndoRef.current;
+    if (agentTarget) {
+      agentUndoRef.current = null;
+      setCanUndo(false);
+      try { localStorage.removeItem(AGENT_UNDO_STORAGE_KEY); } catch {}
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      try {
+        const response = await fetch('/api/ai-agent/undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId: agentTarget.runId }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Could not undo AI changes.');
+        await refreshAfterAgentMutation(
+          data.changedConfig && typeof data.changedConfig === 'object' ? data.changedConfig : {},
+          Array.isArray(data.affectedDates) ? data.affectedDates.map(String) : [],
+        );
+        try {
+          const stored = JSON.parse(sessionStorage.getItem(AI_COACH_SESSION_KEY) || 'null') as { messages?: Array<Record<string, unknown>> } | null;
+          if (stored?.messages) {
+            const undoneAt = new Date().toISOString();
+            stored.messages = stored.messages.map(message => {
+              const reply = message.reply && typeof message.reply === 'object' ? message.reply as Record<string, unknown> : null;
+              const plan = reply?.agentPlan && typeof reply.agentPlan === 'object' ? reply.agentPlan as Record<string, unknown> : null;
+              if (plan?.appliedRunId !== agentTarget.runId) return message;
+              return { ...message, reply: { ...reply, agentPlan: { ...plan, undoneAt } } };
+            });
+            sessionStorage.setItem(AI_COACH_SESSION_KEY, JSON.stringify(stored));
+          }
+        } catch {}
+        window.dispatchEvent(new CustomEvent('pt-ai-agent-undone', { detail: { runId: agentTarget.runId } }));
+        setUndoMessage(`Undid: ${agentTarget.label}`);
+        undoTimerRef.current = setTimeout(() => setUndoMessage(''), 2200);
+      } catch (error) {
+        agentUndoRef.current = agentTarget;
+        try { localStorage.setItem(AGENT_UNDO_STORAGE_KEY, JSON.stringify(agentTarget)); } catch {}
+        setCanUndo(true);
+        setUndoMessage(error instanceof Error ? error.message : 'Could not undo AI changes.');
+        undoTimerRef.current = setTimeout(() => setUndoMessage(''), 3000);
+      }
+      return;
+    }
     const snapshot = undoSnapshotRef.current;
     if (!snapshot) return;
     undoSnapshotRef.current = null;
@@ -448,7 +532,7 @@ export default function Home() {
     } finally {
       suppressUndoRef.current = false;
     }
-  }, []);
+  }, [refreshAfterAgentMutation]);
 
   const updateLayout = useCallback((next: CategoryConfig[], undoLabel = 'layout change', skipUndo = false) => {
     if (!skipUndo) captureUndo(undoLabel);
@@ -622,6 +706,44 @@ export default function Home() {
     updateLayout(layout.map(c => ({ ...c, exerciseIds: c.exerciseIds.filter(id => id !== exId) })), 'removed exercise from categories', true);
   };
   const openLibraryFor = (catId: string) => { setLibraryCatId(catId); setShowLibrary(true); };
+
+  const navigateFromAgent = (action: Extract<AgentAction, { type: 'navigate' }>) => {
+    if (action.date) changeDate(action.date);
+    setShowAiCoach(false);
+    const scrollTo = (id: string) => window.requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    switch (action.destination) {
+      case 'date':
+        window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+        break;
+      case 'exercise':
+        if (action.exerciseId && exerciseMap[action.exerciseId]) setNoteModalId(action.exerciseId);
+        break;
+      case 'health': scrollTo('health-section'); break;
+      case 'doctorNote':
+        setDoctorNoteInitialId(action.noteId || '');
+        setDoctorNotesStartNew(false);
+        setShowDoctorNotes(true);
+        break;
+      case 'doctorNotes':
+        setDoctorNoteInitialId('');
+        setDoctorNotesStartNew(false);
+        setShowDoctorNotes(true);
+        break;
+      case 'settings': setShowWidgetSettings(true); break;
+      case 'exerciseTypes': setShowTypeSettings(true); break;
+      case 'library': setLibraryCatId(null); setShowLibrary(true); break;
+      case 'calendar': setShowCalendar(true); break;
+      case 'ptSessions': setShowPTSessions(true); break;
+      case 'treatments': setShowTreatments(true); break;
+      case 'progressReport': setShowReporting(true); break;
+      case 'dataExport': setShowPTReport(true); break;
+      case 'exerciseGuide': setShowInfo(true); break;
+      case 'manageExercises': setShowManage(true); break;
+      case 'masterDatabase': setShowMasterDatabase(true); break;
+      case 'timer': window.setTimeout(() => document.querySelector<HTMLButtonElement>('button[title="Quick timer"]')?.click(), 0); break;
+      case 'top': window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' })); break;
+    }
+  };
 
   useEffect(() => {
     if (renamingCat && renameInputRef.current) {
@@ -830,6 +952,14 @@ export default function Home() {
             exercises={allExercises}
             selectedDate={selectedDate}
             today={today}
+            appContext={{
+              appTitle,
+              categories: layout.map(category => ({ id: category.id, name: category.name, color: category.color })),
+              ptSessions,
+              widgetPrefs,
+            }}
+            onAgentApplied={registerAgentApplied}
+            onAgentNavigate={navigateFromAgent}
             onClose={() => setShowAiCoach(false)}
             onOpenDate={date => {
               changeDate(date);
@@ -838,7 +968,7 @@ export default function Home() {
             }}
           />
         )}
-        <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={changeDate} open={showDoctorNotes} startInNew={doctorNotesStartNew} onClose={() => { setShowDoctorNotes(false); setDoctorNotesStartNew(false); }} />
+        <DoctorNotesWidget selectedDate={selectedDate} onSelectDate={changeDate} open={showDoctorNotes} startInNew={doctorNotesStartNew} initialNoteId={doctorNoteInitialId} onClose={() => { setShowDoctorNotes(false); setDoctorNotesStartNew(false); setDoctorNoteInitialId(''); }} />
         {showPTReport && <PTReportModal appTitle={appTitle} today={today} selectedDate={selectedDate} layout={layout} exerciseMap={exerciseMap} log={log} notes={notes} ptSessions={ptSessions} onClose={() => setShowPTReport(false)} />}
         {showManage && <ManageModal layout={layout} exerciseMap={exerciseMap} onChange={updateLayout} onRequestAddExercise={openLibraryFor} onDeleteExercise={deleteCustom} onClose={() => setShowManage(false)} />}
         {showLibrary && <LibraryModal builtIns={[]} customExercises={exerciseLibrary} layout={layout} addToCatId={libraryCatId} onPick={addExToCategory} onCreateCustom={createCustom} onImportExercises={importExercises} onUpdateCustom={updateExercise} onDeleteCustom={deleteCustom} onClose={() => { setShowLibrary(false); setLibraryCatId(null); }} />}
@@ -846,7 +976,7 @@ export default function Home() {
           <NotesModal
             exerciseName={exerciseMap[noteModalId].name}
             exerciseId={noteModalId}
-            date={today}
+            date={selectedDate}
             initialNote={notes[noteModalId] ?? ''}
             exerciseSets={exerciseMap[noteModalId].sets ?? ''}
             exerciseCue={exerciseMap[noteModalId].cue ?? ''}
@@ -891,7 +1021,7 @@ export default function Home() {
               {addingCategory ? <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">New category</p><input value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNewCategory()} placeholder="Category name…" autoFocus className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 mb-3 focus:outline-none" style={{ fontSize: 16, colorScheme: 'light' }} /><p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Color</p><div className="flex gap-3 mb-4">{COLOR_KEYS.map(c => <button key={c} onClick={() => setNewCatColor(c)} className="w-8 h-8 rounded-full" style={{ background: COLOR_PALETTE[c].accent, transform: newCatColor === c ? 'scale(1.25)' : 'scale(1)', boxShadow: newCatColor === c ? `0 0 0 2px white, 0 0 0 3.5px ${COLOR_PALETTE[c].accent}` : 'none', touchAction: 'manipulation' }} />)}</div><div className="flex gap-2"><button onClick={addNewCategory} className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl" style={{ background: COLOR_PALETTE[newCatColor].accent, touchAction: 'manipulation' }}>Add category</button><button onClick={() => { setAddingCategory(false); setNewCatName(''); }} className="px-4 py-2.5 text-sm text-stone-500 rounded-xl hover:bg-stone-100" style={{ touchAction: 'manipulation' }}>Cancel</button></div></div> : <button onClick={() => setAddingCategory(true)} className="w-full py-3.5 rounded-2xl border-2 border-dashed border-stone-200 text-sm font-semibold text-stone-400 hover:border-stone-300 hover:text-stone-500" style={{ touchAction: 'manipulation' }}>＋ Add category</button>}
             </div>
 
-            <section className="mb-5"><HealthTracker today={selectedDate} /></section>
+            <section id="health-section" className="mb-5 scroll-mt-24"><HealthTracker key={`health-${selectedDate}-${agentDataVersion}`} today={selectedDate} /></section>
             <section className="mb-5"><WeekTracker log={log} today={today} selectedDate={selectedDate} ptSessions={ptSessions} exercises={allExercises} layout={layout} onSelectDate={changeDate} /></section>
             <div className="mb-5 rounded-2xl border border-stone-100 bg-white p-3 shadow-sm"><DayControls bottom /></div>
             <p className="text-center text-xs pb-4 italic" style={{ color: '#a8a29e' }}>&ldquo;{getDailyQuote()}&rdquo;</p>
