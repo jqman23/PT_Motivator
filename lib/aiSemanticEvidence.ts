@@ -157,9 +157,14 @@ export function normalizeSemanticCategoryPlan(value: unknown, sources: SemanticN
  * not guess synonyms; it preserves every requested category, including zeros.
  */
 export function explicitSemanticCategoryPlan(question: string, sources: SemanticNoteSource[], expectedCategoryCount?: number) {
-  const match = question.match(/\b(?:each\s+of\s+(?:these|the\s+following)|(?:these|the\s+following)\s+(?:terms|words|phrases|symptoms|items|categories))\s*:\s*([^?]+?)(?:\.(?:\s|$)|$)/i);
+  const match = question.match(/\b(?:each\s+of\s+(?:these|the\s+following)|(?:these|the\s+following)\s+(?:terms|words|phrases|symptoms|items|categories))\s*:\s*([^?]+?)(?:\.(?:\s|$)|$)/i)
+    ?? question.match(/\b(?:count(?:ing)?|tally(?:ing)?|show(?:ing)?)?\s*(?:the\s+)?exact\s+(?:mentions?|occurrences?|uses?)\s+of\s+([^?.]+?)(?:\.(?:\s|$)|\?|$)/i)
+    ?? question.match(/\b(?:count(?:ing)?|tally(?:ing)?)\s+(?:mentions?|occurrences?|uses?)\s+of\s+([^?.]+?)(?:\.(?:\s|$)|\?|$)/i);
   if (!match?.[1]) return null;
-  const labels = match[1]
+  const categoryClause = match[1]
+    .replace(/\s+\b(?:over|across|during|from|within)\s+(?:my|the|all|entire|whole|last|past)\b[\s\S]*$/i, '')
+    .trim();
+  const labels = categoryClause
     .split(/\s*,\s*|\s+and\s+/i)
     .map(label => compact(label, 100).replace(/^(?:and\s+)?["“'‘]+|["”'’]+$/gi, '').replace(/^and\s+/i, '').trim())
     .filter(Boolean);

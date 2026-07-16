@@ -30,8 +30,10 @@ export function isAgentRequest(value: string) {
   const asksForAdviceOrInterpretation = /\b(?:advice|advise|recommendations?|what do you recommend|treatment options?|interpret|assessment|opinion|what do you think|is it normal|does this sound|should i|help me understand|describe my)\b/.test(text);
   const asksAboutAssistantBehavior = /^(?:why (?:did|do|would|are|were|can|can't|cannot) (?:you|the (?:ai|assistant|app))|what do you mean|i(?:'m| am) asking (?:you )?for|answer (?:me|my question)|just answer)\b/.test(text)
     || /\b(?:why (?:are|were) you asking|why (?:do|did) you need|doctor[- ]?note id|review card)\b/.test(text);
+  const doctorResponseCommand = /\b(?:answer|respond|reply)\b.{0,100}\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b/.test(text)
+    || /\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b.{0,100}\b(?:answer|respond|reply)\b/.test(text);
   const explicitlyPersistsAdvice = /^(?:please\s+)?(?:add|append|record|save|write|put)\b.{0,100}\b(?:note|log|record|entry)\b/.test(text);
-  if ((asksForAdviceOrInterpretation && !explicitlyPersistsAdvice) || asksAboutAssistantBehavior) {
+  if ((asksForAdviceOrInterpretation && !explicitlyPersistsAdvice) || (asksAboutAssistantBehavior && !doctorResponseCommand)) {
     return false;
   }
 
@@ -46,6 +48,12 @@ export function isAgentRequest(value: string) {
   if (/^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/.test(text)) {
     return true;
   }
+
+  // Doctor-note responses are persistent app edits even though people naturally
+  // say "answer" or "respond" instead of "append". The visible note title/topic
+  // is the target; an internal note ID is never user input.
+  if (doctorResponseCommand) return true;
+  if (/\bjust\s+(?:create|add|make|save|update)\b.{0,60}\b(?:the\s+)?(?:doc(?:tor)?\s+)?note\b/.test(text)) return true;
 
   if (/\b(?:take|bring) me to\b|\bgo to (?:the )?\b/.test(text)) return true;
   if (/\b(?:i|we) (?:did|completed|finished|performed)\b/.test(text)) return true;
@@ -101,7 +109,9 @@ export function isHistoryCorrectionFollowUp(value: string) {
 export function isHistoryScopeFollowUp(value: string) {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (isHistoryCorrectionFollowUp(text)) return true;
-  if (/\b(?:that|those|them|same|above|previous answer|period|date range|time range)\b/.test(text)) return true;
+  if (/^(?:that|those|them|it)\b/.test(text)) return true;
+  if (/^(?:visuali[sz]e|chart|graph|plot|tabulate|show|display|do|apply|use)\b.{0,48}\b(?:that|those|them|it)\b/.test(text)) return true;
+  if (/\b(?:same|above|previous answer|same period|same date range|same time range)\b/.test(text)) return true;
   return /^(?:and|also|what about|how about)\b.{0,64}$/.test(text);
 }
 
@@ -122,32 +132,41 @@ export function isWholeHistoryComparisonRequest(value: string) {
   const text = value.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!text) return false;
 
+  // "Hyperlink every date you discuss" constrains the output artifact, not the
+  // evidence scope. Remove citation/navigation modifiers before detecting an
+  // exhaustive history request so a targeted symptom search stays targeted.
+  const scopeText = text
+    .replace(/\b(?:hyperlink|link|cite|make clickable|keep clickable)\s+(?:each|every|all)\s+(?:date|day)(?:s)?(?:\s+(?:you|that you)\s+(?:discuss|mention|use|cite|reference))?/g, ' ')
+    .replace(/\b(?:preserve|include|show)\s+(?:a\s+)?(?:link|hyperlink)\s+for\s+(?:each|every|all)\s+(?:date|day)(?:s)?/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   const historyScope = /\b(?:days?|sessions?|history|timeline|logs?|records?|entries|check-?ins?|tracked data|saved data)\b/;
   const exhaustiveMarker = /\b(?:all|every|each|entire|full|whole|overall|all[- ]time|lifetime|everything)\b/;
   const exhaustiveAction = /\b(?:analy[sz]e|base|compare|consider|go through|include|look (?:back )?(?:at|through)|review|scan|take|use)\b/;
   const analyticalOperation = /\b(?:analy[sz](?:e|ed|ing)?|chart(?:ed|ing|s)?|compar(?:e|ed|ing|ison)|correlat(?:e|ed|ing|ion)|graph(?:ed|ing|s)?|map(?:ped|ping)?|pattern|plot(?:ted|ting|s)?|summari[sz](?:e|ed|ing)?|table|trend|visuali[sz](?:e|ed|ing|ation|ations)?)\b/;
-  const negatesExhaustiveScope = /\b(?:do not|don't|dont|not)\b.{0,20}\b(?:all|every|each|entire|full|whole|everything)\b/.test(text);
-  const narrowsToPartialScope = /\b(?:just|only)\b.{0,20}\b(?:recent|latest|last|selected|some|top)\b/.test(text)
-    && !/\b(?:do not|don't|dont|not)\s+(?:just|only)\b/.test(text);
+  const negatesExhaustiveScope = /\b(?:do not|don't|dont|not)\b.{0,20}\b(?:all|every|each|entire|full|whole|everything)\b/.test(scopeText);
+  const narrowsToPartialScope = /\b(?:just|only)\b.{0,20}\b(?:recent|latest|last|selected|some|top)\b/.test(scopeText)
+    && !/\b(?:do not|don't|dont|not)\s+(?:just|only)\b/.test(scopeText);
   const rejectsExhaustiveScope = negatesExhaustiveScope || narrowsToPartialScope;
-  const explicitlyCompleteHistory = /\bcomplete\s+(?:(?:saved|tracked|available)\s+)?(?:history|timeline|logs?|records?|entries|check-?ins?|data)\b/.test(text);
-  const scopeAndMarker = !rejectsExhaustiveScope && ((historyScope.test(text) && exhaustiveMarker.test(text)) || explicitlyCompleteHistory);
-  const actionAndMarker = !rejectsExhaustiveScope && exhaustiveAction.test(text) && exhaustiveMarker.test(text);
+  const explicitlyCompleteHistory = /\bcomplete\s+(?:(?:saved|tracked|available)\s+)?(?:history|timeline|logs?|records?|entries|check-?ins?|data)\b/.test(scopeText);
+  const scopeAndMarker = !rejectsExhaustiveScope && ((historyScope.test(scopeText) && exhaustiveMarker.test(scopeText)) || explicitlyCompleteHistory);
+  const actionAndMarker = !rejectsExhaustiveScope && exhaustiveAction.test(scopeText) && exhaustiveMarker.test(scopeText);
   // Exhaustive scope belongs to the analytical operation, regardless of which app
   // dimension follows it. Retrieval ranking must not silently narrow a requested visual.
   const exhaustiveAnalysis = !rejectsExhaustiveScope
-    && analyticalOperation.test(text)
-    && (exhaustiveMarker.test(text) || /\bcomplete\b/.test(text));
-  const fromTheBeginning = /\b(?:from (?:the )?(?:very )?(?:start|beginning)|since (?:i|we) (?:started|began)|since (?:i|we)(?:'ve| have) been (?:logging|recording|tracking)|for as long as (?:i|we)(?:'ve| have) been (?:logging|recording|tracking))\b/.test(text)
-    && (historyScope.test(text) || /\b(?:logging|logged|recording|recorded|tracking|tracked)\b/.test(text));
-  const everythingLogged = /\beverything\b.{0,48}\b(?:i|we|you)(?:'ve| have)?\s*(?:logged|saved|recorded|tracked|have)\b/.test(text)
-    || /\b(?:all|every|each)\b.{0,32}\b(?:logged|saved|recorded|tracked)\b/.test(text);
-  const explicitlyNotPartial = /\b(?:not (?:just|only) (?:the )?(?:recent|latest|top|selected|candidate)|without (?:leaving|missing|skipping|excluding) (?:anything|any|a single)|leave nothing out|do not leave anything out)\b/.test(text);
-  const allOfThem = /\b(?:compare|consider|include|review|scan|use)\b.{0,32}\b(?:all of (?:it|them|those)|them all)\b/.test(text);
+    && analyticalOperation.test(scopeText)
+    && (exhaustiveMarker.test(scopeText) || /\bcomplete\b/.test(scopeText));
+  const fromTheBeginning = /\b(?:from (?:the )?(?:very )?(?:start|beginning)|since (?:i|we) (?:started|began)|since (?:i|we)(?:'ve| have) been (?:logging|recording|tracking)|for as long as (?:i|we)(?:'ve| have) been (?:logging|recording|tracking))\b/.test(scopeText)
+    && (historyScope.test(scopeText) || /\b(?:logging|logged|recording|recorded|tracking|tracked)\b/.test(scopeText));
+  const everythingLogged = /\beverything\b.{0,48}\b(?:i|we|you)(?:'ve| have)?\s*(?:logged|saved|recorded|tracked|have)\b/.test(scopeText)
+    || /\b(?:all|every|each)\b.{0,32}\b(?:logged|saved|recorded|tracked)\b/.test(scopeText);
+  const explicitlyNotPartial = /\b(?:not (?:just|only) (?:the )?(?:recent|latest|top|selected|candidate)|without (?:leaving|missing|skipping|excluding) (?:anything|any|a single)|leave nothing out|do not leave anything out)\b/.test(scopeText);
+  const allOfThem = /\b(?:compare|consider|include|review|scan|use)\b.{0,32}\b(?:all of (?:it|them|those)|them all)\b/.test(scopeText);
   const semanticTextAggregate = isSemanticTextAggregateRequest(text);
-  const globalSuperlative = /\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b.{0,40}\b(?:day|session|log|entry)\b/.test(text)
-    || /\b(?:day|session|log|entry)\b.{0,40}\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b/.test(text)
-    || /\b(?:best|worst|strongest|weakest|easiest|hardest)\b.{0,24}\b(?:ever|of all time)\b/.test(text);
+  const globalSuperlative = /\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b.{0,40}\b(?:day|session|log|entry)\b/.test(scopeText)
+    || /\b(?:day|session|log|entry)\b.{0,40}\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b/.test(scopeText)
+    || /\b(?:best|worst|strongest|weakest|easiest|hardest)\b.{0,24}\b(?:ever|of all time)\b/.test(scopeText);
 
   return scopeAndMarker || actionAndMarker || exhaustiveAnalysis || semanticTextAggregate || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
 }

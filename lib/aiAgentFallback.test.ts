@@ -279,7 +279,49 @@ test('builds doctor questions and exact-note follow-ups', () => {
   assert.equal(question?.actions[0]?.type, 'doctor_note_upsert');
   assert.equal(question?.actions[0]?.type === 'doctor_note_upsert' ? question.actions[0].mode : '', 'create');
   assert.equal(followUp?.actions[0]?.type === 'doctor_note_upsert' ? followUp.actions[0].noteId : '', 'doc-1');
-  assert.equal(followUp?.actions[0]?.type === 'doctor_note_upsert' ? followUp.actions[0].patch.body : '', 'they recommended shorter walks');
+  assert.equal(followUp?.actions[0]?.type === 'doctor_note_upsert' ? followUp.actions[0].patch.body : '', 'Response - 2026-07-15\nAnswer / notes: they recommended shorter walks');
+});
+
+test('creates doctor notes without user-supplied IDs and preserves the original correction goal', () => {
+  const original = 'create a doc note for dr fox i want to ask him about my upcoming emg';
+  const created = buildDeterministicAgentFallback({ question: original, today: '2026-07-16' });
+  const corrected = buildDeterministicAgentFallback({
+    question: 'No in the app i want you to create a doc note',
+    today: '2026-07-16',
+    priorUserMessages: [original, 'i dont know what that means just create the note'],
+  });
+  for (const plan of [created, corrected]) {
+    const action = plan?.actions[0];
+    assert.equal(action?.type, 'doctor_note_upsert');
+    if (action?.type !== 'doctor_note_upsert') continue;
+    assert.equal(action.mode, 'create');
+    assert.equal(action.noteId, undefined);
+    assert.equal(action.patch.title, 'Upcoming EMG');
+    assert.match(action.patch.provider ?? '', /dr\.? fox/i);
+    assert.match(action.patch.body ?? '', /upcoming emg/i);
+  }
+});
+
+test('appends a requested response to a doctor note resolved by a unique topic token', () => {
+  const original = 'the doc note about emg answer it by saying ill do a follow up';
+  const context = {
+    today: '2026-07-16',
+    doctorNotes: [{ id: 'emg-note', title: 'Nerve issues/EMG' }],
+  };
+  const direct = buildDeterministicAgentFallback({ question: original, ...context });
+  const correction = buildDeterministicAgentFallback({
+    question: 'DO IT UPDATE THAT response',
+    priorUserMessages: [original, 'no im saying i need you to answer it for me'],
+    ...context,
+  });
+  for (const plan of [direct, correction]) {
+    const action = plan?.actions[0];
+    assert.equal(action?.type, 'doctor_note_upsert');
+    if (action?.type !== 'doctor_note_upsert') continue;
+    assert.equal(action.mode, 'append');
+    assert.equal(action.noteId, 'emg-note');
+    assert.equal(action.patch.body, 'Response - 2026-07-16\nAnswer / notes: ill do a follow up');
+  }
 });
 
 test('builds category and photo actions without relying on a model', () => {

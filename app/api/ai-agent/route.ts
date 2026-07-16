@@ -49,12 +49,12 @@ function rowKey(date: string, exerciseId: string) {
   return `${date}|${exerciseId}`;
 }
 
-function appendText(previous: unknown, next: string) {
+function appendText(previous: unknown, next: string, separator = '\n') {
   const before = String(previous ?? '').trim();
   const addition = next.trim();
   if (!before) return addition;
   if (!addition || before.includes(addition)) return before;
-  return `${before}\n${addition}`;
+  return `${before}${separator}${addition}`;
 }
 
 function jsonArray(value: unknown): unknown[] {
@@ -258,7 +258,9 @@ export async function POST(req: NextRequest) {
         if (action.patch.title !== undefined) next.title = action.patch.title;
         if (action.patch.provider !== undefined) next.provider = action.patch.provider;
         if (action.patch.referenceText !== undefined) next.reference_text = action.patch.referenceText;
-        if (action.patch.body !== undefined) next.body = action.mode === 'append' ? appendText(next.body, action.patch.body) : action.patch.body;
+        if (action.patch.body !== undefined) next.body = action.mode === 'append'
+          ? appendText(next.body, action.patch.body, /^Response - /i.test(action.patch.body) ? '\n\n' : '\n')
+          : action.patch.body;
         if (action.patch.linkedDates !== undefined) next.linked_dates = action.patch.linkedDates;
         if (action.patch.pinned !== undefined) next.pinned = action.patch.pinned;
         if (action.patch.noteColor !== undefined) next.note_color = action.patch.noteColor;

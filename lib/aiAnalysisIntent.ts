@@ -36,7 +36,9 @@ function hasAnalyticalSubject(value: string) {
   const text = clean(value).toLowerCase();
   if (!text) return false;
   if (isSemanticTextAggregateRequest(text) || isWholeHistoryComparisonRequest(text)) return true;
-  return /\b(?:compare|correlat|count|frequency|how often|how many|pattern|relationship|distribution|breakdown|average|highest|lowest|most|least|across|over time|history|records?|logs?|notes?)\b/.test(text)
+  const analyticalOperation = /\b(?:compare|correlat|count|frequency|how often|how many|pattern|relationship|distribution|breakdown|average|mean|median|sum|total|highest|lowest|most|least|across|over time|analy[sz]e|review|summari[sz]e|search|find)\b/.test(text);
+  const analyticalData = /\b(?:history|records?|logs?|notes?|days?|weeks?|months?|pain|energy|mood|sleep|exercise|activity|symptoms?)\b/.test(text);
+  return analyticalOperation && analyticalData
     && !/^(?:i want|show|give|make|create|display|output|please|can you|could you|you didn't|you did not|still|that(?:'s| is)|this is)\b.{0,35}\b(?:table|chart|graph|visuali[sz]ation|visual)\b[.! ]*$/.test(text);
 }
 
@@ -86,6 +88,7 @@ function conversationAnchor(messages: AnalysisConversationMessage[]) {
     // contains referential words. Goal evidence is stronger than the broad
     // dependent-follow-up heuristic.
     if (isDependentFollowUp(text)) {
+      if (/^(?:look at|use|check|search|analy[sz]e)?\s*(?:the\s+)?(?:whole|full|entire|complete|all)\s+(?:range|history|records?|data|timeline)[.! ]*$/i.test(text)) continue;
       if (hasAnalyticalSubject(text)) return text;
       continue;
     }
@@ -118,13 +121,12 @@ export function resolveAnalysisRequest(
   const anchor = conversationAnchor(history);
   const dependent = isDependentFollowUp(question) || (isVisualizationRequest(current) && !hasAnalyticalSubject(current));
   const inheritedGoal = Boolean(anchor && dependent);
-  const artifactContext = inheritedGoal
-    ? [...history].reverse().find(message => message.role === 'assistant' && clean(message.artifacts))?.artifacts
-    : '';
+  // Artifact state remains structured conversation metadata. Never splice its
+  // serialized keys into natural-language intent text: fields such as
+  // `visualization:false` previously created visualization requests by accident.
   const effectiveQuestion = clean([
     inheritedGoal ? `Original user goal: ${anchor}` : current,
     inheritedGoal ? `Current follow-up or correction: ${current}` : '',
-    artifactContext ? `Previous response artifact: ${artifactContext}` : '',
   ].filter(Boolean).join('\n'), 6000);
   const explicitlyNarrowsScope = /\b(?:past|last|previous|recent)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|few|several)?[ -]?(?:days?|weeks?|months?)\b/i.test(question);
 

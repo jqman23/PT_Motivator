@@ -1,6 +1,6 @@
 # PT Motivator AI System: Comprehensive Flowchart
 
-Implementation snapshot updated on 2026-07-15. The rendered route-family diagrams include the executable analytics, capability-specific prompt, provider-independent fallback, and multi-action planning paths now present in the Ask route.
+Implementation snapshot updated on 2026-07-16. The rendered route-family diagrams include the executable analytics, capability-specific prompt, provider-independent fallback, exact semantic count, and multi-action planning paths now present in the Ask route.
 
 This document maps the implemented Ask AI, model-routing, history-retrieval, visualization, agent-preview, apply, undo, and persistence paths. It is written for a technically informed reader and is intended to be read with the detailed [Ask AI and Agent Handoff](./ASK_AI_AGENT_HANDOFF.md).
 
@@ -42,13 +42,14 @@ Important boundaries:
 
 - The plan coordinates multiple subgoals; it does not authorize writes.
 - Models interpret requests and explain evidence. Server code retrieves records, computes supported chart values, validates evidence, and executes approved actions.
-- Supported structured calculations are terminally complete without a provider: the server composes the factual answer, coverage, evidence, visual, and clickable dates directly.
+- Supported structured calculations are terminally complete without a provider: the server composes the factual answer, coverage, evidence, visual, and clickable dates directly. Multi-measure requests preserve each requested operation, and coverage subgoals such as observed count and missing count are first-class outputs.
 - Comparative requests bind every named period to the analytics step and load their bounded union; “past 7 days versus 7 days before” therefore analyzes 14 calendar days rather than only the first window.
-- Model prompts are projected by capability. Read questions do not carry mutation schemas or the exercise library, analytics interpretation receives verified server results, and action planning receives only its contract and relevant targets.
+- Model prompts are projected by capability. Read questions do not carry mutation schemas or the exercise library, analytics interpretation receives verified server results, and action planning receives only its contract and relevant targets. Prior response artifacts are carried as compact structured state, not raw assistant prose.
 - Compound direct commands are split outside quoted values, compiled independently, and coalesced so wording inside a saved note cannot steal another action's target.
-- Explicit action commands create required slots keyed by exact type, date, and entity. A model plan is rejected if any requested slot is absent or if an unrelated target is introduced.
-- Focal dates (for example “today”) are kept separate from broader evidence windows (for example “based on my recent notes”), and compact prior visual/execution/action artifacts are carried into follow-ups.
-- Unsupported derived operations return the supported scope and exact missing capability; they do not fall through to a generic recap, an unrelated chart, or a falsely successful execution record.
+- Explicit action commands create required slots keyed by exact type, date, and entity. A model plan is rejected if any requested slot is absent or if an unrelated target is introduced. Complete deterministic action plans return review cards directly, including doctor-note creation and doctor-note response appends.
+- Focal dates (for example “today”) are kept separate from broader evidence windows (for example “based on my recent notes”), and compact prior visual/execution/action artifacts are carried into follow-ups without letting those artifacts create new visualization or analytics intent.
+- Rolling “past month” and explicit calendar-month scopes are resolved differently: rolling month uses the current 30-day window, while calendar language binds calendar dates.
+- Unsupported derived operations return the supported scope and exact missing capability; they do not fall through to a generic recap, an unrelated chart, or a falsely successful execution record. Exact literal count requests with an explicit term list use a deterministic evidence artifact and disclose that synonyms were not inferred.
 - Stable domain-command IDs insulate planning from tables and `user_config`; full shared UI/AI command handlers remain the next migration step.
 - A compact execution record exposes scope, coverage, calculations, assumptions, and incomplete outputs without duplicating large note excerpts.
 - One request-wide deadline ends before the browser timeout, with cancellation propagated through provider and repair calls.

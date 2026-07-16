@@ -60,6 +60,19 @@ function weekStartDate(today: string) {
   return dateString(date);
 }
 
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+function calendarMonthWindow(year: number, monthIndex: number, today: string, sourceText: string): BoundedHistoryWindow | null {
+  const start = new Date(year, monthIndex, 1, 12);
+  const end = new Date(year, monthIndex + 1, 0, 12);
+  const todayDate = new Date(`${today}T12:00:00`);
+  if (start > todayDate) return null;
+  if (end > todayDate) end.setTime(todayDate.getTime());
+  const startDate = dateString(start);
+  const endDate = dateString(end);
+  return { startDate, endDate, dayCount: Math.round((end.getTime() - start.getTime()) / 86400000) + 1, sourceText };
+}
+
 export function resolveBoundedHistoryWindow(value: string, today: string): BoundedHistoryWindow | null {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (/\brecent\s+(?:notes?|history|records?|entries|logs?|symptoms?)\b/.test(text) && !/\brecent\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)?[ -]?(?:days?|weeks?|months?)\b/.test(text)) {
@@ -69,6 +82,22 @@ export function resolveBoundedHistoryWindow(value: string, today: string): Bound
       dayCount: 7,
       sourceText: 'recent saved records',
     };
+  }
+  const todayDate = new Date(`${today}T12:00:00`);
+  if (/\b(?:this|current|present)\s+(?:calendar\s+)?month\b/.test(text)) {
+    return calendarMonthWindow(todayDate.getFullYear(), todayDate.getMonth(), today, 'this month');
+  }
+  if (/\b(?:last|previous|prior)\s+calendar\s+month\b/.test(text)) {
+    const previous = new Date(todayDate.getFullYear(), todayDate.getMonth() - 1, 1, 12);
+    return calendarMonthWindow(previous.getFullYear(), previous.getMonth(), today, 'previous calendar month');
+  }
+  const namedMonth = text.match(new RegExp(`\\b(?:in|during|for|month of)\\s+(${MONTH_NAMES.join('|')})(?:\\s+(20\\d{2}))?\\b`));
+  if (namedMonth) {
+    const monthIndex = MONTH_NAMES.indexOf(namedMonth[1]);
+    const explicitYear = namedMonth[2] ? Number(namedMonth[2]) : null;
+    const inferredYear = explicitYear ?? (monthIndex > todayDate.getMonth() ? todayDate.getFullYear() - 1 : todayDate.getFullYear());
+    const calendar = calendarMonthWindow(inferredYear, monthIndex, today, namedMonth[0]);
+    if (calendar) return calendar;
   }
   if (/\b(?:this\s+past|past|last|previous|recent)\s+week\b/.test(text)) {
     const endDate = shiftDate(today, -1);
@@ -225,24 +254,12 @@ function notableContext(record: HistoryDayRecord) {
   );
 }
 
-function noteCorpus(record: HistoryDayRecord) {
-  const health = record.health ?? {};
-  return compact([
-    health.treatmentNote,
-    health.sleepNote,
-    health.energyNote,
-    health.moodNote,
-    record.session?.note,
-    ...record.exerciseNotes.map(note => `${note.exercise}: ${note.note}`),
-  ].filter(Boolean).join(' | '), 700);
-}
-
 export function buildWholeHistoryComparison(records: HistoryDayRecord[]) {
   return {
     coversEveryLoadedDay: true,
     dayCount: records.length,
     dateRange: records.length ? { start: records[0].date, end: records[records.length - 1].date } : null,
-    columns: ['date', 'sessionKind', 'activityCount', 'exerciseNoteCount', 'pain', 'energy', 'mood', 'sleepHours', 'sleepQuality', 'notableContext', 'painNote', 'generalNote', 'otherNoteCorpus'],
+    columns: ['date', 'sessionKind', 'activityCount', 'exerciseNoteCount', 'pain', 'energy', 'mood', 'sleepHours', 'sleepQuality', 'notableContext'],
     rows: records.map(record => {
       const health = record.health ?? {};
       return [
@@ -256,9 +273,6 @@ export function buildWholeHistoryComparison(records: HistoryDayRecord[]) {
         numeric(health.sleepHours),
         numeric(health.sleepQuality),
         notableContext(record) || null,
-        compact(health.painNote, 1200) || null,
-        compact(health.generalNote, 1800) || null,
-        noteCorpus(record) || null,
       ];
     }),
   };

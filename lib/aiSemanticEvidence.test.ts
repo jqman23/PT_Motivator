@@ -125,3 +125,15 @@ test('builds an exact-wording fallback when the user explicitly supplies every c
     ['numbness', '0'], ['tingling', '1'], ['burning', '1'], ['swelling', '1'], ['bruising', '0'],
   ]);
 });
+
+test('parses exact-mention lists without requiring special colon wording', () => {
+  const sources = buildSemanticNoteSources([{
+    date: '2026-07-09', completed: [], exerciseNotes: [], session: null,
+    health: { generalNote: 'Burning and tingling today; no bruising.' },
+  }]);
+  const plan = explicitSemanticCategoryPlan(
+    'Search my entire saved history and make a table counting exact mentions of numbness, tingling, burning, swelling, and bruising. Let me inspect every supporting note.',
+    sources,
+  );
+  assert.deepEqual(plan?.categories.map(category => category.label), ['numbness', 'tingling', 'burning', 'swelling', 'bruising']);
+});

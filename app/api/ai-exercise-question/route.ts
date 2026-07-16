@@ -730,8 +730,14 @@ function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
     date: record.date,
     weekday: new Date(record.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
     completedExercises: record.completed.slice(0, 8),
-    workoutEntries: (record.workoutEntries ?? []).slice(0, 80),
-    exerciseMetrics: (record.exerciseMetrics ?? []).slice(0, 12),
+    exerciseMetrics: (record.exerciseMetrics ?? []).slice(0, 6).map(metric => ({
+      exercise: metric.exercise,
+      sets: metric.sets,
+      reps: metric.reps,
+      durationSeconds: metric.durationSeconds,
+      weight: metric.weight,
+      weightUnit: metric.weightUnit,
+    })),
     exerciseNotes: record.exerciseNotes.slice(0, 4).map(note => ({ ...note, note: cleanText(note.note, 220) })),
     health: {
       pain: health.pain,
@@ -1276,9 +1282,13 @@ export async function POST(req: NextRequest) {
       ?? explicitDateWindow;
     const historyScopePlan = resolveHistoryScopePlan(analysisQuestion, appToday, baseHistoryWindow);
     const historyWindow = historyScopePlan?.loadWindow ?? baseHistoryWindow;
-    const agentIntent = isAgentRequest(cleanQuestion)
-      || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
     const priorUserQuestion = history.toReversed().find(message => message.role === 'user')?.content ?? '';
+    const priorAgentInstruction = history.toReversed().find(message => message.role === 'user' && isAgentRequest(message.content))?.content ?? '';
+    const agentCorrectionFollowUp = Boolean(priorAgentInstruction) && (
+      /^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/i.test(cleanQuestion)
+      || /\b(?:just\s+create\s+(?:it|that|the note)|in the app|update that response|create the note)\b/i.test(cleanQuestion)
+    );
+    const agentIntent = isAgentRequest(cleanQuestion) || agentCorrectionFollowUp;
     const priorHistoryIntent = priorUserMessages.some(message => isHistoryQuestion(message));
     const completionCoverageIntent = isExerciseCompletionCoverageRequest(analysisQuestion)
       || (correctionFollowUp && priorUserMessages.some(message => isExerciseCompletionCoverageRequest(message)));
@@ -1306,7 +1316,7 @@ export async function POST(req: NextRequest) {
     const inferredAnalyticsPlan = (visualizationIntent || patternIntent) && !semanticTextAggregateIntent
       ? inferAiAnalyticsPlan(analysisQuestion, historyScopePlan?.windows)
       : null;
-    const derivedAnalyticsRequested = (visualizationIntent || patternIntent) && !semanticTextAggregateIntent && aiAnalyticsNeedsDerivedEvents(analysisQuestion);
+    const derivedAnalyticsRequested = !inferredAnalyticsPlan && (visualizationIntent || patternIntent) && !semanticTextAggregateIntent && aiAnalyticsNeedsDerivedEvents(analysisQuestion);
     const requestPlan = buildAiRequestPlan({
       needsHistory: historyNeeded,
       hasBoundedWindow: Boolean(historyWindow),
@@ -1314,7 +1324,7 @@ export async function POST(req: NextRequest) {
       semanticAggregate: semanticTextAggregateIntent,
       visualization: visualizationIntent,
       actionProposal: agentIntent,
-      patternAnalysis: patternIntent || historySummaryIntent,
+      patternAnalysis: Boolean(inferredAnalyticsPlan),
       analytics: inferredAnalyticsPlan ? {
         scopes: (inferredAnalyticsPlan.scopes ?? historyScopePlan?.windows ?? []).map(scope => ({ id: scope.id, startDate: scope.startDate, endDate: scope.endDate })),
         measures: inferredAnalyticsPlan.measures.map(measure => ({ field: measure.field, aggregation: measure.aggregation })),
@@ -1533,7 +1543,10 @@ export async function POST(req: NextRequest) {
     const sourceMatches = Array.isArray(requestBody.sourceMatches) ? requestBody.sourceMatches.slice(0, 8) : [];
     let doctorNotesContext: Array<Record<string, unknown>> = [];
     const doctorContextText = agentIntent ? conversationText : cleanQuestion;
-    if (/doctor|provider|appointment question|medical note|follow[- ]?up/i.test(doctorContextText)) {
+    const createsNewDoctorNoteOnly = agentIntent
+      && /\b(?:create|add|make|save|write)\b.{0,40}\b(?:doc(?:tor)?(?:'s)?\s+note|question for (?:my )?(?:doctor|pt|provider))\b/i.test(doctorContextText)
+      && !/\b(?:answer|respond|reply|append|update|follow[- ]?up|photo|image|remove|delete)\b/i.test(cleanQuestion);
+    if (!createsNewDoctorNoteOnly && (/\b(?:doc(?:tor)?|provider|emg)\b|appointment question|medical note|follow[- ]?up/i.test(doctorContextText))) {
       const rows = await sql`
         SELECT id, kind, title, provider, reference_text, LEFT(body, 600) AS body, linked_dates, pinned, note_color
         FROM doctor_notes
@@ -1660,7 +1673,7 @@ export async function POST(req: NextRequest) {
       instructions: shouldLoadHistory && historyWindow
         ? `boundedHistoryComparison contains every one of the ${historyWindow.dayCount} calendar days from ${historyWindow.startDate} through ${historyWindow.endDate}. Use the full range for all claims and never infer missing activity from candidate sampling.`
         : wholeHistoryIntent
-          ? 'wholeHistoryComparison contains one compact row for every loaded saved day, including a bounded noteCorpus for semantic mention analysis. Use all rows for overall, aggregate, frequency, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
+          ? 'wholeHistoryComparison contains one compact metric/context row for every loaded saved day. Use all rows for overall, all-history, best, worst, or superlative claims; candidateDays supplies richer note detail. Exact text aggregation uses the separate source-verification path. State the evaluated day count accurately.'
         : rankedDays.length
           ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
           : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
@@ -1697,8 +1710,50 @@ export async function POST(req: NextRequest) {
       }
     }
     if (requiredActionSlots.length && requestPlan.bindings) requestPlan.bindings.actions = requiredActionSlots;
+    const exactWordingRequested = /\b(?:exact|literal|verbatim)\s+(?:mentions?|occurrences?|uses?|words?|terms?|phrases?)\b/i.test(analysisQuestion);
+    const exactSemanticRecords = visualizationIntent && semanticTextAggregateIntent
+      ? historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords
+      : [];
+    const exactSemanticSources = exactSemanticRecords.length
+      ? filterSemanticNoteSourcesForQuestion(buildSemanticNoteSources(exactSemanticRecords), analysisQuestion)
+      : [];
+    const exactSemanticPlan = exactWordingRequested
+      ? explicitSemanticCategoryPlan(analysisQuestion, exactSemanticSources, resolvedAnalysis.requestedCategoryCount)
+      : null;
 
-    if (!hasAiApiKeyForTask(groqTask, apiKeys)) {
+    // A complete action-only command has no interpretive subgoal left for a
+    // provider. Return the validated Review plan immediately; this removes
+    // latency and provider failure from routine app edits while preserving the
+    // existing Apply/Undo boundary.
+    if (deterministicAgentPlan && !requestPlan.compound) {
+      const answer = deterministicAgentPlan.actions.some(isAgentWriteAction)
+        ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+        : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`;
+      const dateLinks = fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
+      const execution = buildAiExecutionRecord(requestPlan, {
+        scope: { loadedDays: 0 },
+        completedCapabilities: ['resolve_scope', 'propose_actions', 'compose_response'],
+        completedOutputs: { answer: true, evidence: false, visualization: false, actionProposal: true, dateNavigation: false },
+        elapsedMs: Date.now() - requestStartedAt,
+        remainingBudgetMs: remainingAiRequestMs(requestDeadline),
+      });
+      return NextResponse.json({
+        reply: { answer, options: [], dateLinks, dateSummaries: [], visualizations: [], agentPlan: deterministicAgentPlan, agentPlanningStatus: 'planned' },
+        degraded: false,
+        model: 'deterministic',
+        providerKey: 'Server action planner',
+        attemptedModels: [],
+        usedPersonalHistory: false,
+        searchedDays: 0,
+        comparedDays: currentQuestionDates.length ? 1 : 0,
+        rerankerModel: '',
+        rerankerProviderKey: '',
+        rerankedCandidates: 0,
+        debug: { requestPlan, execution, actionRequirements: requiredActionSlots, attemptedModels: [] },
+      });
+    }
+
+    if (!hasAiApiKeyForTask(groqTask, apiKeys) && !exactSemanticPlan) {
       if (deterministicAgentPlan) {
         const answer = deterministicAgentPlan.actions.some(isAgentWriteAction)
             ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
@@ -1778,10 +1833,51 @@ export async function POST(req: NextRequest) {
     let semanticEvidence: unknown = null;
     let semanticLimitation = '';
     if (visualizationIntent && semanticTextAggregateIntent) {
-      const semanticRecords = historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords;
+      const semanticRecords = exactSemanticRecords;
       const scopeMode = historyWindow ? 'window' as const : wholeHistoryIntent ? 'whole' as const : 'ranked' as const;
       const scopeStart = historyWindow?.startDate ?? semanticRecords[0]?.date;
       const scopeEnd = historyWindow?.endDate ?? semanticRecords.at(-1)?.date;
+      const exactSources = exactSemanticSources;
+      const exactPlan = exactSemanticPlan ?? explicitSemanticCategoryPlan(analysisQuestion, exactSources, resolvedAnalysis.requestedCategoryCount);
+      if (!agentIntent && exactWordingRequested && exactPlan) {
+        const exactVisualizations = visualizationFromSemanticCategoryPlan(exactPlan, exactSources);
+        const evidence = semanticExecutionEvidence(exactVisualizations);
+        const answer = [
+          'I counted the exact category wording you supplied; I did not add synonyms. Tap any count to inspect every supporting date, note field, excerpt, and exact match.',
+          includeSecretNotes ? 'Secret notes were included because you allowed them in /ai.' : '',
+        ].filter(Boolean).join('\n\n');
+        const execution = buildAiExecutionRecord(requestPlan, {
+          scope: { startDate: scopeStart, endDate: scopeEnd, loadedDays: semanticRecords.length },
+          completedCapabilities: ['resolve_scope', 'retrieve_history', 'extract_semantic_evidence', 'compose_response', 'render_visualization', 'link_evidence_dates'],
+          completedOutputs: { answer: true, evidence: true, visualization: exactVisualizations.length > 0, actionProposal: false, dateNavigation: true },
+          evidence,
+          assumptions: ['Only exact user-supplied wording was counted; synonyms were not inferred.'],
+          elapsedMs: Date.now() - requestStartedAt,
+          remainingBudgetMs: remainingAiRequestMs(requestDeadline),
+        });
+        return NextResponse.json({
+          reply: { answer, options: [], dateLinks: [], dateSummaries: [], visualizations: exactVisualizations },
+          model: 'deterministic',
+          providerKey: 'Server exact-text analytics',
+          attemptedModels: [],
+          usedPersonalHistory: true,
+          searchedDays: historyWindow?.dayCount ?? semanticRecords.length,
+          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? semanticRecords.length : 0),
+          rerankerModel,
+          rerankerProviderKey,
+          rerankedCandidates,
+          debug: {
+            requestId: cleanText(req.headers.get('x-vercel-id'), 120) || globalThis.crypto.randomUUID(),
+            build: cleanText(process.env.VERCEL_GIT_COMMIT_SHA, 80) || 'local',
+            normalizedQuestion: cleanQuestion,
+            requestPlan,
+            execution,
+            historyScope: { mode: scopeMode, startDate: scopeStart, endDate: scopeEnd, loadedDays: semanticRecords.length },
+            visualization: { source: 'deterministic-exact-text', firstPassCount: 0, deterministicCount: exactVisualizations.length, repairedCount: 0, finalCount: exactVisualizations.length },
+            attemptedModels: [],
+          },
+        });
+      }
       try {
         const semantic = await buildSemanticAggregateArtifact(apiKeys, analysisQuestion, semanticRecords, resolvedAnalysis.requestedCategoryCount, req.signal, requestDeadline);
         const answer = [
@@ -1849,9 +1945,8 @@ export async function POST(req: NextRequest) {
           statusText: attempt.statusText,
           detail: cleanText(attempt.detail, 240),
         })) : [];
-        const exactSources = filterSemanticNoteSourcesForQuestion(buildSemanticNoteSources(semanticRecords), analysisQuestion);
-        const exactPlan = explicitSemanticCategoryPlan(analysisQuestion, exactSources, resolvedAnalysis.requestedCategoryCount);
-        const exactVisualizations = exactPlan ? visualizationFromSemanticCategoryPlan(exactPlan, exactSources) : [];
+        const fallbackExactPlan = exactPlan ?? explicitSemanticCategoryPlan(analysisQuestion, exactSources, resolvedAnalysis.requestedCategoryCount);
+        const exactVisualizations = fallbackExactPlan ? visualizationFromSemanticCategoryPlan(fallbackExactPlan, exactSources) : [];
         if (agentIntent) {
           semanticLimitation = 'I could not complete the source-verified semantic analysis on this attempt.';
           Object.assign(modelPromptContext, { serverSemanticEvidence: null, semanticLimitation });
@@ -1940,6 +2035,7 @@ export async function POST(req: NextRequest) {
         response_format: { type: 'json_object' },
       }, {
         requireAgentDraft: agentIntent,
+        allowTextResponse: !agentIntent && !visualizationIntent,
         acceptJson: visualizationIntent && !semanticTextAggregateIntent && !precomputedAnalytics && !aiAnalyticsNeedsDerivedEvents(analysisQuestion)
           ? candidate => Boolean(normalizeAiAnalyticsPlan(candidate) || normalizeAiVisualizations(candidate.visualizations).length)
           : undefined,

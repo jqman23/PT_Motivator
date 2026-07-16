@@ -19,7 +19,9 @@ function requestSignals(question: string) {
   const agent = isAgentRequest(question);
   const historySummary = isHistorySummaryRequest(analysis.effectiveQuestion);
   const pattern = /\b(?:compare|average|pattern|trend|usually|better|worse|over time|correlat)\b/i.test(analysis.effectiveQuestion);
-  const needsHistory = Boolean(window) || analysis.visualization || analysis.semanticTextAggregate || analysis.wholeHistory || historySummary || pattern;
+  const historyLookup = /\bwhen\b|\bhistory\b|\brecords?\b|\blogs?\b|\brecent notes?\b/i.test(analysis.effectiveQuestion);
+  const analyticsPlan = inferAiAnalyticsPlan(analysis.effectiveQuestion);
+  const needsHistory = Boolean(window) || analysis.visualization || analysis.semanticTextAggregate || analysis.wholeHistory || historySummary || pattern || historyLookup;
   return {
     analysis,
     window,
@@ -31,7 +33,7 @@ function requestSignals(question: string) {
       semanticAggregate: analysis.semanticTextAggregate,
       visualization: analysis.visualization,
       actionProposal: agent,
-      patternAnalysis: pattern || historySummary,
+      patternAnalysis: Boolean(analyticsPlan),
     }),
   };
 }
@@ -45,6 +47,7 @@ test('golden request: past-week summary resolves the prior seven complete calend
   }, { startDate: '2026-07-08', endDate: '2026-07-14', dayCount: 7 });
   assert.equal(result.plan.historyStrategy, 'bounded-complete');
   assert.equal(result.plan.requestedOutputs.actionProposal, false);
+  assert.equal(result.plan.steps.some(step => step.capability === 'calculate_structured_analytics'), false);
 });
 
 test('golden request: compound analysis, chart, and writes remain simultaneous subgoals', () => {
@@ -74,6 +77,14 @@ test('golden request: symptom advice never becomes a write merely because it des
   assert.equal(result.agent, false);
   assert.equal(result.plan.requestedOutputs.actionProposal, false);
   assert.equal(result.plan.steps.some(step => step.capability === 'propose_actions'), false);
+});
+
+test('golden request: targeted laterality search is retrieval, not unsupported derived analytics', () => {
+  const result = requestSignals('When have I complained about my left foot? Summarize the main episodes, preserve laterality, and hyperlink every date you discuss.');
+  assert.equal(result.analysis.wholeHistory, false);
+  assert.equal(result.analysis.visualization, false);
+  assert.equal(result.plan.steps.some(step => step.capability === 'calculate_structured_analytics'), false);
+  assert.equal(result.plan.steps.some(step => step.capability === 'retrieve_history'), true);
 });
 
 test('golden request: two-period averages bind both scopes and complete without a model', () => {

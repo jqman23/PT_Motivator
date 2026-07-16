@@ -114,3 +114,25 @@ test('verification and reasoning-method follow-ups retain the original analytica
   assert.match(verification.effectiveQuestion, /left and right heel/i);
   assert.match(reasoning.effectiveQuestion, /left and right heel/i);
 });
+
+test('a self-contained comparison resets the prior goal even when it says before that', () => {
+  const result = resolveAnalysisRequest(
+    'What was my average pain over the past 7 days, and how does it compare with the 7 days immediately before that?',
+    [],
+    [{ role: 'user', content: 'What stood out from all my notes over the past week?' }],
+  );
+  assert.equal(result.inheritedGoal, false);
+  assert.doesNotMatch(result.effectiveQuestion, /stood out/i);
+  assert.equal(result.visualization, false);
+});
+
+test('structured artifact keys never create natural-language intents', () => {
+  const result = resolveAnalysisRequest('i dont know what that means just create the note', [], [
+    { role: 'user', content: 'create a doc note for dr fox about my upcoming emg' },
+    { role: 'assistant', content: 'What note ID?', artifacts: '{"completedOutputs":{"visualization":false,"actionProposal":false}}' },
+  ]);
+  assert.equal(result.inheritedGoal, false);
+  assert.equal(result.visualization, false);
+  assert.equal(result.wholeHistory, false);
+  assert.doesNotMatch(result.effectiveQuestion, /completedOutputs|visualization/i);
+});

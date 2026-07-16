@@ -589,6 +589,8 @@ export async function callGroqChat(
     requireSemanticAggregateDraft?: boolean;
     requireEvidenceBackedSemanticAggregateDraft?: boolean;
     acceptJson?: (value: Record<string, unknown>) => boolean;
+    /** Read-only callers may accept a useful plain-text answer when a provider ignores JSON mode. */
+    allowTextResponse?: boolean;
     /** Maximum wall-clock time for one provider request. */
     attemptTimeoutMs?: number;
     /** Maximum wall-clock time for the complete cross-provider cascade. */
@@ -658,7 +660,7 @@ export async function callGroqChat(
             : '';
           if (String(candidate ?? '').trim()) {
             const parsedCandidate = expectsJsonObject || options.requireAgentDraft || options.requireVisualizationDraft || options.requireSemanticAggregateDraft || options.requireEvidenceBackedSemanticAggregateDraft ? parsedJsonObject(candidate) : null;
-            if (expectsJsonObject && !parsedCandidate) {
+            if (expectsJsonObject && !parsedCandidate && !options.allowTextResponse) {
               attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'INVALID_JSON_RESPONSE', detail: 'Provider returned text instead of the required JSON object.' });
               break;
             }

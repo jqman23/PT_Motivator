@@ -100,6 +100,21 @@ test('falls from the same flagship model on all Groq keys to Cerebras flagship',
   }
 });
 
+test('read-only callers may accept useful plain text when a provider ignores JSON mode', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: 'Protect the ankle today and contact a clinician if you cannot bear weight.' } }],
+  }), { status: 200 });
+  try {
+    const result = await callGroqChat([{ name: 'plain-text-groq', value: 'secret' }], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { allowTextResponse: true });
+    assert.match(String(result.data.choices?.[0]?.message?.content ?? ''), /Protect the ankle/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uses only explicit free OpenRouter models and no credit-spending alias', async () => {
   const originalFetch = globalThis.fetch;
   const restoreEnv = isolateProviderEnv({ OPENROUTER_KEY_PTMOTIVATOR: 'openrouter-secret' });

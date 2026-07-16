@@ -27,6 +27,10 @@ test('recognizes natural app commands and short follow-ups', () => {
     'There should be a PT session tomorrow',
     'Get rid of my training appointment on Friday',
     'Prone McKenzie is done today — 1 x 12, note test',
+    'the doc note about emg answer it by saying ill do a follow up',
+    'im asking you to respond to Nerve issues/EMG doc note',
+    'I am asking you for an answer to the Nerve issues/EMG doctor question',
+    'i dont know what that means just create the note',
   ]) assert.equal(isAgentRequest(request), true, request);
 });
 
@@ -103,6 +107,7 @@ test('only carries an earlier date window into a genuine follow-up', () => {
   assert.equal(isHistoryScopeFollowUp("That's not true—look harder"), true);
   assert.equal(isHistoryScopeFollowUp('What was my worst day ever?'), false);
   assert.equal(isHistoryScopeFollowUp('When did I first mention heel pain?'), false);
+  assert.equal(isHistoryScopeFollowUp('What was my average pain over the past 7 days, and how does it compare with the 7 days immediately before that?'), false);
 });
 
 test('recognizes requests that require comparison across the whole loaded history', () => {
@@ -157,5 +162,6 @@ test('keeps bounded and targeted history questions on retrieval instead of whole
     "Don't graph all of it—just use recent data.",
     'Show me all exercises in my library.',
     'Mark Prone McKenzie complete and log 1 set of 12 reps.',
+    'When have I complained about my left foot? Summarize the main episodes and hyperlink every date you discuss.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), false, request);
 });

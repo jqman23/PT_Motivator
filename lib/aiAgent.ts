@@ -681,6 +681,7 @@ function canonicalModelAction(value: unknown, index: number, context: AgentModel
       noteColor: patchRaw.noteColor ?? patchRaw.note_color ?? raw.noteColor ?? raw.note_color,
     }).filter(([, item]) => item !== undefined));
     const mode = /append|follow_up/.test(rawType) || modelKey(raw.mode) === 'append' ? 'append' : noteId ? 'update' : 'create';
+    if (mode === 'append' && typeof patch.body === 'string') patch.body = doctorResponseSection(patch.body, context.today);
     return { ...base, noteId: noteId || undefined, mode, patch };
   }
   if (type === 'doctor_note_remove') return { ...base, noteId: resolveNamedId(raw.noteId ?? raw.note_id ?? raw.title ?? raw.noteTitle, context.doctorNotes ?? []) };
@@ -839,6 +840,61 @@ export type DeterministicAgentContext = {
   doctorNotes?: Array<{ id: string; title?: string }>;
   priorUserMessages?: string[];
 };
+
+const DOCTOR_NOTE_LOOKUP_STOP_WORDS = new Set([
+  'a', 'about', 'add', 'answer', 'append', 'ask', 'by', 'create', 'doc', 'doctor', 'for', 'follow',
+  'i', 'in', 'it', 'make', 'medical', 'my', 'note', 'of', 'on', 'please', 'question', 'reply',
+  'respond', 'response', 'saying', 'the', 'that', 'to', 'update', 'with', 'want',
+]);
+
+function lookupTokens(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/)
+    .filter(token => token.length >= 3 && !DOCTOR_NOTE_LOOKUP_STOP_WORDS.has(token));
+}
+
+function doctorNoteMention(value: string, notes: Array<{ id: string; title?: string }>) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const exact = notes.filter(note => {
+    const title = String(note.title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return title && normalized.includes(title);
+  });
+  if (exact.length === 1) return exact[0];
+  const queryTokens = new Set(lookupTokens(value));
+  const candidates = notes.flatMap(note => {
+    const titleTokens = Array.from(new Set(lookupTokens(String(note.title ?? ''))));
+    const matches = titleTokens.filter(token => queryTokens.has(token));
+    return matches.length ? [{ note, score: matches.reduce((sum, token) => sum + Math.max(1, token.length - 2), 0) }] : [];
+  }).sort((left, right) => right.score - left.score || String(right.note.title ?? '').length - String(left.note.title ?? '').length);
+  if (!candidates[0] || (candidates[1] && candidates[0].score === candidates[1].score)) return undefined;
+  return candidates[0].note;
+}
+
+function doctorResponsePayload(value: string) {
+  const patterns = [
+    /\b(?:answer|respond|reply)(?:\s+to)?(?:\s+(?:it|the\s+(?:doc(?:tor)?\s+)?(?:note|question)))?[\s\S]{0,80}?\b(?:by\s+saying|saying|with)\b\s*["“'‘]?(.+?)["”'’]?[.!?]*$/i,
+    /\b(?:follow[- ]?up|response|next steps?|note)\b[\s\S]*?\b(?:that|saying|reading|as)\b\s*["“'‘]?(.+?)["”'’]?[.!?]*$/i,
+    /:\s*["“'‘]?(.+?)["”'’]?[.!?]*$/,
+  ];
+  for (const pattern of patterns) {
+    const payload = value.match(pattern)?.[1]?.trim().replace(/^["“'‘]+|["”'’]+$/g, '').replace(/[.!?]+$/, '').trim();
+    if (payload) return payload.slice(0, 8_000);
+  }
+  return '';
+}
+
+function doctorResponseSection(payload: string, date: string) {
+  if (/^Response - /i.test(payload)) return payload;
+  return `Response - ${date}\nAnswer / notes: ${payload}`;
+}
+
+function doctorTopicTitle(value: string) {
+  const topic = value.trim().replace(/^(?:my|the|an?|upcoming)\s+/i, match => /upcoming/i.test(match) ? 'Upcoming ' : '').replace(/[.!?]+$/, '');
+  if (!topic) return 'Doctor question';
+  return topic.split(/\s+/).map((word, index) => {
+    if (/^emg$/i.test(word)) return 'EMG';
+    return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+  }).join(' ').slice(0, 180);
+}
 
 function buildDeterministicAgentFallbackSingle(context: DeterministicAgentContext): AgentPlan | undefined {
   const { question, today, selectedDate, explicitDates = [], exercises = [], categories = [], doctorNotes = [], priorUserMessages = [] } = context;
@@ -1056,43 +1112,57 @@ function buildDeterministicAgentFallbackSingle(context: DeterministicAgentContex
     });
   }
 
-  const doctorNote = [...doctorNotes]
-    .filter(item => item.id && item.title && normalizedInstruction.includes(item.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
-    .sort((a, b) => (b.title?.length ?? 0) - (a.title?.length ?? 0))[0];
+  const doctorInstructionCandidates = [instructionQuestion, ...priorUserMessages.toReversed()];
+  const doctorContextText = doctorInstructionCandidates.join(' ');
+  const doctorNote = doctorNoteMention(doctorContextText, doctorNotes);
   if (doctorNote && /\b(?:attach|add|choose|upload)\b.{0,24}\b(?:photo|picture|image)\b|\b(?:photo|picture|image)\b.{0,24}\b(?:attach|add|choose|upload)\b/i.test(instructionQuestion)) return normalizeAgentPlan({
     version: 1,
     summary: `Choose a photo for ${doctorNote.title || 'doctor note'}`,
     actions: [{ id: 'photo-doctor-1', type: 'photo_attach', target: 'doctor_note', noteId: doctorNote.id, reason: `You asked to attach a photo to ${doctorNote.title || 'this doctor note'}.` }],
   });
-  if (doctorNote && /\b(?:add|append|record|save|write|update)\b.{0,24}\b(?:follow[- ]?up|response|next steps?|note)\b/i.test(instructionQuestion)) {
-    const followUpText = instructionQuestion.match(/\b(?:follow[- ]?up|response|next steps?|note)\b[\s\S]*?\b(?:that|saying|reading|as)\b\s*["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim()
-      ?? instructionQuestion.match(/:\s*["“]?(.+?)["”]?[.!?]*$/)?.[1]?.trim()
-      ?? '';
+  const doctorResponseRequested = doctorInstructionCandidates.some(message =>
+    /\b(?:answer|respond|reply)\b.{0,100}\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b/i.test(message)
+    || /\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b.{0,100}\b(?:answer|respond|reply)\b/i.test(message)
+    || /\b(?:add|append|record|save|write|update)\b.{0,32}\b(?:follow[- ]?up|response|next steps?)\b/i.test(message));
+  if (doctorNote && doctorResponseRequested) {
+    const followUpText = doctorInstructionCandidates.map(doctorResponsePayload).find(Boolean) ?? '';
     if (followUpText) return normalizeAgentPlan({
       version: 1,
       summary: `Append a follow-up to ${doctorNote.title || 'doctor note'}`,
       actions: [{
         id: 'doctor-follow-up-1', type: 'doctor_note_upsert', noteId: doctorNote.id, mode: 'append',
-        patch: { body: followUpText }, reason: `You asked to append a follow-up to ${doctorNote.title || 'this doctor note'}.`,
+        patch: { body: doctorResponseSection(followUpText, today) }, reason: `You asked to append a response to ${doctorNote.title || 'this doctor note'}.`,
       }],
     });
   }
 
-  const doctorCreate = instructionQuestion.match(/\bcreate\s+(?:a\s+)?(question|symptom|visit|result|plan)\s+doctor\s+note\b/i);
-  if (doctorCreate) {
-    const kind = doctorCreate[1].toLowerCase();
-    const title = instructionQuestion.match(/\b(?:titled|called)\s+(.+?)(?=\s+for\b|\.\s*(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '')
-      || `${kind[0].toUpperCase()}${kind.slice(1)} note`;
-    const provider = instructionQuestion.match(/\bfor\s+(.+?)(?=\.\s*(?:include|link)\b|\s+(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
-    const body = instructionQuestion.match(/\binclude\s*:\s*(.+?)(?=\s+link\s+it\s+to\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
-    const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
+  const explicitDoctorCreate = doctorInstructionCandidates
+    .filter(message => /\b(?:create|add|make|save|write)\s+(?:a\s+)?(?:new\s+)?(?:(?:question|symptom|visit|result|plan)\s+)?(?:doc(?:tor)?)(?:'s)?\s+note\b/i.test(message))
+    .sort((left, right) => {
+      const detailScore = (message: string) => Array.from(message.matchAll(/\b(?:for|about|regarding|include|titled|called|ask)\b/gi)).length;
+      return detailScore(right) - detailScore(left) || right.length - left.length;
+    })[0];
+  if (explicitDoctorCreate) {
+    const typedCreate = explicitDoctorCreate.match(/\b(?:create|add|make|save|write)\s+(?:a\s+)?(?:new\s+)?(question|symptom|visit|result|plan)\s+(?:doc(?:tor)?)(?:'s)?\s+note\b/i);
+    const topic = explicitDoctorCreate.match(/\b(?:about|regarding)\s+(.+?)(?=\s+(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '')
+      ?? explicitDoctorCreate.match(/\b(?:i\s+want\s+to|so\s+i\s+can|to)\s+ask\s+(?:(?:him|her|them|my\s+(?:doctor|provider)|dr\.?\s+[a-z-]+)\s+)?(?:about\s+)?(.+?)[.!?]*$/i)?.[1]?.trim().replace(/[.!?]+$/, '')
+      ?? '';
+    const kind = typedCreate?.[1]?.toLowerCase() ?? (topic || /\bask\b/i.test(explicitDoctorCreate) ? 'question' : 'plan');
+    const title = explicitDoctorCreate.match(/\b(?:titled|called)\s+(.+?)(?=\s+for\b|\.\s*(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '')
+      || (topic ? doctorTopicTitle(topic) : `${kind[0].toUpperCase()}${kind.slice(1)} note`);
+    const provider = explicitDoctorCreate.match(/\bfor\s+((?:dr\.?|doctor)\s+[a-z][a-z .'-]*?)(?=\s+(?:i\s+want|so\s+i|to\s+ask|about|regarding|include|link)\b|[.!?]|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '')
+      ?? explicitDoctorCreate.match(/\bfor\s+(.+?)(?=\.\s*(?:include|link)\b|\s+(?:include|link)\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
+    const includedBody = explicitDoctorCreate.match(/\binclude\s*:\s*(.+?)(?=\s+link\s+it\s+to\b|$)/i)?.[1]?.trim().replace(/[.!?]+$/, '');
+    const body = includedBody || (topic ? `Ask${provider ? ` ${provider}` : ''} about ${topic}.` : '');
+    const linkedDate = explicitDates.at(-1)
+      ?? (/\b(?:link(?: it)? to|for|on)\s+(?:today|this day|the selected day)\b/i.test(explicitDoctorCreate) ? selectedDate ?? today : undefined);
     return normalizeAgentPlan({
       version: 1,
       summary: `Create ${title}`,
       actions: [{
         id: 'doctor-create-1', type: 'doctor_note_upsert', mode: 'create',
-        patch: { kind, title, provider, body, linkedDates: [actionDate] },
-        reason: `You asked to create a ${kind} doctor note.`,
+        patch: { kind, title, provider, body, linkedDates: linkedDate ? [linkedDate] : undefined },
+        reason: `You asked to create a ${kind} doctor note; a new note ID will be generated when you apply it.`,
       }],
     });
   }

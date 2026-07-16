@@ -171,7 +171,7 @@ test('normalizes common category rename and doctor follow-up shapes', () => {
   assert.equal(plan?.actions[0].type === 'category_upsert' ? plan.actions[0].name : '', 'Daily Mobility');
   assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].noteId : '', 'doc-1');
   assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].mode : '', 'append');
-  assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].patch.body : '', 'They recommended shorter walks.');
+  assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].patch.body : '', 'Response - 2026-07-15\nAnswer / notes: They recommended shorter walks.');
 });
 
 test('maps provider exercise instruction aliases to visible exercise fields', () => {

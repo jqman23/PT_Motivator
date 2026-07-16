@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveHistoryScopePlan, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
+import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryScopePlan, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
 import type { HistoryDayRecord, RankedHistoryDay } from './historyRanking.ts';
 
 function day(date: string, health: Record<string, unknown> | null = null): HistoryDayRecord {
@@ -21,8 +21,8 @@ test('whole-history comparison contains one bounded row for every loaded day', (
   assert.equal(comparison.dayCount, 2);
   assert.equal(comparison.rows.length, 2);
   assert.equal(String(comparison.rows[0][9]).length, 120);
-  assert.match(String(comparison.rows[0][10]), /Morning stiffness and evening ache/);
-  assert.match(String(comparison.rows[0][12]), /Balance felt limited/);
+  assert.equal(comparison.columns.includes('painNote'), false);
+  assert.equal(comparison.columns.includes('otherNoteCorpus'), false);
 });
 
 test('date tiles are supported only by dates cited in the answer or explicitly requested', () => {
@@ -88,6 +88,15 @@ test('resolves natural week phrasing without changing the existing bounded-windo
 
   const recentNotes = resolveHistoryWindowFromConversation('Based on my recent notes, what should I consider doing today?', [], '2026-07-16');
   assert.deepEqual(recentNotes && [recentNotes.startDate, recentNotes.endDate, recentNotes.dayCount], ['2026-07-10', '2026-07-16', 7]);
+});
+
+test('distinguishes rolling months from explicit calendar-month scopes', () => {
+  const rolling = resolveBoundedHistoryWindow('Compare pain over the past month', '2026-07-16');
+  const current = resolveBoundedHistoryWindow('Show energy this month', '2026-07-16');
+  const june = resolveBoundedHistoryWindow('Summarize my notes during June 2026', '2026-07-16');
+  assert.deepEqual(rolling && [rolling.startDate, rolling.endDate, rolling.dayCount], ['2026-06-16', '2026-07-15', 30]);
+  assert.deepEqual(current && [current.startDate, current.endDate, current.dayCount], ['2026-07-01', '2026-07-16', 16]);
+  assert.deepEqual(june && [june.startDate, june.endDate, june.dayCount], ['2026-06-01', '2026-06-30', 30]);
 });
 
 test('resolves every period in a comparison into one bounded load window', () => {
