@@ -66,6 +66,7 @@ test('uses task-specific Gemini capacity and leads direct action planning with t
   assert.equal(getAiRoutePlan('agent').at(-1)?.model, 'gemma-4-31b');
   assert.equal(getAiRoutePlan('log')[0]?.model, 'gemini-3.1-flash-lite');
   assert.deepEqual(new Set(getAiRoutePlan('ask').map(route => route.provider)), new Set(['groq', 'cerebras', 'gemini', 'openrouter']));
+  assert.equal(getAiRoutePlan('semantic').find(route => route.provider === 'groq')?.model, 'meta-llama/llama-4-scout-17b-16e-instruct');
 });
 
 test('falls from the same flagship model on all Groq keys to Cerebras flagship', async () => {

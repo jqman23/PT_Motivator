@@ -139,7 +139,7 @@ const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
   // Free-text aggregation needs reliable compact JSON more than long prose. It has a
   // separate provider order and strict latency budget at the call site so analytical
   // requests cannot spend minutes retrying the same stalled model across every key.
-  semantic: ['qwen/qwen3-32b', 'openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b'],
+  semantic: ['meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-120b', 'qwen/qwen3-32b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b'],
   publicAsk: PUBLIC_ASSISTANT_CHAIN,
 
   // Scout receives only compact, preselected history candidates and returns date IDs.
