@@ -6,6 +6,8 @@ This document maps the implemented Ask AI, model-routing, history-retrieval, vis
 
 The diagrams cover every implemented routing **family** and terminal outcome. Natural-language inputs are effectively unbounded, so a diagram cannot enumerate every sentence a user might type; it can show every code path those sentences can enter.
 
+Every diagram is embedded as a zoom-safe SVG. Click a diagram to open the full-size vector; expand **Editable Mermaid source** beneath it to inspect or change the original diagram definition.
+
 ## Legend
 
 | Shape or label | Meaning |
@@ -20,7 +22,12 @@ The diagrams cover every implemented routing **family** and terminal outcome. Na
 
 ## 1. Master end-to-end system flow
 
-```mermaid
+[![Master end-to-end AI system flow](./diagrams/ai-system-master-flow.svg)](./diagrams/ai-system-master-flow.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     U["User"] --> ENTRY{"Entry point"}
 
@@ -125,11 +132,18 @@ flowchart TD
     CRUD --> APPDATA
 ```
 
+</details>
+
 ## 2. Ask AI routing decision tree
 
 The main route is [`app/api/ai-exercise-question/route.ts`](../app/api/ai-exercise-question/route.ts). Classification does not replace the model's reasoning. It decides what context and tools to give the model, whether a write-capable protocol is allowed, and which deterministic guarantees must wrap the answer.
 
-```mermaid
+[![Ask AI routing decision tree](./diagrams/ask-ai-routing-decision-tree.svg)](./diagrams/ask-ai-routing-decision-tree.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     START["POST question, recent conversation, app context"] --> CLEAN["Limit input; extract /ai; redact secret blocks by default"]
     CLEAN --> SECRET{"Latest /ai explicitly permits secret notes?"}
@@ -242,6 +256,8 @@ flowchart TD
     VISUALINV --> RETURN["Return answer, options, date links/summaries, plan, visuals, model/provider/debug"]
 ```
 
+</details>
+
 ### Routing principles
 
 - “What stood out this past week?” enters the complete seven-day window, not a single-day lookup.
@@ -253,7 +269,12 @@ flowchart TD
 
 ## 3. Saved-history loading and ranking
 
-```mermaid
+[![Saved-history loading and ranking](./diagrams/history-loading-ranking.svg)](./diagrams/history-loading-ranking.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart LR
     SCOPE["Resolved start and end dates"] --> UNION["One bounded UNION ALL query"]
 
@@ -302,6 +323,8 @@ flowchart LR
     DET --> PROMPT
 ```
 
+</details>
+
 Cost and privacy properties of this path:
 
 - Date ranges are bounded; the normal history horizon is configurable but capped.
@@ -315,7 +338,12 @@ Cost and privacy properties of this path:
 
 The shared router is [`lib/groq.ts`](../lib/groq.ts). The legacy function name `callGroqChat` now fronts every supported provider.
 
-```mermaid
+[![AI provider and model failover state machine](./diagrams/provider-model-failover.svg)](./diagrams/provider-model-failover.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     CALL["callGroqChat(task, prompt, contract, budgets, abort signal)"] --> PLAN["Build ordered task-specific AiRoute list"]
     PLAN --> ROUTE["Take next provider and model route"]
@@ -368,6 +396,8 @@ flowchart TD
     CANCEL --> FAIL
 ```
 
+</details>
+
 ### Task-specific route priorities
 
 Environment overrides can prepend approved Groq models, but model names remain allow-listed. Duplicate provider/model routes and duplicate keys are removed.
@@ -390,7 +420,12 @@ Default route budgets are 20 seconds per attempt, 55 seconds total, and eight re
 
 This path handles questions such as frequency counts over inconsistent natural language. The model discovers meaning and aliases; code verifies the source evidence and computes the final numbers.
 
-```mermaid
+[![Evidence-backed semantic visualization flow](./diagrams/semantic-visualization-evidence.svg)](./diagrams/semantic-visualization-evidence.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     Q["Semantic count or category visualization request"] --> SCOPE["Use every applicable saved-note field in requested scope"]
     SCOPE --> SOURCES["Create source records: stable sourceId, date, field label, clipped text"]
@@ -417,6 +452,8 @@ flowchart TD
     FINALV -->|Fail| SAFEFAIL["Return no chart and say a source-verified artifact could not be produced"]
 ```
 
+</details>
+
 This intentionally prevents three common failure modes:
 
 1. A model cannot substitute an unrelated generic health chart for the requested categories.
@@ -425,7 +462,12 @@ This intentionally prevents three common failure modes:
 
 ## 6. Response assembly and UI rendering
 
-```mermaid
+[![Response assembly and UI rendering](./diagrams/response-ui-rendering.svg)](./diagrams/response-ui-rendering.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart LR
     RAW["Model or deterministic branch"] --> ANSWER["Clean answer and options"]
     RAW --> DATES["Validate model dateLinks against loaded and supported dates"]
@@ -454,6 +496,8 @@ flowchart LR
     CLIENT --> SAVE["Persist conversation to ai_chat_sessions"]
 ```
 
+</details>
+
 Permanent response invariants:
 
 - If an answer mentions a real loaded calendar date, the corresponding `dateLinks` entry must survive normal output, validation, model repair, deterministic output, and degraded fallback.
@@ -464,7 +508,12 @@ Permanent response invariants:
 
 ## 7. Agent planning, preview, apply, refresh, and undo
 
-```mermaid
+[![Agent planning, preview, apply, refresh, and undo](./diagrams/agent-apply-undo.svg)](./diagrams/agent-apply-undo.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     CMD["Explicit user command to change or navigate app state"] --> DET["Deterministic parser builds plan where intent is structurally clear"]
     CMD --> MODEL["Agent model proposes structured actions"]
@@ -528,6 +577,8 @@ flowchart TD
     URUN --> UREFRESH["Return affected dates/config and refresh relevant UI"]
 ```
 
+</details>
+
 ### Supported agent action contract
 
 | Family | Actions | Persistent target |
@@ -545,7 +596,12 @@ flowchart TD
 
 ## 8. API topology
 
-```mermaid
+[![API topology](./diagrams/api-topology.svg)](./diagrams/api-topology.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart TD
     CLIENT["Next.js client"] --> AIQ["POST ai-exercise-question"]
     CLIENT --> AIP["POST ai-agent/preview"]
@@ -603,6 +659,8 @@ flowchart TD
     M1 --> DB
 ```
 
+</details>
+
 ### Route inventory
 
 | Route | Methods | Responsibility |
@@ -632,7 +690,12 @@ flowchart TD
 
 ## 9. Persistence and consistency map
 
-```mermaid
+[![Persistence and consistency map](./diagrams/persistence-consistency.svg)](./diagrams/persistence-consistency.svg)
+
+<details>
+<summary>Editable Mermaid source</summary>
+
+```text
 flowchart LR
     UI["Visible app state"] -->|Normal edits| CRUD["Core CRUD APIs"]
     UI -->|Reviewed AI writes| AGENT["AI agent transaction"]
@@ -670,6 +733,8 @@ flowchart LR
     DN -->|Only when relevant| ASK
     UC -->|Compact config/app context| ASK
 ```
+
+</details>
 
 Consistency is event-driven rather than polling-driven. Normal edits and successful agent/undo responses return the affected dates or configuration keys so the mounted page can patch or refetch the relevant state immediately. Chat messages preserve plan status (`appliedRunId`, `appliedAt`, `undoneAt`) in both active browser state and persisted session JSON.
 
