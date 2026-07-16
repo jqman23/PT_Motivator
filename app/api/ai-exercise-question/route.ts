@@ -676,6 +676,20 @@ function fallbackDateLinksFromAnswer(answer: string, allowedDates: Set<string>, 
   }));
 }
 
+function mergeDateLinks(...groups: DateLink[][]): DateLink[] {
+  const seen = new Set<string>();
+  const merged: DateLink[] = [];
+  for (const group of groups) {
+    for (const link of group) {
+      if (!link?.date || seen.has(link.date)) continue;
+      seen.add(link.date);
+      merged.push(link);
+      if (merged.length >= 5) return merged;
+    }
+  }
+  return merged;
+}
+
 function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
   const health = record.health ?? {};
   return {
@@ -1351,6 +1365,7 @@ export async function POST(req: NextRequest) {
       'Never claim a date has no activity when boundedHistoryComparison shows completedExercises or metricExercises. Saved workout metrics are evidence of activity even if a completion checkbox is absent.',
       'When answering which-day or when questions, cite the best supported date in the answer and include it in dateLinks so the user can tap it.',
       'Return a dateLink only when that exact date is materially discussed in the answer or explicitly requested by the user. Otherwise return an empty dateLinks array. Never add merely related or nearby days.',
+      'If the answer mentions real calendar dates, keep those dates clickable; never return a date-bearing answer with an empty dateLinks array.',
       'Write every specific calendar date in answer as YYYY-MM-DD. The interface will display it in the user-friendly local format.',
       'When several days are plausible, explain the distinction briefly and return up to five dateLinks.',
       'For exercise construction, preserve the user-described setup and motion. Produce confirmedExercise only when enough detail exists; otherwise ask one useful clarifying question.',
@@ -1608,11 +1623,12 @@ export async function POST(req: NextRequest) {
           ? savedDataFallbackAnswer(dayRecords, historyWindow ?? undefined)
           : '';
         if (historyFallbackAnswer) {
+          const fallbackSummaryLinks = fallbackDateLinksFromAnswer(historyFallbackAnswer, allowedDates, appToday);
           return NextResponse.json({
             reply: {
               answer: historyFallbackAnswer,
               options: [],
-              dateLinks: fallbackLinks,
+              dateLinks: mergeDateLinks(fallbackLinks, fallbackSummaryLinks),
               visualizations: fallbackVisualizations,
               agentPlanningStatus: agentIntent ? 'missing' : undefined,
             },
@@ -1764,8 +1780,9 @@ export async function POST(req: NextRequest) {
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
     const cleanedDateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const fallbackDateLinks = effectiveAgentIntent ? [] : fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
-    const linkedDates = new Set(cleanedDateLinks.map(link => link.date));
-    const dateLinks = [...cleanedDateLinks, ...fallbackDateLinks.filter(link => !linkedDates.has(link.date))].slice(0, 5);
+    // Invariant: if the answer names real dates, those dates stay clickable.
+    // Preserve navigation even when the model fails and we synthesize the answer.
+    const dateLinks = mergeDateLinks(cleanedDateLinks, fallbackDateLinks);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
     const deterministicVisualizations = visualizationIntent
       ? buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
@@ -1789,8 +1806,8 @@ export async function POST(req: NextRequest) {
       reply: {
         answer,
         options: normalizeAiReplyOptions(raw.options),
-        dateLinks: semanticTextAggregateIntent ? [] : dateLinks,
-        dateSummaries: semanticTextAggregateIntent ? [] : dateSummaries,
+        dateLinks,
+        dateSummaries,
         confirmedExercise: effectiveAgentIntent ? undefined : cleanExerciseDraft(raw.confirmedExercise),
         agentPlan: normalizedAgentPlan,
         agentPlanningStatus,
