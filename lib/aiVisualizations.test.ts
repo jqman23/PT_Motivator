@@ -65,3 +65,15 @@ test('keeps model visuals compact by default and preserves explicitly bounded fu
   assert.equal(complete[0].type === 'line' ? complete[0].labels.length : 0, 47);
   assert.equal(complete[0].type === 'line' ? complete[0].series[0].values.length : 0, 47);
 });
+
+test('preserves bounded evidence drilldowns for interactive validation', () => {
+  const visuals = normalizeAiVisualizations([{
+    type: 'table', title: 'Mention counts', columns: ['Category', 'Mentions'], rows: [['Area A', 2], ['Area B', 0]],
+    drilldowns: [
+      { label: 'Area A', items: [{ sourceId: '2026-07-15:pain:0', date: '2026-07-15', source: 'Pain note', excerpt: 'Area A twice', match: 'Area A', count: 2 }] },
+      { label: 'Area B', items: [] },
+    ],
+  }]);
+  assert.equal(visuals[0].drilldowns?.length, 2);
+  assert.equal(visuals[0].drilldowns?.[0].items[0].source, 'Pain note');
+});

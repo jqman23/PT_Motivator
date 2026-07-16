@@ -533,11 +533,49 @@ function containsSemanticAggregateDraft(value: Record<string, unknown>) {
   });
 }
 
+function containsEvidenceBackedSemanticAggregateDraft(value: Record<string, unknown>) {
+  if (!containsSemanticAggregateDraft(value)) return false;
+  return visualizationItems(value).some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const visual = item as Record<string, unknown>;
+    const labels = visual.type === 'table' && Array.isArray(visual.rows)
+      ? visual.rows.flatMap(row => Array.isArray(row) && String(row[0] ?? '').trim() ? [normalizedTokenText(row[0])] : [])
+      : visual.type === 'bar' && Array.isArray(visual.labels)
+        ? visual.labels.map(normalizedTokenText).filter(Boolean)
+        : [];
+    const drilldowns = Array.isArray(visual.drilldowns) ? visual.drilldowns : [];
+    if (!labels.length || drilldowns.length < labels.length) return false;
+    const detailsByLabel = new Map(drilldowns.flatMap(raw => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+      const detail = raw as Record<string, unknown>;
+      const label = normalizedTokenText(detail.label ?? detail.category ?? detail.name);
+      const items = Array.isArray(detail.items ?? detail.evidence) ? (detail.items ?? detail.evidence) as unknown[] : null;
+      return label && items ? [[label, items] as const] : [];
+    }));
+    return labels.every(label => {
+      const evidence = detailsByLabel.get(label);
+      return Boolean(evidence && evidence.every(raw => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+        const row = raw as Record<string, unknown>;
+        return Boolean(String(row.sourceId ?? row.source_id ?? '').trim()
+          && String(row.excerpt ?? row.context ?? row.text ?? '').trim()
+          && String(row.match ?? row.matchedText ?? row.matched_text ?? '').trim());
+      }));
+    });
+  });
+}
+
 export async function callGroqChat(
   apiKeys: GroqApiKey[],
   task: GroqTask,
   body: Record<string, unknown>,
-  options: { requireAgentDraft?: boolean; requireVisualizationDraft?: boolean; requireSemanticAggregateDraft?: boolean } = {},
+  options: {
+    requireAgentDraft?: boolean;
+    requireVisualizationDraft?: boolean;
+    requireSemanticAggregateDraft?: boolean;
+    requireEvidenceBackedSemanticAggregateDraft?: boolean;
+    acceptJson?: (value: Record<string, unknown>) => boolean;
+  } = {},
 ) {
   const attempts: Attempt[] = [];
   const expectsJsonObject = Boolean(body.response_format && typeof body.response_format === 'object');
@@ -566,7 +604,7 @@ export async function callGroqChat(
             ? (data as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
             : '';
           if (String(candidate ?? '').trim()) {
-            const parsedCandidate = expectsJsonObject || options.requireAgentDraft || options.requireVisualizationDraft || options.requireSemanticAggregateDraft ? parsedJsonObject(candidate) : null;
+            const parsedCandidate = expectsJsonObject || options.requireAgentDraft || options.requireVisualizationDraft || options.requireSemanticAggregateDraft || options.requireEvidenceBackedSemanticAggregateDraft ? parsedJsonObject(candidate) : null;
             if (expectsJsonObject && !parsedCandidate) {
               attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'INVALID_JSON_RESPONSE', detail: 'Provider returned text instead of the required JSON object.' });
               break;
@@ -581,6 +619,14 @@ export async function callGroqChat(
             }
             if (options.requireSemanticAggregateDraft && (!parsedCandidate || !containsSemanticAggregateDraft(parsedCandidate))) {
               attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_SEMANTIC_AGGREGATE_DRAFT', detail: 'Provider returned JSON without a usable category/count visualization.' });
+              break;
+            }
+            if (options.requireEvidenceBackedSemanticAggregateDraft && (!parsedCandidate || !containsEvidenceBackedSemanticAggregateDraft(parsedCandidate))) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_EVIDENCE_BACKED_AGGREGATE', detail: 'Provider returned a category/count visualization without complete source-linked evidence.' });
+              break;
+            }
+            if (options.acceptJson && (!parsedCandidate || !options.acceptJson(parsedCandidate))) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'JSON_CONTRACT_REJECTED', detail: 'Provider JSON did not satisfy the request-specific result contract.' });
               break;
             }
             return {

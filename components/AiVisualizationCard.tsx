@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { AiChartVisualization, AiVisualization } from '@/lib/aiVisualizations';
+import type { AiChartVisualization, AiVisualization, AiVisualEvidenceItem } from '@/lib/aiVisualizations';
 
 const SERIES_COLORS = ['#52705C', '#C17B4F', '#5B7F9B', '#8B668E'];
 const CHART_WIDTH = 440;
@@ -10,8 +10,8 @@ const PLOT = { left: 42, right: 14, top: 18, bottom: 44 };
 const MIN_POINT_SPACING = 18;
 
 type VisualSelection =
-  | { kind: 'point'; label: string; series: string; value: number; unit?: string }
-  | { kind: 'cell'; label: string; column: string; value: string }
+  | { kind: 'point'; label: string; series: string; value: number; unit?: string; evidence?: AiVisualEvidenceItem[] }
+  | { kind: 'cell'; label: string; column: string; value: string; evidence?: AiVisualEvidenceItem[] }
   | { kind: 'column'; column: string; values: Array<{ label: string; value: string }> };
 
 function formatNumber(value: number) {
@@ -280,7 +280,8 @@ function LineChart({ visual, selected, onSelect }: { visual: AiChartVisualizatio
           {series.values.map((value, index) => {
             if (value === null) return null;
             const isSelected = selected?.kind === 'point' && selected.label === visual.labels[index] && selected.series === series.name;
-            const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit };
+            const evidence = visual.drilldowns?.find(item => item.label.toLowerCase() === visual.labels[index].toLowerCase())?.items;
+            const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit, evidence };
             const ariaLabel = `${visual.labels[index]}, ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`;
             const x = xPosition(index, visual.labels.length, chartWidth);
             const y = yPosition(value, scale);
@@ -314,7 +315,8 @@ function BarChart({ visual, selected, onSelect }: { visual: AiChartVisualization
         const height = ((value - scale.min) / scale.span) * (CHART_HEIGHT - PLOT.top - PLOT.bottom);
         const x = PLOT.left + index * groupWidth + (groupWidth - barWidth * visual.series.length) / 2 + seriesIndex * barWidth;
         const isSelected = selected?.kind === 'point' && selected.label === visual.labels[index] && selected.series === series.name;
-        const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit };
+        const evidence = visual.drilldowns?.find(item => item.label.toLowerCase() === visual.labels[index].toLowerCase())?.items;
+        const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit, evidence };
         const ariaLabel = `${visual.labels[index]}, ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`;
         return <rect key={`${series.name}-${index}`} role="button" tabIndex={0} aria-label={ariaLabel} className="cursor-pointer outline-none" onClick={() => onSelect(selection)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selection); } }} x={x} y={CHART_HEIGHT - PLOT.bottom - height} width={Math.max(3, barWidth - 2)} height={height} rx="3" fill={SERIES_COLORS[seriesIndex]} stroke={isSelected ? '#1F2F46' : 'none'} strokeWidth={isSelected ? 2 : 0}><title>{ariaLabel}</title></rect>;
       }))}
@@ -322,7 +324,7 @@ function BarChart({ visual, selected, onSelect }: { visual: AiChartVisualization
   );
 }
 
-export default function AiVisualizationCard({ visual }: { visual: AiVisualization }) {
+export default function AiVisualizationCard({ visual, onOpenDate }: { visual: AiVisualization; onOpenDate?: (date: string) => void }) {
   const [selected, setSelected] = useState<VisualSelection | null>(null);
   const selectColumn = (columnIndex: number) => {
     if (visual.type !== 'table') return;
@@ -350,7 +352,10 @@ export default function AiVisualizationCard({ visual }: { visual: AiVisualizatio
         <div className="max-w-full overflow-x-auto">
           <table className="w-full min-w-[430px] border-collapse text-left">
             <thead><tr className="bg-[#1F2F46] text-white">{visual.columns.map((column, columnIndex) => <th key={column} scope="col" className="px-2 py-1.5 text-left"><button type="button" onClick={() => selectColumn(columnIndex)} className="w-full rounded px-1 py-1 text-left text-[10px] font-bold uppercase tracking-wide hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" aria-label={`Inspect ${column} column`}>{column}</button></th>)}</tr></thead>
-            <tbody>{visual.rows.map((row, rowIndex) => <tr key={rowIndex} className={rowIndex % 2 ? 'bg-[#FAF8F3]' : 'bg-white'}>{row.map((cell, columnIndex) => <td key={columnIndex} className={`border-b border-stone-100 p-1.5 align-top text-[11px] leading-snug ${columnIndex === 0 ? 'font-bold text-stone-800' : 'text-stone-600'}`}><button type="button" onClick={() => setSelected({ kind: 'cell', label: row[0] || `Row ${rowIndex + 1}`, column: visual.columns[columnIndex], value: cell || '—' })} className="w-full rounded px-1.5 py-1 text-left hover:bg-[#EAF1EC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50">{cell || '—'}</button></td>)}</tr>)}</tbody>
+            <tbody>{visual.rows.map((row, rowIndex) => <tr key={rowIndex} className={rowIndex % 2 ? 'bg-[#FAF8F3]' : 'bg-white'}>{row.map((cell, columnIndex) => {
+              const evidence = columnIndex > 0 ? visual.drilldowns?.find(item => item.label.toLowerCase() === String(row[0] ?? '').toLowerCase())?.items : undefined;
+              return <td key={columnIndex} className={`border-b border-stone-100 p-1.5 align-top text-[11px] leading-snug ${columnIndex === 0 ? 'font-bold text-stone-800' : 'text-stone-600'}`}><button type="button" onClick={() => setSelected({ kind: 'cell', label: row[0] || `Row ${rowIndex + 1}`, column: visual.columns[columnIndex], value: cell || '—', evidence })} className="w-full rounded px-1.5 py-1 text-left hover:bg-[#EAF1EC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50">{cell || '—'}{evidence ? <span className="ml-1 text-[9px] font-bold text-[#52705C]" aria-hidden="true">›</span> : null}</button></td>;
+            })}</tr>)}</tbody>
           </table>
         </div>
       ) : (
@@ -367,6 +372,22 @@ export default function AiVisualizationCard({ visual }: { visual: AiVisualizatio
           {selected.kind === 'point' && <p className="text-xs font-bold text-stone-800"><span className="text-[#52705C]">{selected.label}</span> · {selected.series}: {formatNumber(selected.value)}{selected.unit ? ` ${selected.unit}` : ''}</p>}
           {selected.kind === 'cell' && <p className="text-xs font-bold text-stone-800"><span className="text-[#52705C]">{selected.label}</span> · {selected.column}: {selected.value}</p>}
           {selected.kind === 'column' && <div><p className="text-[10px] font-extrabold uppercase tracking-wide text-[#52705C]">{selected.column}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{selected.values.map((item, index) => <span key={`${item.label}-${index}`} className="rounded-full border border-[#CDD9D0] bg-white px-2 py-1 text-[10px] font-semibold text-stone-600">{item.label}: <span className="text-stone-800">{item.value}</span></span>)}</div></div>}
+          {(selected.kind === 'point' || selected.kind === 'cell') && selected.evidence && (
+            <div className="mt-2 space-y-1.5">
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#52705C]">What was counted</p>
+              {selected.evidence.length ? selected.evidence.map((item, index) => (
+                <div key={`${item.sourceId ?? item.date ?? 'evidence'}-${index}`} className="rounded-lg border border-[#D7E1DA] bg-white px-2.5 py-2 text-[10px] leading-snug text-stone-600">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold text-stone-700">
+                    {item.date && onOpenDate ? <button type="button" onClick={() => onOpenDate(item.date!)} className="text-[#476653] underline decoration-[#8EAA96] underline-offset-2">{item.date}</button> : item.date ? <span>{item.date}</span> : null}
+                    {item.source && <span>{item.source}</span>}
+                    {item.count && item.count > 1 ? <span className="rounded-full bg-[#EAF1EC] px-1.5 py-0.5 text-[#52705C]">{item.count} matches</span> : null}
+                  </div>
+                  <p className="mt-1">“{item.excerpt}”</p>
+                  {item.match && <p className="mt-1 text-[9px] text-stone-400">Matched wording: <span className="font-bold text-stone-500">{item.match}</span></p>}
+                </div>
+              )) : <p className="text-[10px] text-stone-500">No matching saved-note evidence was found for this zero count.</p>}
+            </div>
+          )}
         </div>
       )}
       {visual.footnote && <p className="border-t border-stone-100 bg-[#FAF8F3] px-4 py-2.5 text-[10px] leading-snug text-stone-500">{visual.footnote}</p>}

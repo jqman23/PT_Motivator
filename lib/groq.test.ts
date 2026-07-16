@@ -278,3 +278,27 @@ test('accepts a semantic count table with a domain-specific label column', async
     globalThis.fetch = originalFetch;
   }
 });
+
+test('requires source-linked drilldowns when evidence-backed aggregation is requested', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'evidence-cerebras-secret' });
+  const attempts: string[] = [];
+  globalThis.fetch = async input => {
+    attempts.push(String(input));
+    const content = String(input).includes('api.groq.com')
+      ? '{"visualizations":[{"type":"table","title":"Counts","columns":["Category","Mentions"],"rows":[["Area A",2]]}]}'
+      : '{"visualizations":[{"type":"table","title":"Counts","columns":["Category","Mentions"],"rows":[["Area A",2]],"drilldowns":[{"label":"Area A","items":[{"sourceId":"day:field:0","excerpt":"Area A twice","match":"Area A"}]}]}]}';
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([{ name: 'evidence-groq', value: 'evidence-groq-secret' }], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { requireEvidenceBackedSemanticAggregateDraft: true });
+    assert.equal(attempts.length, 2);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});

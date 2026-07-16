@@ -77,7 +77,7 @@ export function isSemanticTextAggregateRequest(value: string) {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (!text) return false;
   const aggregateLanguage = /\b(?:frequency|frequencies|how often|how many times|number of times|tally|tallies)\b/.test(text)
-    || /\b(?:count|counts|breakdown|distribution)\b.{0,48}\b(?:mention|mentions|mentioned|talk|talked|write|wrote|written|note|noted|occur|occurred|appear|appeared)\b/.test(text)
+    || /\b(?:count|counts|counted|counting|breakdown|distribution)\b.{0,64}\b(?:mention|mentions|mentioned|talk|talked|write|wrote|written|note|noted|occur|occurred|appear|appeared|phrase|phrases|term|terms|word|words|reference|references)\b/.test(text)
     || /\b(?:mention|mentions|mentioned|talk|talked|write|wrote|written|note|noted|occur|occurred|appear|appeared)\b.{0,48}\b(?:each|every|per|frequency|frequencies|count|counts|how much)\b/.test(text);
   return aggregateLanguage;
 }

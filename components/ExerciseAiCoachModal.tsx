@@ -379,10 +379,24 @@ function historyForApi(messages: ChatMessage[]) {
     const dates = message.reply?.dateLinks?.length
       ? `\nRelevant dates: ${message.reply.dateLinks.map(link => `${link.date} (${link.reason || link.label})`).join('; ')}`
       : '';
+    const visualArtifacts = message.role === 'assistant' && message.reply?.visualizations?.length
+      ? message.reply.visualizations.map(visual => {
+        if (visual.type === 'table') {
+          return `${visual.title}; columns: ${visual.columns.join(', ')}; rows: ${visual.rows.slice(0, 30).map(row => row.join(' = ')).join(' | ')}`;
+        }
+        return `${visual.title}; ${visual.type} chart; labels: ${visual.labels.slice(0, 40).join(', ')}; series: ${visual.series.map(series => series.name).join(', ')}`;
+      }).join('\n').slice(0, 1800)
+      : '';
+    const resolvedGoal = message.role === 'assistant' ? message.reply?.debug?.resolvedAnalysis?.effectiveQuestion : '';
+    const artifacts = [
+      resolvedGoal ? `Resolved analytical goal: ${resolvedGoal}` : '',
+      visualArtifacts ? `Previous artifact: ${visualArtifacts}` : '',
+    ].filter(Boolean).join('\n').slice(0, 2200);
     return {
       role: message.role,
       content: `${message.content}${dates}`.slice(0, 900),
       aiInstructions: message.aiInstructions?.slice(0, 4).map(instruction => instruction.slice(0, 300)),
+      artifacts: artifacts || undefined,
     };
   });
 }
@@ -1335,7 +1349,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
                 {!!reply?.visualizations?.length && (
                   <div className="space-y-3">
-                    {reply.visualizations.map(visual => <AiVisualizationCard key={visual.id} visual={visual} />)}
+                    {reply.visualizations.map(visual => <AiVisualizationCard key={visual.id} visual={visual} onOpenDate={openDate} />)}
                   </div>
                 )}
 

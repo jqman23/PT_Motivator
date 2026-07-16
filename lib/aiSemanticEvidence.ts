@@ -1,0 +1,223 @@
+import type { HistoryDayRecord } from './historyRanking.ts';
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { normalizeAiVisualizations, type AiVisualization, type AiVisualDrilldown, type AiVisualEvidenceItem } from './aiVisualizations.ts';
+
+export type SemanticNoteSource = {
+  id: string;
+  date: string;
+  source: string;
+  text: string;
+};
+
+function compact(value: unknown, limit = 2400) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function sourceId(date: string, source: string, index = 0) {
+  return `${date}:${source.toLowerCase().replace(/[^a-z0-9]+/g, '-')}:${index}`;
+}
+
+export function buildSemanticNoteSources(records: HistoryDayRecord[]) {
+  const sources: SemanticNoteSource[] = [];
+  const add = (date: string, source: string, value: unknown, index = 0, limit = 2400) => {
+    const text = compact(value, limit);
+    if (text) sources.push({ id: sourceId(date, source, index), date, source, text });
+  };
+
+  for (const record of records) {
+    const health = record.health ?? {};
+    add(record.date, 'Pain note', health.painNote, 0, 1200);
+    add(record.date, 'General note', health.generalNote, 0, 1800);
+    add(record.date, 'Treatment note', health.treatmentNote, 0, 1200);
+    add(record.date, 'Sleep note', health.sleepNote, 0, 900);
+    add(record.date, 'Energy note', health.energyNote, 0, 900);
+    add(record.date, 'Mood note', health.moodNote, 0, 900);
+    if (record.session?.note) add(record.date, `${record.session.kind === 'training' ? 'Training' : 'PT'} session note`, record.session.note, 0, 800);
+    record.exerciseNotes.forEach((note, index) => add(record.date, `Exercise note · ${note.exercise}`, note.note, index, 1200));
+    const photoNotes = Array.isArray(health.generalNotePhotoNotes) ? health.generalNotePhotoNotes : [];
+    photoNotes.forEach((note, index) => add(record.date, 'Photo note', note, index, 500));
+  }
+  return sources;
+}
+
+export function filterSemanticNoteSourcesForQuestion(sources: SemanticNoteSource[], question: string) {
+  const text = compact(question, 6000).toLowerCase();
+  const requested: Array<(source: SemanticNoteSource) => boolean> = [];
+  if (/\bpain notes?\b|\bpain(?:\s*,|\s+and)\s+(?:general|treatment|sleep|energy|mood|exercise|workout|session|photo|image)\s+notes?\b/.test(text)) requested.push(source => source.source === 'Pain note');
+  if (/\bgeneral (?:health )?notes?\b/.test(text)) requested.push(source => source.source === 'General note');
+  if (/\btreatment notes?\b|\bmedication notes?\b/.test(text)) requested.push(source => source.source === 'Treatment note');
+  if (/\bsleep notes?\b/.test(text)) requested.push(source => source.source === 'Sleep note');
+  if (/\benergy notes?\b/.test(text)) requested.push(source => source.source === 'Energy note');
+  if (/\bmood notes?\b/.test(text)) requested.push(source => source.source === 'Mood note');
+  if (/\bexercise notes?\b|\bworkout notes?\b/.test(text)) requested.push(source => source.source.startsWith('Exercise note'));
+  if (/\b(?:pt|physical therapy|training|session) notes?\b/.test(text)) requested.push(source => source.source.endsWith('session note'));
+  if (/\b(?:photo|image) notes?\b|\bcaptions?\b/.test(text)) requested.push(source => source.source === 'Photo note');
+  if (!requested.length) return sources;
+  return sources.filter(source => requested.some(matches => matches(source)));
+}
+
+export function chunkSemanticNoteSources(sources: SemanticNoteSource[], maxCharacters = 48_000) {
+  const chunks: SemanticNoteSource[][] = [];
+  let current: SemanticNoteSource[] = [];
+  let size = 0;
+  for (const source of sources) {
+    const nextSize = source.text.length + source.source.length + source.id.length + 80;
+    if (current.length && size + nextSize > maxCharacters) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(source);
+    size += nextSize;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+function occurrences(haystack: string, needle: string) {
+  const positions: Array<{ start: number; end: number }> = [];
+  if (!needle) return positions;
+  let cursor = 0;
+  while (cursor <= haystack.length - needle.length) {
+    const position = haystack.indexOf(needle, cursor);
+    if (position < 0) break;
+    positions.push({ start: position, end: position + needle.length });
+    cursor = position + Math.max(1, needle.length);
+  }
+  return positions;
+}
+
+function countColumnIndex(columns: string[]) {
+  const index = columns.findIndex(column => /\b(?:mention|count|frequency|occurrence|times|total)\b/i.test(column));
+  return index >= 0 ? index : 1;
+}
+
+type EvidenceClaim = {
+  label: string;
+  labelKey: string;
+  source: SemanticNoteSource;
+  excerpt: string;
+  match: string;
+  positions: Array<{ start: number; end: number }>;
+};
+
+function evidenceClaims(visual: AiVisualization, sources: SemanticNoteSource[]) {
+  const sourceMap = new Map(sources.map(source => [source.id, source]));
+  const labels = visual.type === 'table' ? visual.rows.map(row => row[0]) : visual.labels;
+  const labelKeys = new Set(labels.map(label => label.toLowerCase()));
+  const rawDrilldowns = visual.drilldowns ?? [];
+  const claims: EvidenceClaim[] = [];
+  const seen = new Set<string>();
+
+  for (const drilldown of rawDrilldowns) {
+    const labelKey = drilldown.label.toLowerCase();
+    if (!labelKeys.has(labelKey)) continue;
+    for (const item of drilldown.items) {
+      const source = item.sourceId ? sourceMap.get(item.sourceId) : undefined;
+      const excerpt = compact(item.excerpt, 500);
+      const match = compact(item.match, 120);
+      if (!source || !excerpt || !match) continue;
+      const sourceText = source.text.toLowerCase();
+      if (!sourceText.includes(excerpt.toLowerCase()) || !excerpt.toLowerCase().includes(match.toLowerCase())) continue;
+      const key = `${labelKey}|${source.id}|${match.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const positions = occurrences(sourceText, match.toLowerCase());
+      if (positions.length) claims.push({ label: drilldown.label, labelKey, source, excerpt, match, positions });
+    }
+  }
+  return claims;
+}
+
+function verifiedDrilldowns(visual: AiVisualization, sources: SemanticNoteSource[]) {
+  const claims = evidenceClaims(visual, sources).sort((left, right) => right.match.length - left.match.length);
+  const claimedRanges = new Map<string, Array<{ start: number; end: number }>>();
+  const itemsByLabel = new Map<string, AiVisualEvidenceItem[]>();
+  const labelByKey = new Map<string, string>();
+
+  for (const claim of claims) {
+    const occupied = claimedRanges.get(claim.source.id) ?? [];
+    const accepted = claim.positions.filter(position => !occupied.some(range => position.start < range.end && position.end > range.start));
+    if (!accepted.length) continue;
+    occupied.push(...accepted);
+    claimedRanges.set(claim.source.id, occupied);
+    labelByKey.set(claim.labelKey, claim.label);
+    const items = itemsByLabel.get(claim.labelKey) ?? [];
+    for (const position of accepted) {
+      const contextStart = Math.max(0, position.start - 90);
+      const contextEnd = Math.min(claim.source.text.length, position.end + 90);
+      items.push({
+        sourceId: claim.source.id,
+        date: claim.source.date,
+        source: claim.source.source,
+        excerpt: claim.source.text.slice(contextStart, contextEnd).trim(),
+        match: claim.source.text.slice(position.start, position.end),
+        count: 1,
+      });
+    }
+    itemsByLabel.set(claim.labelKey, items);
+  }
+
+  const visualLabels = visual.type === 'table' ? visual.rows.map(row => row[0]) : visual.labels;
+  return visualLabels.map(label => ({
+    label,
+    items: itemsByLabel.get(label.toLowerCase()) ?? [],
+  })) satisfies AiVisualDrilldown[];
+}
+
+function drilldownCount(drilldown: AiVisualDrilldown) {
+  return drilldown.items.reduce((total, item) => total + Math.max(0, Math.floor(Number(item.count) || 0)), 0);
+}
+
+export function normalizeEvidenceBackedSemanticVisualizations(
+  value: unknown,
+  sources: SemanticNoteSource[],
+  options: { expectedCategoryCount?: number } = {},
+): AiVisualization[] {
+  const normalized = normalizeAiVisualizations(value, { maxPoints: 100 });
+  const verifiedVisualizations: AiVisualization[] = [];
+  for (const visual of normalized) {
+    if (visual.type === 'line' || !visual.drilldowns?.length) continue;
+    const labels = visual.type === 'table' ? visual.rows.map(row => row[0]) : visual.labels;
+    if (options.expectedCategoryCount && labels.length !== options.expectedCategoryCount) continue;
+    if (new Set(labels.map(label => label.toLowerCase())).size !== labels.length) continue;
+    const drilldowns = verifiedDrilldowns(visual, sources);
+    if (drilldowns.length !== labels.length) continue;
+    const counts = new Map(drilldowns.map(drilldown => [drilldown.label.toLowerCase(), drilldownCount(drilldown)]));
+    const footnote = 'Counts are exact matched-text occurrences from saved note fields. Tap a count to inspect the dates, source fields, excerpts, and wording included.';
+    if (visual.type === 'table') {
+      const countIndex = countColumnIndex(visual.columns);
+      if (visual.rows.some(row => Number(row[countIndex]) > 0 && (counts.get(row[0].toLowerCase()) ?? 0) === 0)) continue;
+      const rows = visual.rows.map(row => row.map((cell, index) => index === countIndex ? String(counts.get(row[0].toLowerCase()) ?? 0) : cell));
+      verifiedVisualizations.push({ ...visual, rows, drilldowns, footnote });
+      continue;
+    }
+    const firstSeries = visual.series[0];
+    if (!firstSeries) continue;
+    if (visual.labels.some((label, index) => Number(firstSeries.values[index]) > 0 && (counts.get(label.toLowerCase()) ?? 0) === 0)) continue;
+    verifiedVisualizations.push({
+      ...visual,
+      series: [{ ...firstSeries, name: firstSeries.name || 'Mentions', unit: firstSeries.unit || 'mentions', values: visual.labels.map(label => counts.get(label.toLowerCase()) ?? 0) }],
+      drilldowns,
+      footnote,
+    });
+  }
+  return verifiedVisualizations.slice(0, 1);
+}
+
+export function mergeEvidenceBackedSemanticVisualizations(visualizations: AiVisualization[]) {
+  const compatible = visualizations.filter((visual): visual is AiVisualization => visual.type !== 'line');
+  if (!compatible.length) return [];
+  const first = compatible[0];
+  const labelOrder = first.type === 'table' ? first.rows.map(row => row[0]) : first.labels;
+  const drilldowns = labelOrder.map(label => ({
+    label,
+    items: compatible.flatMap(visual => visual.drilldowns?.find(item => item.label.toLowerCase() === label.toLowerCase())?.items ?? []),
+  }));
+  const counts = new Map(drilldowns.map(item => [item.label.toLowerCase(), drilldownCount(item)]));
+  if (first.type === 'table') {
+    const countIndex = countColumnIndex(first.columns);
+    return [{ ...first, rows: first.rows.map(row => row.map((cell, index) => index === countIndex ? String(counts.get(row[0].toLowerCase()) ?? 0) : cell)), drilldowns }];
+  }
+  return [{ ...first, series: first.series.slice(0, 1).map(series => ({ ...series, values: first.labels.map(label => counts.get(label.toLowerCase()) ?? 0) })), drilldowns }];
+}

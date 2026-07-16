@@ -30,6 +30,12 @@ export type StoredAiReplyDebug = {
   requestId?: string;
   build?: string;
   normalizedQuestion?: string;
+  resolvedAnalysis?: {
+    effectiveQuestion?: string;
+    inheritedGoal: boolean;
+    anchorQuestion?: string;
+    requestedCategoryCount?: number;
+  };
   intents?: {
     agent: boolean;
     visualization: boolean;
@@ -118,6 +124,7 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
   const rawIntents = raw.intents && typeof raw.intents === 'object' && !Array.isArray(raw.intents) ? raw.intents as Record<string, unknown> : null;
   const rawScope = raw.historyScope && typeof raw.historyScope === 'object' && !Array.isArray(raw.historyScope) ? raw.historyScope as Record<string, unknown> : null;
   const rawVisual = raw.visualization && typeof raw.visualization === 'object' && !Array.isArray(raw.visualization) ? raw.visualization as Record<string, unknown> : null;
+  const rawResolvedAnalysis = raw.resolvedAnalysis && typeof raw.resolvedAnalysis === 'object' && !Array.isArray(raw.resolvedAnalysis) ? raw.resolvedAnalysis as Record<string, unknown> : null;
   const rawSecrets = raw.secretNotes && typeof raw.secretNotes === 'object' && !Array.isArray(raw.secretNotes) ? raw.secretNotes as Record<string, unknown> : null;
   const scopeMode = rawScope?.mode === 'ranked' || rawScope?.mode === 'window' || rawScope?.mode === 'whole' ? rawScope.mode : 'none';
   const visualSource = rawVisual?.source === 'deterministic' || rawVisual?.source === 'model' || rawVisual?.source === 'semantic-repair' ? rawVisual.source : 'none';
@@ -125,6 +132,12 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
     requestId: cleanText(raw.requestId, 120) || undefined,
     build: cleanText(raw.build, 80) || undefined,
     normalizedQuestion: cleanText(raw.normalizedQuestion, 1_500) || undefined,
+    resolvedAnalysis: rawResolvedAnalysis ? {
+      effectiveQuestion: cleanText(rawResolvedAnalysis.effectiveQuestion, 6_000) || undefined,
+      inheritedGoal: rawResolvedAnalysis.inheritedGoal === true,
+      anchorQuestion: cleanText(rawResolvedAnalysis.anchorQuestion, 3_200) || undefined,
+      requestedCategoryCount: cleanNumber(rawResolvedAnalysis.requestedCategoryCount),
+    } : undefined,
     intents: rawIntents ? {
       agent: rawIntents.agent === true,
       visualization: rawIntents.visualization === true,
@@ -299,6 +312,19 @@ function visualizationTranscript(visual: AiVisualization) {
       transcriptCell(label),
       ...visual.series.map(series => transcriptCell(series.values[index])),
     ].join('\t')));
+  }
+  if (visual.drilldowns?.length) {
+    context.push('Evidence behind counts:');
+    for (const drilldown of visual.drilldowns) {
+      context.push(`${transcriptCell(drilldown.label)}:`);
+      if (!drilldown.items.length) context.push('- No matching saved-note evidence');
+      else context.push(...drilldown.items.map(item => [
+        '-', item.date, item.source,
+        item.count && item.count > 1 ? `${item.count} matches` : '',
+        item.match ? `matched "${item.match}"` : '',
+        `excerpt "${item.excerpt}"`,
+      ].filter(Boolean).map(transcriptCell).join(' · ')));
+    }
   }
   if (visual.footnote) context.push(`Note: ${visual.footnote}`);
   return context.join('\n');

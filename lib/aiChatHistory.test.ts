@@ -109,7 +109,10 @@ test('copies a portable transcript with complete chart and table source data', (
         answer: 'Here are the patterns.', options: [], dateLinks: [], model: 'model-a', providerKey: 'Gemini',
         visualizations: [
           { type: 'line', title: 'Pain and sleep', labels: ['7/14', '7/15'], series: [{ name: 'Pain', unit: '/10', values: [6, 5] }, { name: 'Sleep', unit: 'hours', values: [7, null] }] },
-          { type: 'table', title: 'Mentions', columns: ['Region', 'Count'], rows: [['Left side', '3'], ['Right side', '2']] },
+          { type: 'table', title: 'Mentions', columns: ['Region', 'Count'], rows: [['Left side', '3'], ['Right side', '2']], drilldowns: [
+            { label: 'Left side', items: [{ date: '2026-07-15', source: 'Pain note', excerpt: 'Left side hurt', match: 'Left side', count: 1 }] },
+            { label: 'Right side', items: [] },
+          ] },
         ],
       },
     },
@@ -120,6 +123,7 @@ test('copies a portable transcript with complete chart and table source data', (
   assert.match(transcript, /Label\tPain \(\/10\)\tSleep \(hours\)/);
   assert.match(transcript, /7\/15\t5\t—/);
   assert.match(transcript, /Region\tCount\nLeft side\t3\nRight side\t2/);
+  assert.match(transcript, /Evidence behind counts:[\s\S]*2026-07-15 · Pain note · matched "Left side" · excerpt "Left side hurt"/);
   assert.match(transcript, /Model: model-a · Gemini/);
 
   const debug = JSON.parse(aiChatDebugBundle(messages, 'conversation-1')) as Record<string, unknown>;

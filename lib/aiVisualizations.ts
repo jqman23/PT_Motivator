@@ -6,6 +6,21 @@ export type AiTableVisualization = {
   columns: string[];
   rows: string[][];
   footnote?: string;
+  drilldowns?: AiVisualDrilldown[];
+};
+
+export type AiVisualEvidenceItem = {
+  sourceId?: string;
+  date?: string;
+  source?: string;
+  excerpt: string;
+  match?: string;
+  count?: number;
+};
+
+export type AiVisualDrilldown = {
+  label: string;
+  items: AiVisualEvidenceItem[];
 };
 
 export type AiChartSeries = {
@@ -23,6 +38,7 @@ export type AiChartVisualization = {
   series: AiChartSeries[];
   yLabel?: string;
   footnote?: string;
+  drilldowns?: AiVisualDrilldown[];
 };
 
 export type AiVisualization = AiTableVisualization | AiChartVisualization;
@@ -49,6 +65,41 @@ function cleanId(value: unknown, index: number) {
   return cleanText(value, 80).replace(/[^a-zA-Z0-9_-]/g, '-') || `visual-${index + 1}`;
 }
 
+function normalizeDrilldowns(value: unknown): AiVisualDrilldown[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const drilldowns = value.flatMap(rawItem => {
+    if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) return [];
+    const item = rawItem as Record<string, unknown>;
+    const label = cleanText(item.label ?? item.category ?? item.name, 120);
+    const key = label.toLowerCase();
+    if (!label || seen.has(key) || !Array.isArray(item.items ?? item.evidence)) return [];
+    seen.add(key);
+    const rawEvidence = (item.items ?? item.evidence) as unknown[];
+    const evidenceSeen = new Set<string>();
+    const items = rawEvidence.flatMap(rawEvidenceItem => {
+      if (!rawEvidenceItem || typeof rawEvidenceItem !== 'object' || Array.isArray(rawEvidenceItem)) return [];
+      const evidence = rawEvidenceItem as Record<string, unknown>;
+      const excerpt = cleanText(evidence.excerpt ?? evidence.context ?? evidence.text, 500);
+      if (!excerpt) return [];
+      const normalized = {
+        sourceId: cleanText(evidence.sourceId ?? evidence.source_id, 180) || undefined,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(evidence.date ?? '')) ? String(evidence.date) : undefined,
+        source: cleanText(evidence.source ?? evidence.field, 100) || undefined,
+        excerpt,
+        match: cleanText(evidence.match ?? evidence.matchedText ?? evidence.matched_text, 120) || undefined,
+        count: cleanNumber(evidence.count) ?? undefined,
+      };
+      const evidenceKey = `${normalized.sourceId ?? ''}|${normalized.excerpt.toLowerCase()}|${normalized.match?.toLowerCase() ?? ''}`;
+      if (evidenceSeen.has(evidenceKey)) return [];
+      evidenceSeen.add(evidenceKey);
+      return [normalized];
+    }).slice(0, 120);
+    return [{ label, items }];
+  }).slice(0, 80);
+  return drilldowns.length ? drilldowns : undefined;
+}
+
 export function normalizeAiVisualizations(value: unknown, options: NormalizeAiVisualizationOptions = {}): AiVisualization[] {
   if (!Array.isArray(value)) return [];
   const visuals: AiVisualization[] = [];
@@ -69,6 +120,7 @@ export function normalizeAiVisualizations(value: unknown, options: NormalizeAiVi
       title,
       subtitle: cleanText(raw.subtitle, 220) || undefined,
       footnote: cleanText(raw.footnote, 260) || undefined,
+      drilldowns: normalizeDrilldowns(raw.drilldowns ?? raw.details ?? raw.evidence),
     };
 
     if (type === 'table') {
