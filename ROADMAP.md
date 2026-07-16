@@ -18,3 +18,16 @@ A short, living list of ideas planned for PT Motivator. Update this file as feat
 - Treat circles, arrows, and other markings as visual context so questions such as “look at the area I circled” work naturally.
 - Clearly show which image and annotation the AI is analyzing.
 
+## AI recommendations
+
+### Now: surface recommendations in roadmap and UI copy
+
+- Keep recommendation language available as a first-class roadmap item so the app can reference it without pretending the full workflow is finished.
+- Let AI return a short recommendation block when it has enough evidence, but keep it clearly labeled as a suggestion rather than a committed action.
+- Make recommendations easy to review, copy, and turn into a follow-up action later.
+- Keep the behavior broad enough to support exercise ideas, recovery guidance, next-step prompts, and other adjacent suggestion types without hardcoding one case.
+
+### Later: turn recommendations into richer guided actions
+
+- Expand recommendation blocks into selectable action templates when the user wants to apply them.
+- Support recommendations across exercises, notes, photos, and health patterns with the same UI pattern.
