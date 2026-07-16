@@ -1028,7 +1028,7 @@ async function buildSemanticAggregateArtifact(
   const plans: SemanticCategoryPlan[] = [];
   const deadline = Date.now() + 40_000;
   const schemaAccepts = (candidate: Record<string, unknown>) => Boolean(normalizeSemanticCategoryPlan(candidate, [], requestedCategoryCount));
-  const schemaResult = await callGroqChat(apiKeys, 'agent', {
+  const schemaResult = await callGroqChat(apiKeys, 'semantic', {
     messages: [
       {
         role: 'system',
@@ -1048,8 +1048,8 @@ async function buildSemanticAggregateArtifact(
   }, {
     acceptJson: schemaAccepts,
     attemptTimeoutMs: 8_000,
-    totalTimeoutMs: 16_000,
-    maxAttempts: 3,
+    totalTimeoutMs: 18_000,
+    maxAttempts: 5,
     signal,
   });
   const schemaRaw = jsonFromText(schemaResult.data?.choices?.[0]?.message?.content ?? '');
