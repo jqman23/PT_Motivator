@@ -1026,13 +1026,42 @@ async function buildSemanticAggregateArtifact(
   const semanticChunks = chunkSemanticNoteSources(semanticSources);
   const chunks = semanticChunks.length ? semanticChunks : [[]];
   const plans: SemanticCategoryPlan[] = [];
-  let requiredLabels: string[] = [];
+  const deadline = Date.now() + 40_000;
+  const schemaAccepts = (candidate: Record<string, unknown>) => Boolean(normalizeSemanticCategoryPlan(candidate, [], requestedCategoryCount));
+  const schemaResult = await callGroqChat(apiKeys, 'agent', {
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'Define the exact category ontology requested by the user. Do not analyze records and do not answer the question.',
+          'Every category must be one distinct member of the subject set the user directly requested. Never substitute broader groups, narrower symptoms, related anatomy, metrics, causes, activities, or themes unless the user explicitly requested those dimensions.',
+          'When members repeat inside parent groups, combine parent and member identity in every label so each requested entity is unique. Preserve parallel, mirrored, ordered, or repeated groups rather than collapsing them.',
+          requestedCategoryCount ? `Return exactly ${requestedCategoryCount} categories and verify the array length before responding.` : '',
+          'Return compact JSON only: {"semanticPlan":{"title":"Specific title","categories":[{"label":"One exact requested entity","aliases":[]}]}}',
+        ].filter(Boolean).join(' '),
+      },
+      { role: 'user', content: analysisQuestion },
+    ],
+    temperature: 0,
+    max_completion_tokens: 1_600,
+    response_format: { type: 'json_object' },
+  }, {
+    acceptJson: schemaAccepts,
+    attemptTimeoutMs: 8_000,
+    totalTimeoutMs: 16_000,
+    maxAttempts: 3,
+    signal,
+  });
+  const schemaRaw = jsonFromText(schemaResult.data?.choices?.[0]?.message?.content ?? '');
+  const schemaPlan = normalizeSemanticCategoryPlan(schemaRaw, [], requestedCategoryCount);
+  if (!schemaPlan) throw new Error('Semantic category schema failed server verification.');
+  const requiredLabels = schemaPlan.categories.map(category => category.label);
+  plans.push(schemaPlan);
   let finalResult: Awaited<ReturnType<typeof callGroqChat>> | null = null;
-  const attemptedModels: string[] = [];
-  const deadline = Date.now() + 34_000;
+  const attemptedModels: string[] = [...schemaResult.attemptedModels];
 
   for (const [chunkIndex, sources] of chunks.entries()) {
-    const expectedCount = requiredLabels.length || requestedCategoryCount;
+    const expectedCount = requiredLabels.length;
     const acceptsChunk = (candidate: Record<string, unknown>) => {
       const plan = normalizeSemanticCategoryPlan(candidate, sources, expectedCount);
       if (!plan) return false;
@@ -1083,7 +1112,6 @@ async function buildSemanticAggregateArtifact(
     const raw = jsonFromText(semanticVisual.data?.choices?.[0]?.message?.content ?? '');
     const plan = normalizeSemanticCategoryPlan(raw, sources, expectedCount);
     if (!plan) throw new Error('Semantic category plan failed server verification.');
-    if (!requiredLabels.length) requiredLabels = plan.categories.map(category => category.label);
     plans.push(plan);
     attemptedModels.push(...semanticVisual.attemptedModels);
     finalResult = semanticVisual;
