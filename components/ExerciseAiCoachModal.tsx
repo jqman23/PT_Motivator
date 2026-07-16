@@ -73,102 +73,72 @@ type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; cre
 const AI_ACTION_STARTERS = [
   {
     id: 'log-workout',
-    label: 'Log & track',
     title: 'Log a workout',
     description: 'Completion, sets, reps, time, weight, or a note.',
-    symbol: '✓',
     accent: '#476653',
-    tint: '#E5EFE7',
     prompt: 'On [date], mark [exercise] complete. Log [sets] sets of [reps or duration] with [weight, if any], and add this note: [details].',
   },
   {
     id: 'update-wellness',
-    label: 'Daily check-in',
     title: 'Update wellness',
     description: 'Pain, sleep, energy, mood, and health notes.',
-    symbol: '♥',
     accent: '#A85E53',
-    tint: '#F6E8E4',
     prompt: 'For [date], set my pain to [0–10], energy to [0–10], mood to [0–10], and sleep to [hours]. Add this health note: [details].',
   },
   {
     id: 'manage-exercises',
-    label: 'Exercise library',
     title: 'Manage exercises',
     description: 'Add, edit, move, or remove exercises and categories.',
-    symbol: '+',
     accent: '#5F7694',
-    tint: '#E8EEF5',
     prompt: 'Please [add / edit / move / remove] [exercise name]. Details: [exact change, category, cue, sets, or tips].',
   },
   {
     id: 'doctor-note',
-    label: 'Care notes',
     title: 'Make a doctor note',
     description: 'Create or update questions, symptoms, visits, and plans.',
-    symbol: '✚',
     accent: '#836488',
-    tint: '#F0E8F2',
     prompt: 'Create a [question / symptom / visit / result / plan] doctor note titled [title] for [provider]. Include: [details]. Link it to [date].',
   },
   {
     id: 'schedule-session',
-    label: 'Schedule',
     title: 'Add a PT session',
     description: 'Add or remove PT and training appointments.',
-    symbol: '◷',
     accent: '#A27433',
-    tint: '#F5ECD9',
     prompt: 'Please [add / remove] a [PT / training] session on [date] with this note: [details].',
   },
   {
     id: 'find-patterns',
-    label: 'History & insights',
     title: 'Find a pattern',
     description: 'Search saved days, compare trends, or find an event.',
-    symbol: '⌁',
     accent: '#477986',
-    tint: '#E3F0F2',
     prompt: 'Look across [date range / all saved history] and tell me [what happened, what to compare, or the pattern to find].',
   },
   {
     id: 'visualize-patterns',
-    label: 'Charts & tables',
     title: 'Visualize patterns',
     description: 'Turn saved history into a polished table, line, or bar chart.',
-    symbol: '▥',
     accent: '#55709A',
-    tint: '#E7ECF5',
     prompt: 'Visualize [pattern or metrics] across [date range] as a [table / line chart / bar chart]. Focus on [what I want to understand].',
   },
   {
     id: 'attach-photo',
-    label: 'Photos',
     title: 'Attach a photo',
     description: 'Add a photo to an exercise, health, or doctor note.',
-    symbol: '▧',
     accent: '#8A6B45',
-    tint: '#F1E9DE',
     prompt: 'Attach a photo to [exercise note / health note / doctor note] for [date or note]. The target is [exercise or note name].',
   },
   {
     id: 'open-screen',
-    label: 'Navigate',
     title: 'Open something',
     description: 'Jump to a day, exercise, calendar, report, timer, or setting.',
-    symbol: '↗',
     accent: '#486680',
-    tint: '#E5EDF3',
     prompt: 'Take me to [day, exercise, calendar, doctor notes, settings, report, timer, or another screen].',
   },
   {
     id: 'personalize-app',
-    label: 'Personalize',
     title: 'Customize the app',
     description: 'Show or hide widgets, rename the app, or organize categories.',
-    symbol: '◇',
     accent: '#6A7350',
-    tint: '#EBEFDF',
     prompt: 'Customize my app by [showing or hiding a widget / changing the app title / adding, renaming, or removing a category]. Exact change: [details].',
   },
 ] as const;
@@ -1037,7 +1007,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           </div>
           <p className={`${actionsOpen ? 'mt-1' : 'mt-2'} w-full text-xs leading-snug text-stone-500`}>
             {actionsOpen
-              ? 'Choose a starting point below. I’ll place an editable request in chat for you.'
+              ? 'Choose an action to edit in chat.'
               : historyOpen
                 ? 'Open a saved conversation or start fresh.'
                 : 'Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.'}
@@ -1045,40 +1015,23 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         {actionsOpen ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(36rem, calc(94dvh - 9rem))' }}>
-            <div className="relative overflow-hidden border-b border-[#D4DDD6] bg-gradient-to-br from-[#F8FBF8] via-[#EEF4EF] to-[#E8EFF2] px-4 py-2.5">
-              <div className="absolute -right-7 -top-8 h-24 w-24 rounded-full bg-white/60 blur-sm" aria-hidden="true" />
-              <div className="relative flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/80 bg-white/75 text-[#476653] shadow-[0_6px_18px_rgba(71,102,83,0.1)]" aria-hidden="true">
-                  <span className="text-base leading-none">✦</span>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-extrabold text-stone-800">Pick, personalize, send.</p>
-                  <p className="text-[10px] leading-snug text-stone-500">Tap a card and replace its [brackets].</p>
-                </div>
-                <div className="ml-auto hidden shrink-0 items-center gap-1 rounded-full border border-[#C8D8CC] bg-white/70 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-[#52705C] min-[390px]:flex">
-                  <span aria-hidden="true">✓</span> Review first
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 p-2 sm:grid-cols-3 sm:p-2.5">
-              {AI_ACTION_STARTERS.map(action => (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F4F0E8]" style={{ maxHeight: 'min(25rem, calc(94dvh - 9rem))' }}>
+            <div className="grid grid-cols-2 bg-white/20">
+              {AI_ACTION_STARTERS.map((action, index) => (
                 <button
                   key={action.id}
                   type="button"
                   onClick={() => handleActionStarter(action.prompt)}
-                  className="group min-h-[5.7rem] rounded-xl border border-stone-200/80 bg-white/85 p-2 text-left shadow-[0_2px_8px_rgba(71,59,43,0.04)] transition duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-[0_8px_20px_rgba(71,59,43,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/50"
+                  className={`group flex min-h-[3.75rem] items-center gap-2 border-b border-stone-200/75 px-2.5 py-2 text-left transition-colors duration-150 hover:bg-white/75 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7E9B86]/55 motion-reduce:transition-none ${index % 2 === 0 ? 'border-r' : ''}`}
                   style={{ touchAction: 'manipulation' }}
                   aria-label={`${action.title}. ${action.description}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold" style={{ background: action.tint, color: action.accent }} aria-hidden="true">{action.symbol}</span>
-                    <span className="text-sm text-stone-300 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-500" aria-hidden="true">›</span>
-                  </div>
-                  <p className="mt-1 text-[6.5px] font-extrabold uppercase tracking-[0.11em]" style={{ color: action.accent }}>{action.label}</p>
-                  <h3 className="text-[11px] font-bold leading-tight text-stone-800">{action.title}</h3>
-                  <p className="mt-0.5 line-clamp-1 text-[8px] leading-snug text-stone-500">{action.description}</p>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-125 motion-reduce:transition-none" style={{ background: action.accent }} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-bold leading-tight text-stone-800">{action.title}</span>
+                    <span className="mt-0.5 block truncate text-[8.5px] leading-tight text-stone-500">{action.description}</span>
+                  </span>
+                  <span className="shrink-0 text-sm text-stone-300 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-stone-500 motion-reduce:transition-none" aria-hidden="true">›</span>
                 </button>
               ))}
             </div>
