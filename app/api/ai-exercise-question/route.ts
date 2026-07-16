@@ -5,7 +5,7 @@ import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi } 
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
@@ -1194,7 +1194,6 @@ export async function POST(req: NextRequest) {
       || visualizationIntent
       || existingPhotoInspectionIntent;
     const patternIntent = isPatternQuestion(analysisQuestion);
-    const historySummaryIntent = isHistorySummaryRequest(analysisQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
     const instructionHistoryIntent = conversationAiInstructions.some(instruction =>
       isHistoryQuestion(instruction)
@@ -1603,20 +1602,15 @@ export async function POST(req: NextRequest) {
             rerankedCandidates,
           });
         }
-        const broadHistorySummaryIntent = historySummaryIntent
-          || wholeHistoryIntent
-          || patternIntent
-          || visualizationIntent
-          || semanticTextAggregateIntent;
-        const summaryFallbackAnswer = broadHistorySummaryIntent
+        const historyFallbackAnswer = shouldLoadHistory
           ? savedDataFallbackAnswer(dayRecords, historyWindow ?? undefined)
           : '';
-        if (summaryFallbackAnswer) {
+        if (historyFallbackAnswer) {
           return NextResponse.json({
             reply: {
-              answer: summaryFallbackAnswer,
+              answer: historyFallbackAnswer,
               options: [],
-              dateLinks: [],
+              dateLinks: fallbackLinks,
               visualizations: fallbackVisualizations,
               agentPlanningStatus: agentIntent ? 'missing' : undefined,
             },
