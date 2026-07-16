@@ -88,3 +88,17 @@ test('rejects the wrong category count and merges chunk vocabularies by stable l
     { label: 'Group B', aliases: ['beta'] },
   ]);
 });
+
+test('accepts equivalent nested plan and vocabulary field shapes from fallback models', () => {
+  const sources = buildSemanticNoteSources(records);
+  const plan = normalizeSemanticCategoryPlan({ result: { output: {
+    groups: [
+      { name: 'Primary', variants: [{ text: 'big joint' }] },
+      { category: 'Secondary', phrases: ['small joint'] },
+    ],
+  } } }, sources, 2);
+  assert.deepEqual(plan?.categories, [
+    { label: 'Primary', aliases: ['big joint'] },
+    { label: 'Secondary', aliases: ['small joint'] },
+  ]);
+});

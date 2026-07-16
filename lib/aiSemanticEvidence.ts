@@ -14,6 +14,17 @@ export type SemanticCategoryPlan = {
   categories: Array<{ label: string; aliases: string[] }>;
 };
 
+function semanticPlanObject(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 3) return null;
+  const raw = value as Record<string, unknown>;
+  if (Array.isArray(raw.categories ?? raw.groups)) return raw;
+  for (const key of ['semanticPlan', 'semantic_plan', 'plan', 'result', 'output', 'data', 'analysis', 'response', 'reply']) {
+    const nested = semanticPlanObject(raw[key], depth + 1);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 function compact(value: unknown, limit = 2400) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
@@ -105,11 +116,8 @@ function boundedOccurrences(haystack: string, needle: string) {
 }
 
 export function normalizeSemanticCategoryPlan(value: unknown, sources: SemanticNoteSource[], expectedCategoryCount?: number): SemanticCategoryPlan | null {
-  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const planRaw = raw.semanticPlan && typeof raw.semanticPlan === 'object' && !Array.isArray(raw.semanticPlan)
-    ? raw.semanticPlan as Record<string, unknown>
-    : raw;
-  const categoriesRaw = Array.isArray(planRaw.categories) ? planRaw.categories : [];
+  const planRaw = semanticPlanObject(value) ?? {};
+  const categoriesRaw = Array.isArray(planRaw.categories ?? planRaw.groups) ? (planRaw.categories ?? planRaw.groups) as unknown[] : [];
   if (!categoriesRaw.length || (expectedCategoryCount && categoriesRaw.length !== expectedCategoryCount)) return null;
   const sourceText = sources.map(source => source.text.toLowerCase());
   const labels = new Set<string>();
@@ -117,18 +125,20 @@ export function normalizeSemanticCategoryPlan(value: unknown, sources: SemanticN
   const categories: SemanticCategoryPlan['categories'] = [];
 
   for (const item of categoriesRaw) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-    const category = item as Record<string, unknown>;
-    const label = compact(category.label ?? category.name, 100);
+    if (!item || (typeof item !== 'object' && typeof item !== 'string') || Array.isArray(item)) return null;
+    const category = typeof item === 'string' ? { label: item } : item as Record<string, unknown>;
+    const label = compact(category.label ?? category.name ?? category.category ?? category.item, 100);
     const labelKey = label.toLowerCase();
     if (!label || labels.has(labelKey)) return null;
     labels.add(labelKey);
-    const aliases = Array.isArray(category.aliases ?? category.matches ?? category.terms)
-      ? (category.aliases ?? category.matches ?? category.terms) as unknown[]
+    const aliasValue = category.aliases ?? category.matches ?? category.terms ?? category.variants ?? category.phrases ?? category.wordings ?? category.references;
+    const aliases = Array.isArray(aliasValue)
+      ? aliasValue as unknown[]
       : [];
     const acceptedAliases: string[] = [];
     for (const rawAlias of aliases) {
-      const alias = compact(rawAlias, 120);
+      const aliasRecord = rawAlias && typeof rawAlias === 'object' && !Array.isArray(rawAlias) ? rawAlias as Record<string, unknown> : null;
+      const alias = compact(aliasRecord ? aliasRecord.alias ?? aliasRecord.term ?? aliasRecord.match ?? aliasRecord.text ?? aliasRecord.value : rawAlias, 120);
       const aliasKey = alias.toLowerCase();
       if (!alias || aliasesAcrossCategories.has(aliasKey)) continue;
       if (!sourceText.some(text => boundedOccurrences(text, aliasKey).length > 0)) continue;
