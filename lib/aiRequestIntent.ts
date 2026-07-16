@@ -12,8 +12,19 @@ export function isAgentRequest(value: string) {
     return false;
   }
 
-  const clearWriteIntent = /\b(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|note|open|pin|put|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update)\b/.test(text);
-  if (!clearWriteIntent && /\b(?:worried|worry|concerned|concern|nervous|scared|afraid|anxious|can you help|help me|reassure|positive|what do you think|is it normal|does this sound|should i)\b/.test(text)) {
+  // Read/write is a high-level contract, not a bag-of-verbs classification. Words
+  // such as “put”, “load”, “change”, and “note” occur constantly in symptom
+  // narratives and questions about existing data. They are not app mutations unless
+  // the user actually directs the assistant to persist, navigate, or change something.
+  const asksForAdviceOrInterpretation = /\b(?:advice|advise|recommendations?|what do you recommend|treatment options?|interpret|assessment|opinion|what do you think|is it normal|does this sound|should i|help me understand|describe my)\b/.test(text);
+  const asksAboutAssistantBehavior = /^(?:why (?:did|do|would|are|were|can|can't|cannot) (?:you|the (?:ai|assistant|app))|what do you mean|i(?:'m| am) asking (?:you )?for|answer (?:me|my question)|just answer)\b/.test(text)
+    || /\b(?:why (?:are|were) you asking|why (?:do|did) you need|doctor[- ]?note id|review card)\b/.test(text);
+  const explicitlyPersistsAdvice = /^(?:please\s+)?(?:add|append|record|save|write|put)\b.{0,100}\b(?:note|log|record|entry)\b/.test(text);
+  if ((asksForAdviceOrInterpretation && !explicitlyPersistsAdvice) || asksAboutAssistantBehavior) {
+    return false;
+  }
+
+  if (/\b(?:worried|worry|concerned|concern|nervous|scared|afraid|anxious|can you help|help me|reassure|positive)\b/.test(text)) {
     return false;
   }
 
@@ -27,6 +38,8 @@ export function isAgentRequest(value: string) {
 
   if (/\b(?:take|bring) me to\b|\bgo to (?:the )?\b/.test(text)) return true;
   if (/\b(?:i|we) (?:did|completed|finished|performed)\b/.test(text)) return true;
+  if (/\b(?:is|was)\s+(?:done|complete|completed)\b/.test(text)
+    && /\b(?:today|yesterday|tomorrow)\b|\b\d+\s*[x×]\s*\d+\b|\bnote\b/.test(text)) return true;
   if (/\b(?:pain|energy|mood|sleep quality)\b\s*(?:is|was|at|=)\s*\d+(?:\.\d+)?\b|\bi slept\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?)?\b/.test(text)) return true;
   if (/\b(?:pain|energy|mood)\s+\d+(?:\.\d+)?\b/.test(text)) return true;
   if (/\b(?:ask|remind me to ask)\s+(?:my )?(?:doctor|pt|provider)\b/.test(text)) return true;
@@ -37,8 +50,20 @@ export function isAgentRequest(value: string) {
   if (/\b(?:no|without)\s+(?:the\s+)?(?:timer|calendar|daily summary|doctor notes?|ask ai|exercise library)(?:\s+(?:please|anymore|on (?:the )?(?:home|main) screen))?[.!]*$/.test(text)) return true;
   if (/\b(?:call|name)\s+(?:the\s+)?app\b.{0,48}\b|\b(?:app|application)\s+title\s+(?:should|needs? to|has to)\s+be\b/.test(text)) return true;
   if (/\b(?:there should be|put down|book me for)\b.{0,40}\b(?:pt|physical therapy|training)(?: session| appointment)?\b/.test(text)) return true;
+  if (/^(?:please\s+)?put\b.{0,80}\b(?:in|into|on|under)\b.{0,40}\b(?:note|log|record|entry)\b/.test(text)) return true;
+  if (/\bcan i\b.{0,32}\b(?:send|upload|choose)\b.{0,32}\b(?:photo|picture|image|screenshot)\b.{0,48}\battach\b/.test(text)) return true;
 
-  return /\b(?:add(?:ing)?|append(?:ing)?|apply(?:ing)?|attach(?:ing)?|book(?:ed|ing)?|cancel(?:ed|ing)?|chang(?:e|ing)|check(?:ing)?|clear(?:ing)?|complet(?:e|ed|ing)|creat(?:e|ing)|customiz(?:e|ing)|delet(?:e|ing)|disabl(?:e|d|ing)|done|draft(?:ing)?|edit(?:ing)?|enabl(?:e|d|ing)|finished|get rid of|hid(?:e|den|ing)|log(?:ged|ging)?|mak(?:e|ing)|mark(?:ed|ing)?|mov(?:e|ed|ing)|not(?:e|ed|ing)|open(?:ed|ing)?|organi[sz](?:e|ed|ing)|pin(?:ned|ning)?|put(?:ting)?|record(?:ed|ing)?|remov(?:e|ed|ing)|renam(?:e|ed|ing)|replac(?:e|ed|ing)|reorder(?:ed|ing)?|sav(?:e|ed|ing)|schedul(?:e|ed|ing)|set(?:ting)?|show(?:n|ing)?|track(?:ed|ing)?|turn on|turn off|uncheck(?:ed|ing)?|updat(?:e|ed|ing))\b/.test(text);
+  const mutationVerb = '(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|open|pin|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update|write)';
+  const appTarget = '(?:app|application|screen|page|setting|widget|title|note|log|record|entry|metric|field|value|exercise|workout|session|appointment|photo|picture|image|category|timer|calendar|summary|pain|energy|mood|sleep|it|this|that|those|them)';
+  const directCommand = new RegExp(`(?:^(?:please\\s+)?${mutationVerb}\\b|^${mutationVerb}\\b|\\b(?:can|could|would|will) you(?: please)?\\s+${mutationVerb}\\b|\\b(?:i want|i need|i would like|i'd like)(?: you)?(?: to)?\\s+${mutationVerb}\\b|\\b(?:and|then|also)\\s+(?:you\\s+)?${mutationVerb}\\b)`);
+  const namesAnAppTarget = new RegExp(`\\b${appTarget}\\b`).test(text);
+
+  // Direct “add/create X” commands are meaningful in an app even when X is a
+  // user-defined entity the classifier has never seen. Everything else needs a
+  // persistent target so physical-world statements do not become Apply cards.
+  if (directCommand.test(text) && (namesAnAppTarget || /^(?:please\s+)?(?:add|create)\s+(?!up\b)\S+/.test(text))) return true;
+
+  return false;
 }
 
 export function isExistingPhotoInspectionRequest(value: string) {

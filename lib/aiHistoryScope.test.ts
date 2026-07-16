@@ -71,6 +71,17 @@ test('resolves natural week phrasing without changing the existing bounded-windo
     dayCount: 4,
     sourceText: 'this week',
   });
+
+  const today = resolveHistoryWindowFromConversation("What do today's notes suggest?", [], '2026-07-16');
+  assert.deepEqual(today, {
+    startDate: '2026-07-16',
+    endDate: '2026-07-16',
+    dayCount: 1,
+    sourceText: 'today',
+  });
+
+  const todayAndYesterday = resolveHistoryWindowFromConversation('Compare today with yesterday', [], '2026-07-16');
+  assert.deepEqual(todayAndYesterday && [todayAndYesterday.startDate, todayAndYesterday.endDate], ['2026-07-15', '2026-07-16']);
 });
 
 test('bounded comparisons include empty calendar days instead of sampling saved days', () => {

@@ -45,7 +45,21 @@ test('does not turn advice or capability questions into commands', () => {
     "I don't want to upload the picture again.",
     'I am a little worried about the bruise that is painful but yet to show visually after my bike crash',
     'Can you help me remain positive today?',
+    'What are your recommendations for treatment given what I have put for today?',
+    '10 hours later there is still no bruising, but it hurts when I load my leg or put pressure on it',
+    'Why would you ask me for the ID of a doctor note?',
+    'I am asking for your advice',
+    'I put ice on it and the pain changed when I loaded the leg',
   ]) assert.equal(isAgentRequest(request), false, request);
+});
+
+test('requires an app-directed mutation rather than a coincidental physical-world verb', () => {
+  for (const request of [
+    "Put this symptom update in today's general note",
+    'Add this advice to my doctor note',
+    'Please record that loading my leg hurts',
+    'Could you save this in my health log?',
+  ]) assert.equal(isAgentRequest(request), true, request);
 });
 
 test('recognizes existing attached-photo inspection separately from attachment commands', () => {

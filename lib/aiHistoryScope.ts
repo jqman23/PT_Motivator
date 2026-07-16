@@ -72,7 +72,14 @@ export function resolveBoundedHistoryWindow(value: string, today: string): Bound
   }
   const relative = text.match(/\b(?:past|last|previous|recent)\s+(?:(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)[ -]?)?(days?|weeks?)\b/);
   if (!relative) {
-    if (/\b(?:yesterday|the previous day)\b/.test(text)) {
+    const mentionsToday = /\b(?:today|this morning|this afternoon|this evening|tonight)\b/.test(text);
+    const mentionsYesterday = /\b(?:yesterday|the previous day)\b/.test(text);
+    if (mentionsToday && mentionsYesterday) {
+      const startDate = shiftDate(today, -1);
+      return { startDate, endDate: today, dayCount: 2, sourceText: 'today and yesterday' };
+    }
+    if (mentionsToday) return { startDate: today, endDate: today, dayCount: 1, sourceText: 'today' };
+    if (mentionsYesterday) {
       const date = shiftDate(today, -1);
       return { startDate: date, endDate: date, dayCount: 1, sourceText: 'yesterday' };
     }

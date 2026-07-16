@@ -75,3 +75,20 @@ test('inherits a visible unanswered first turn after a failed request', () => {
   assert.equal(result.visualization, true);
   assert.equal(result.requestedCategoryCount, 10);
 });
+
+test('corrective advice follow-ups retain the original conversational goal', () => {
+  const history = [
+    { role: 'user' as const, content: "What treatment do you recommend for my bike fall given today's notes?" },
+    { role: 'assistant' as const, content: 'Which doctor note should I update?' },
+    { role: 'user' as const, content: 'No, I want your recommendations' },
+    { role: 'assistant' as const, content: 'Here are some general recommendations.' },
+    { role: 'user' as const, content: 'Ten hours later it still hurts when I put pressure on my leg.' },
+    { role: 'assistant' as const, content: 'Please provide a doctor-note ID.' },
+    { role: 'user' as const, content: 'Why would you ask for a doctor-note ID?' },
+    { role: 'assistant' as const, content: 'The app needs an ID.' },
+  ];
+  const result = resolveAnalysisRequest('I AM ASKING FOR YOUR ADVICE', [], history);
+  assert.equal(result.inheritedGoal, true);
+  assert.match(result.effectiveQuestion, /treatment do you recommend/i);
+  assert.doesNotMatch(result.anchorQuestion ?? '', /doctor-note id/i);
+});

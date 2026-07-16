@@ -40,6 +40,20 @@ function hasAnalyticalSubject(value: string) {
     && !/^(?:i want|show|give|make|create|display|output|please|can you|could you|you didn't|you did not|still|that(?:'s| is)|this is)\b.{0,35}\b(?:table|chart|graph|visuali[sz]ation|visual)\b[.! ]*$/.test(text);
 }
 
+function asksAboutAssistantBehavior(value: string) {
+  const text = clean(value).toLowerCase();
+  return /^(?:why (?:did|do|would|are|were|can|can't|cannot) (?:you|the (?:ai|assistant|app))|what do you mean|what are you talking about)\b/.test(text)
+    || /\b(?:why (?:are|were) you asking|why (?:do|did) you need|your (?:answer|response)|doctor[- ]?note id|review card)\b/.test(text);
+}
+
+function hasConversationGoal(value: string) {
+  const text = clean(value).toLowerCase();
+  if (!text || asksAboutAssistantBehavior(text)) return false;
+  if (hasAnalyticalSubject(text) || isVisualizationRequest(text)) return true;
+  return /^(?:what|how|when|where|which|why|can|could|would|will|do|does|did|is|are|should)\b/.test(text)
+    || /\b(?:advice|advise|recommendations?|recommend|help me|tell me|describe|interpret|explain|assess|review|summari[sz]e)\b/.test(text);
+}
+
 function isArtifactOnlyRequest(value: string) {
   const text = clean(value).toLowerCase();
   if (!isVisualizationRequest(text)) return false;
@@ -55,21 +69,25 @@ function isDependentFollowUp(value: string) {
   if (!text) return false;
   if (/^(?:look at|use|check|search|analy[sz]e)?\s*(?:the\s+)?(?:whole|full|entire|complete|all)\s+(?:range|history|records?|data|timeline)[.! ]*$/.test(text)) return true;
   if (isHistoryCorrectionFollowUp(text) || isHistoryScopeFollowUp(text) || isArtifactOnlyRequest(text)) return true;
-  if (/^(?:still|again|no|wrong|that(?:'s| is)|this(?: is)?|those|it|them|why|what are you|you (?:didn'?t|did not|haven't|have not)|i asked|look harder|try again|do what i asked)\b/.test(text)) return true;
-  return /\b(?:previous|same|instead|what i asked|what are you talking about|not the (?:table|chart|graph|visual)|didn'?t output|nothing (?:showed|appeared)|no (?:table|chart|graph|visual))\b/.test(text);
+  if (/^(?:still|again|no|wrong|that(?:'s| is)|this(?: is)?|those|it|them|what are you|you (?:didn'?t|did not|haven't|have not)|i asked|i(?:'m| am) asking|look harder|try again|do what i asked|answer (?:me|my question)|just answer)\b/.test(text)) return true;
+  return asksAboutAssistantBehavior(text)
+    || /\b(?:previous|same|instead|what i asked|what are you talking about|not the (?:table|chart|graph|visual)|didn'?t output|nothing (?:showed|appeared)|no (?:table|chart|graph|visual))\b/.test(text);
 }
 
-function analyticalAnchor(messages: AnalysisConversationMessage[]) {
+function conversationAnchor(messages: AnalysisConversationMessage[]) {
   for (const message of [...messages].reverse()) {
     if (message.role !== 'user') continue;
     const text = messageIntentText(message);
     if (!text) continue;
-    // A complete analytical request remains a valid anchor even when its natural
-    // wording also contains referential words such as "that" or "those". Subject
-    // evidence is stronger than the broad dependent-follow-up heuristic.
-    if (hasAnalyticalSubject(text)) return text;
-    if (isDependentFollowUp(text)) continue;
-    if (isVisualizationRequest(text)) return text;
+    if (asksAboutAssistantBehavior(text)) continue;
+    // A complete request remains a valid anchor even when its natural wording also
+    // contains referential words. Goal evidence is stronger than the broad
+    // dependent-follow-up heuristic.
+    if (isDependentFollowUp(text)) {
+      if (hasAnalyticalSubject(text)) return text;
+      continue;
+    }
+    if (hasConversationGoal(text) && !asksAboutAssistantBehavior(text)) return text;
   }
   for (const message of [...messages].reverse()) {
     if (message.role !== 'assistant') continue;
@@ -95,14 +113,14 @@ export function resolveAnalysisRequest(
   history: AnalysisConversationMessage[],
 ): ResolvedAnalysisRequest {
   const current = clean([question, ...questionInstructions].filter(Boolean).join(' '), 3200);
-  const anchor = analyticalAnchor(history);
+  const anchor = conversationAnchor(history);
   const dependent = isDependentFollowUp(question) || (isVisualizationRequest(current) && !hasAnalyticalSubject(current));
   const inheritedGoal = Boolean(anchor && dependent);
   const artifactContext = inheritedGoal
     ? [...history].reverse().find(message => message.role === 'assistant' && clean(message.artifacts))?.artifacts
     : '';
   const effectiveQuestion = clean([
-    inheritedGoal ? `Original analytical goal: ${anchor}` : current,
+    inheritedGoal ? `Original user goal: ${anchor}` : current,
     inheritedGoal ? `Current follow-up or correction: ${current}` : '',
     artifactContext ? `Previous response artifact: ${artifactContext}` : '',
   ].filter(Boolean).join('\n'), 6000);

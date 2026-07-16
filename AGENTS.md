@@ -24,6 +24,7 @@ When changing a Neon-backed path, compare it with commit `fba31f2` (`Reduce Neon
 # Workflow rules
 
 - When the user reports a broken AI behavior using a specific chat, phrase, model response, body part, exercise, date, or visual, treat that example as evidence of a broader failure mode. Fix the underlying intent detection, prompt contract, validation, fallback, data-shaping, UI affordance, or test coverage so adjacent phrasings and future cases improve too. Do not hardcode the user's specific example unless the app already has a real domain entity by that name and the requested change is explicitly about that entity.
+- Preserve AI date navigation as a permanent response invariant. If an AI answer mentions a real saved calendar date, the reply must include the matching `dateLinks` entry through normal responses, validation/repair, deterministic answers, and degraded fallbacks. Never return a date-bearing answer with an empty `dateLinks` array, and keep regression coverage for this behavior.
 - Do not create pull requests unless explicitly asked for a PR.
 - Do not run `gh pr create`.
 - Prefer committing and pushing directly to `main`.
