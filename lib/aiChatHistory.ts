@@ -64,6 +64,13 @@ export type StoredAiReplyDebug = {
     repairProviderKey?: string;
   };
   attemptedModels?: string[];
+  providerAttempts?: Array<{
+    model: string;
+    providerKey?: string;
+    status?: number;
+    statusText?: string;
+    detail?: string;
+  }>;
 };
 
 export type StoredAiReply = {
@@ -168,6 +175,19 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
     attemptedModels: Array.isArray(raw.attemptedModels)
       ? raw.attemptedModels.map(model => cleanText(model, 120)).filter(Boolean).slice(0, 40)
       : undefined,
+    providerAttempts: Array.isArray(raw.providerAttempts) ? raw.providerAttempts.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const attempt = item as Record<string, unknown>;
+      const model = cleanText(attempt.model, 120);
+      if (!model) return [];
+      return [{
+        model,
+        providerKey: cleanText(attempt.providerKey, 80) || undefined,
+        status: cleanNumber(attempt.status),
+        statusText: cleanText(attempt.statusText, 80) || undefined,
+        detail: cleanText(attempt.detail, 240) || undefined,
+      }];
+    }).slice(0, 40) : undefined,
   };
 }
 

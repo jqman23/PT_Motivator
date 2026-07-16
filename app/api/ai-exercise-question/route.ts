@@ -1490,6 +1490,13 @@ export async function POST(req: NextRequest) {
         });
       } catch (error) {
         const attemptedModels = error instanceof GroqRouteError ? error.attempts.map(attempt => attempt.model) : [];
+        const providerAttempts = error instanceof GroqRouteError ? error.attempts.map(attempt => ({
+          model: attempt.model,
+          providerKey: attempt.keyName,
+          status: attempt.status,
+          statusText: attempt.statusText,
+          detail: cleanText(attempt.detail, 240),
+        })) : [];
         return NextResponse.json({
           reply: {
             answer: 'I could not produce a source-verified count artifact on this attempt. I did not substitute an unrelated chart or present unverified counts as fact.',
@@ -1514,6 +1521,7 @@ export async function POST(req: NextRequest) {
             secretNotes: { included: includeSecretNotes, reason: includeSecretNotes ? '/ai permission on latest user message' : 'default redaction' },
             visualization: { source: 'none', firstPassCount: 0, deterministicCount: 0, repairedCount: 0, finalCount: 0 },
             attemptedModels,
+            providerAttempts,
           },
         });
       }
