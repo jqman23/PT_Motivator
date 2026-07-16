@@ -19,6 +19,8 @@ const AGENT_ACTION_CONTRACT = {
     'Use exact IDs from the supplied existing exercises, categories, and doctor notes.',
     'Use today/currentlySelectedDate when the command says today, this day, or omits the date for a day-specific edit.',
     'Append notes unless the user explicitly requests replace, rewrite, clear, or overwrite.',
+    'The app renders exercise "How to do it" from exercise_update.patch.tips. Use exercise_note_change only for dated workout notes/log entries, not permanent exercise instructions.',
+    'When the user asks you to research, create, populate, or fill missing exercise content, draft reasonable app-ready values instead of asking for exact wording.',
     'Prefer a reviewable proposal when context provides one reasonable interpretation; ask one clarification only for a genuinely missing target, value, or note text.',
     'Use doctor_note_upsert mode append for a follow-up, response, or next-step note attached to an existing doctor note.',
   ],
@@ -159,6 +161,42 @@ function cleanInstructions(value: unknown, limit = 4, characterLimit = 300) {
     .map(item => cleanText(item, characterLimit))
     .filter(Boolean)
     .slice(0, limit);
+}
+
+function isExerciseLibraryContentRequest(value: string) {
+  const text = cleanText(value, 5000);
+  const asksForPermanentExerciseContent = /\b(?:how to do it|instructions?|steps?|description|main exercise fields?|populate|fill(?: in)? missing|write (?:all )?(?:the )?content|create (?:it|the content) yourself|research (?:this|the) exercise|exercise fields?)\b/i.test(text);
+  const explicitlyDatedNote = /\b(?:exercise note|workout note|log note|daily note|dated note|note for today|today'?s note|add a note|append a note|record a note)\b/i.test(text);
+  const rejectsNoteDestination = /\bnot\b.{0,40}\b(?:actual )?note\b|\bwrong\b.{0,40}\bnote\b/i.test(text);
+  return rejectsNoteDestination || (asksForPermanentExerciseContent && !explicitlyDatedNote);
+}
+
+function instructionStepsFromText(value: string) {
+  const clean = cleanMultiline(value, 2200)
+    .replace(/^\s*(?:how to do it|instructions?|steps?)\s*:?\s*/i, '')
+    .trim();
+  if (!clean) return [];
+  const split = clean
+    .split(/\n+|(?:^|\s)(?:\d+[\).]|[-•*])\s+/)
+    .map(item => item.trim().replace(/^(?:\d+[\).]|[-•*—–])\s*/, '').slice(0, 300))
+    .filter(Boolean);
+  return Array.from(new Set(split.length > 1 ? split : [clean.slice(0, 300)])).slice(0, 8);
+}
+
+function routeLibraryExerciseContentActions(actions: AgentAction[], enabled: boolean): AgentAction[] {
+  if (!enabled) return actions;
+  return actions.map(action => {
+    if (action.type !== 'exercise_note_change') return action;
+    const tips = instructionStepsFromText(action.text);
+    if (!tips.length) return action;
+    return {
+      id: `${action.id}-exercise-update`,
+      type: 'exercise_update',
+      exerciseId: action.exerciseId,
+      patch: { tips },
+      reason: 'The user asked to update permanent exercise instructions, so this belongs in the exercise library instead of a dated exercise note.',
+    };
+  });
 }
 
 function jsonFromText(text: string) {
@@ -968,7 +1006,14 @@ export async function POST(req: NextRequest) {
       || visualizationIntent;
     const patternIntent = isPatternQuestion(cleanQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
-    const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || questionAiInstructions.length > 0;
+    const instructionHistoryIntent = conversationAiInstructions.some(instruction =>
+      isHistoryQuestion(instruction)
+      || isPatternQuestion(instruction)
+      || isWholeHistoryComparisonRequest(instruction)
+      || isVisualizationRequest(instruction)
+      || isSemanticTextAggregateRequest(instruction));
+    const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
+    const exerciseLibraryContentIntent = agentIntent && isExerciseLibraryContentRequest(`${history.slice(-4).map(message => message.content).join(' ')} ${conversationAiInstructions.join(' ')} ${cleanQuestion}`);
 
     let dayRecords: DayRecord[] = [];
     let rankedDays: RankedHistoryDay<DayRecord>[] = [];
@@ -1086,6 +1131,9 @@ export async function POST(req: NextRequest) {
       'Interpret command wording liberally, including polite requests, desired end states, terse statements, voice-transcription errors, follow-ups, and filled action starters. The review screen and server validation are the safety boundary: draft every reversible supported action whenever its target and value can be resolved.',
       'When agentPlanningRequested is true, you MUST either return a valid agentPlan with at least one supported action or ask one specific clarification question in answer. Never respond as though an app change happened without a plan.',
       'For an agent request, creating a complete review plan is the primary task. Return every clearly requested action in the same plan. Do not substitute confirmedExercise, instructions, dateLinks, or manual steps for agentPlan.',
+      'If the latest user says yes, apply it, go ahead, or similar, resolve what "it" means from the recent assistant offer and prior user messages; do not ask for the same item again when the thread contains it.',
+      'The exercise info modal renders "How to do it" from the exercise tips array. Permanent exercise instructions, steps, descriptions, cue/sets, image search, and missing main exercise fields must be exercise_update.patch values. Use exercise_note_change only when the user explicitly asks for a dated workout/exercise note.',
+      'When the user delegates exercise content creation (for example research this, write the content, fill missing fields, populate details, create it yourself), draft sensible values for common exercises instead of asking the user to provide exact text.',
       'Square brackets in a submitted action starter contain user-entered values. Use filled values, ignore untouched placeholder choices, and never treat bracket punctuation itself as uncertainty.',
       'When agentPlanningRequested is false, independently inspect the latest user message: return agentPlan if it still expresses a desired app change or navigation, otherwise answer without a plan. Do not turn hypothetical, capability, explanation, or advice questions into changes. Ask one clarification only when a required target or intended value genuinely cannot be resolved from the supplied app context.',
       'Default note edits to append. Use replace only when the user explicitly says replace, rewrite, clear, or set the whole note. Never infer a health score or completion from ambiguous language.',
@@ -1145,7 +1193,7 @@ export async function POST(req: NextRequest) {
     // therefore semantically recover a command the deterministic intent detector missed. History is
     // still loaded only when needed, so this does not add a broad database read to ordinary chat.
     const modelPromptContext = promptContext;
-    const deterministicAgentPlan = agentIntent ? buildDeterministicAgentFallback({
+    let deterministicAgentPlan = agentIntent ? buildDeterministicAgentFallback({
       question: cleanQuestion,
       today: appToday,
       selectedDate,
@@ -1155,6 +1203,12 @@ export async function POST(req: NextRequest) {
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
       priorUserMessages: history.filter(message => message.role === 'user').map(message => message.content),
     }) : undefined;
+    if (deterministicAgentPlan && exerciseLibraryContentIntent) {
+      deterministicAgentPlan = normalizeAgentPlan({
+        summary: deterministicAgentPlan.summary,
+        actions: routeLibraryExerciseContentActions(deterministicAgentPlan.actions, true),
+      });
+    }
 
     if (!hasAiApiKeyForTask(groqTask, apiKeys)) {
       if (deterministicAgentPlan) return NextResponse.json({
@@ -1271,9 +1325,10 @@ export async function POST(req: NextRequest) {
     const combinedActions = deterministicAgentPlan && modelAgentPlan
       ? [...relevantModelActions.filter(action => !deterministicTargets.has(agentActionTarget(action))), ...deterministicAgentPlan.actions]
       : deterministicAgentPlan?.actions ?? relevantModelActions;
+    const routedCombinedActions = routeLibraryExerciseContentActions(combinedActions, exerciseLibraryContentIntent);
     let normalizedAgentPlan = combinedActions.length ? normalizeAgentPlan({
-      summary: deterministicAgentPlan && modelAgentPlan ? `Review ${combinedActions.length} requested app changes` : deterministicAgentPlan?.summary ?? modelAgentPlan?.summary,
-      actions: coalesceAgentActions(combinedActions),
+      summary: deterministicAgentPlan && modelAgentPlan ? `Review ${routedCombinedActions.length} requested app changes` : deterministicAgentPlan?.summary ?? modelAgentPlan?.summary,
+      actions: coalesceAgentActions(routedCombinedActions),
     }) : undefined;
     const modelSignaledAgentIntent = Boolean(raw.agentPlan || raw.agent_plan || raw.plan);
     let repairClarification = '';
@@ -1287,6 +1342,9 @@ export async function POST(req: NextRequest) {
                 'You are the dedicated PT Motivator action planner. Translate the user command into a complete reviewable action plan; do not claim or perform changes.',
                 'Interpret natural wording, desired end states, voice-transcription errors, and filled starters liberally. Propose reversible actions because the server validates them and the user reviews every row before Apply.',
                 'Use all clear context and return every requested action. Never invent note text, a metric value, an exercise target, or a doctor-note target.',
+                'Resolve "yes/apply it/go ahead" from the recent conversation. Do not ask the user to restate an update the assistant just offered.',
+                'For permanent exercise instructions or "How to do it", use exercise_update.patch.tips. Do not use exercise_note_change unless the user explicitly asks for a dated note/log entry.',
+                'If the user asks you to research, create, populate, or fill missing exercise content for a common exercise, draft the content.',
                 'Use only the supplied action contract and exact existing IDs. If one required detail truly cannot be resolved, return no actions and one concise clarification.',
                 'Return JSON only: {"summary":"","actions":[{"id":"action-1","type":"","reason":""}],"clarification":""}.',
               ].join(' '),
@@ -1313,6 +1371,12 @@ export async function POST(req: NextRequest) {
         }, { requireAgentDraft: true });
         const repairedRaw = jsonFromText(repair.data?.choices?.[0]?.message?.content ?? '');
         normalizedAgentPlan = normalizeModelAgentPlan(repairedRaw, modelPlanContext);
+        if (normalizedAgentPlan && exerciseLibraryContentIntent) {
+          normalizedAgentPlan = normalizeAgentPlan({
+            summary: normalizedAgentPlan.summary,
+            actions: routeLibraryExerciseContentActions(normalizedAgentPlan.actions, true),
+          });
+        }
         if (normalizedAgentPlan) result = repair;
         repairClarification = cleanText(repairedRaw.clarification, 420);
       } catch {
@@ -1332,7 +1396,7 @@ export async function POST(req: NextRequest) {
         ? `I prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
         : `I prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
       : effectiveAgentIntent
-        ? repairClarification || (/\?\s*$/.test(baseAnswer) ? baseAnswer : 'What exact item or value should I put in the review card?')
+        ? repairClarification || (/\?\s*$/.test(baseAnswer) ? baseAnswer : 'I need one specific missing detail before I can prepare the review card.')
         : baseAnswer;
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
     const dateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);

@@ -188,6 +188,56 @@ function exerciseName(id: string, config: AppAgentConfig) {
   return config.exerciseLibrary.find(exercise => exercise.id === id)?.name ?? id;
 }
 
+function clipPreview(value: unknown, limit = 260) {
+  const clean = typeof value === 'string'
+    ? value.replace(/\s+/g, ' ').trim()
+    : value === null || value === undefined
+      ? ''
+      : String(value).replace(/\s+/g, ' ').trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trimEnd()}…` : clean;
+}
+
+function previewLine(label: string, value: unknown, limit?: number) {
+  const clean = clipPreview(value, limit);
+  return clean ? `${label}: ${clean}` : '';
+}
+
+function previewList(label: string, values: unknown, limit = 5) {
+  const list = Array.isArray(values)
+    ? values.map(value => clipPreview(value, 180)).filter(Boolean).slice(0, limit)
+    : [];
+  if (!list.length) return '';
+  const suffix = Array.isArray(values) && values.length > limit ? `\n- +${values.length - limit} more` : '';
+  return `${label}:\n${list.map(value => `- ${value}`).join('\n')}${suffix}`;
+}
+
+function exercisePreviewDetail(input: Partial<Exercise>, categoryName?: string) {
+  return [
+    previewLine('Category', categoryName || input.cat, 80),
+    previewLine('Sets', input.sets, 80),
+    previewLine('Cue', input.cue, 240),
+    previewList('How to do it', input.tips),
+    previewLine('Image search', input.imageSearch, 160),
+    previewLine('Main image', input.mainImageUrl, 180),
+    previewLine('Main video', input.mainVideoUrl, 180),
+  ].filter(Boolean).join('\n');
+}
+
+function exercisePatchPreviewDetail(patch: Partial<Exercise>) {
+  const lines = [
+    previewLine('Name', patch.name, 120),
+    previewLine('Category', patch.cat, 80),
+    previewLine('Sets', patch.sets, 80),
+    previewLine('Cue', patch.cue, 240),
+    previewList('How to do it', patch.tips),
+    previewLine('Image search', patch.imageSearch, 160),
+    previewLine('Main image', patch.mainImageUrl, 180),
+    Array.isArray(patch.mainImageUrls) && patch.mainImageUrls.length ? `Main images: ${patch.mainImageUrls.length} saved` : '',
+    previewLine('Main video', patch.mainVideoUrl, 180),
+  ].filter(Boolean);
+  return lines.length ? lines.join('\n') : Object.keys(patch).join(', ');
+}
+
 export function previewItemForAction(action: AgentAction, config: AppAgentConfig): AgentPreviewItem {
   const name = 'exerciseId' in action && action.exerciseId ? exerciseName(action.exerciseId, config) : '';
   switch (action.type) {
@@ -196,8 +246,8 @@ export function previewItemForAction(action: AgentAction, config: AppAgentConfig
     case 'health_change': return { actionId: action.id, title: `${action.mode === 'append' ? 'Append to' : 'Set'} ${action.field.replaceAll('_', ' ')}`, detail: `${displayDate(action.date)} · ${action.value ?? 'Clear value'}`, risk: action.mode === 'replace' && typeof action.value === 'string' ? 'destructive' : 'change' };
     case 'metrics_set': return { actionId: action.id, title: `Update ${name} metrics`, detail: `${displayDate(action.date)} · ${action.sets} sets × ${action.reps ? `${action.reps} reps` : `${action.durationSeconds}s`}${action.weight !== null ? ` · ${action.weight} ${action.weightUnit}` : ''}`, risk: 'change' };
     case 'metrics_clear': return { actionId: action.id, title: `Clear ${name} metrics`, detail: displayDate(action.date), risk: 'destructive' };
-    case 'exercise_add': return { actionId: action.id, title: `Add ${action.exercise.name}`, detail: action.categoryName || action.exercise.cat, risk: 'change' };
-    case 'exercise_update': return { actionId: action.id, title: `Update ${name}`, detail: Object.keys(action.patch).join(', '), risk: 'change' };
+    case 'exercise_add': return { actionId: action.id, title: `Add ${action.exercise.name}`, detail: exercisePreviewDetail(action.exercise, action.categoryName), risk: 'change' };
+    case 'exercise_update': return { actionId: action.id, title: `Update ${name}`, detail: exercisePatchPreviewDetail(action.patch), risk: 'change' };
     case 'exercise_move': return { actionId: action.id, title: `Move ${name}`, detail: `To ${action.categoryName}`, risk: 'change' };
     case 'exercise_remove': return { actionId: action.id, title: `Remove ${name}`, detail: 'Removes it from the library and categories', risk: 'destructive' };
     case 'category_upsert': return { actionId: action.id, title: action.categoryId ? `Rename or recolor ${action.name}` : `Add category ${action.name}`, detail: action.color || 'Use the next available color', risk: 'change' };

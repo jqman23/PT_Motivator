@@ -88,7 +88,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
   const [showHistory, setShowHistory] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
-  const [mediaExercise, setMediaExercise] = useState(exercise);
+  const [mediaOverrides, setMediaOverrides] = useState<Partial<Exercise>>({});
   const [typeDraft, setTypeDraft] = useState(normalizeExerciseType(exercise.cat));
   const [showRemoveOptions, setShowRemoveOptions] = useState(false);
   const [showMoveControls, setShowMoveControls] = useState(false);
@@ -222,7 +222,7 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
     const handleVideoUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ exerciseId?: string; videoUrl?: string }>).detail;
       if (detail?.exerciseId !== exercise.id) return;
-      setMediaExercise(current => ({ ...current, mainVideoUrl: detail.videoUrl || undefined }));
+      setMediaOverrides(current => ({ ...current, mainVideoUrl: detail.videoUrl || undefined }));
     };
     window.addEventListener('pt-exercise-video-updated', handleVideoUpdated);
     return () => window.removeEventListener('pt-exercise-video-updated', handleVideoUpdated);
@@ -311,6 +311,23 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       setRemoveError('Could not save type.');
     }
   };
+
+  const modalExercise = {
+    ...exercise,
+    ...mediaOverrides,
+  };
+  const modalExerciseVersion = [
+    modalExercise.id,
+    modalExercise.name,
+    modalExercise.cat,
+    modalExercise.cue,
+    modalExercise.sets,
+    modalExercise.imageSearch,
+    modalExercise.mainImageUrl,
+    modalExercise.mainVideoUrl,
+    (modalExercise.mainImageUrls ?? []).join('|'),
+    (modalExercise.tips ?? []).join('|'),
+  ].join('::');
 
   return (
     <>
@@ -631,11 +648,11 @@ export default function ExerciseCard({ exercise, done, note, today, categoryName
       )}
 
       {showVideo && (
-        <VideoModal exercise={mediaExercise} onClose={() => setShowVideo(false)} />
+        <VideoModal exercise={modalExercise} onClose={() => setShowVideo(false)} />
       )}
 
       {showQuickInfo && (
-        <ExerciseQuickInfoModal exercise={mediaExercise} onClose={() => setShowQuickInfo(false)} />
+        <ExerciseQuickInfoModal key={modalExerciseVersion} exercise={modalExercise} onClose={() => setShowQuickInfo(false)} />
       )}
 
       {showHistory && (

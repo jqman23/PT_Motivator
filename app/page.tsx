@@ -398,7 +398,11 @@ export default function Home() {
   }, [loadLog, loadNotes, selectedDate]);
 
   const refreshAfterAgentMutation = useCallback(async (changedConfig: Record<string, unknown>, affectedDates: string[]) => {
-    if (Array.isArray(changedConfig.exerciseLibrary)) setExerciseLibrary(changedConfig.exerciseLibrary as Exercise[]);
+    if (Array.isArray(changedConfig.exerciseLibrary)) {
+      const nextLibrary = changedConfig.exerciseLibrary as Exercise[];
+      setExerciseLibrary(nextLibrary);
+      window.dispatchEvent(new CustomEvent('pt-exercise-library-updated', { detail: { library: nextLibrary } }));
+    }
     if (Array.isArray(changedConfig.layout)) setLayout(changedConfig.layout as CategoryConfig[]);
     if (Array.isArray(changedConfig.ptSessions)) setPtSessions(changedConfig.ptSessions as PTSession[]);
     if (changedConfig.widgetPrefs && typeof changedConfig.widgetPrefs === 'object' && !Array.isArray(changedConfig.widgetPrefs)) {
@@ -407,7 +411,10 @@ export default function Home() {
       window.dispatchEvent(new CustomEvent('pt-widget-prefs-change', { detail: nextPrefs }));
     }
     if (typeof changedConfig.appTitle === 'string') setAppTitle(changedConfig.appTitle);
-    if (!affectedDates.length || affectedDates.includes(selectedDate)) await Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]);
+    if (!affectedDates.length || affectedDates.includes(selectedDate)) {
+      await Promise.all([loadLog(selectedDate), loadNotes(selectedDate)]);
+      window.dispatchEvent(new CustomEvent('pt-exercise-metric-saved', { detail: { date: selectedDate, source: 'ai-agent' } }));
+    }
     setAgentDataVersion(version => version + 1);
   }, [loadLog, loadNotes, selectedDate]);
 

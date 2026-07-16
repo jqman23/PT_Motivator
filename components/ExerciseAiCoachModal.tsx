@@ -475,7 +475,11 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
                   {preview?.risk === 'destructive' && <span className="text-[8px] font-bold uppercase text-[#A85E53]">Overwrite/delete</span>}
                   {preview?.risk === 'bulk' && <span className="text-[8px] font-bold uppercase text-[#8B6B32]">Bulk</span>}
                 </div>
-                {preview?.detail && <p className="mt-0.5 break-words text-[10px] leading-snug text-stone-500">{preview.detail}</p>}
+                {preview?.detail && (
+                  <div className="mt-1 max-h-36 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-stone-100 bg-white/70 px-2 py-1.5 text-[10px] leading-snug text-stone-600">
+                    {preview.detail}
+                  </div>
+                )}
                 {action.reason && <p className="mt-0.5 text-[9px] leading-snug text-stone-400">{action.reason}</p>}
               </div>
               {navigation && (

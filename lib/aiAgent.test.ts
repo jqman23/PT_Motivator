@@ -174,6 +174,36 @@ test('normalizes common category rename and doctor follow-up shapes', () => {
   assert.equal(plan?.actions[1].type === 'doctor_note_upsert' ? plan.actions[1].patch.body : '', 'They recommended shorter walks.');
 });
 
+test('maps provider exercise instruction aliases to visible exercise fields', () => {
+  const plan = normalizeModelAgentPlan({ actions: [
+    {
+      type: 'edit_exercise',
+      exerciseName: 'Standing Calf Stretch',
+      changes: {
+        shortCue: 'Keep the heel down and lean forward.',
+        dosage: '2 x 30 sec',
+        howTo: '1. Stand facing a wall.\n2. Step one foot back.\n3. Keep the back heel down.',
+        image_search: 'standing calf stretch physical therapy',
+      },
+    },
+  ] }, {
+    question: 'Update the exercise instructions',
+    today: '2026-07-15',
+    exercises: [{ id: 'calf-1', name: 'Standing Calf Stretch' }],
+  });
+
+  const action = plan?.actions[0];
+  assert.equal(action?.type, 'exercise_update');
+  if (action?.type === 'exercise_update') {
+    assert.deepEqual(action.patch, {
+      cue: 'Keep the heel down and lean forward.',
+      sets: '2 x 30 sec',
+      tips: ['Stand facing a wall.', 'Step one foot back.', 'Keep the back heel down.'],
+      imageSearch: 'standing calf stretch physical therapy',
+    });
+  }
+});
+
 test('coalesces compatible edits without losing earlier fields or appended text', () => {
   const actions = normalizeAgentActions([
     { id: 'health-1', type: 'health_change', date: '2026-07-15', field: 'general_notes', mode: 'append', value: 'Walked outside.' },

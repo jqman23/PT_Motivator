@@ -275,20 +275,22 @@ export default function ExerciseTileMetadataEnhancer() {
     let metricRequest: Promise<void> | null = null;
     let scanFrame: number | null = null;
 
+    const imageMapFromLibrary = (library: ExerciseImage[]) => new Map(
+      library
+        .map(exercise => [exercise.id || '', Array.from(new Set([
+          exercise.mainImageUrl,
+          ...(exercise.mainImageUrls || []),
+        ].filter((url): url is string => Boolean(url))))] as const)
+        .filter(([id, urls]) => Boolean(id && urls.length)),
+    );
+
     const loadImages = async () => {
       const requestRevision = imageRevision;
       try {
         const response = await fetch('/api/config?key=exerciseLibrary', { cache: 'no-store' });
         const data = await response.json();
         const library: ExerciseImage[] = Array.isArray(data.value) ? data.value : [];
-        const loadedMap = new Map(
-          library
-            .map(exercise => [exercise.id || '', Array.from(new Set([
-              exercise.mainImageUrl,
-              ...(exercise.mainImageUrls || []),
-            ].filter((url): url is string => Boolean(url))))] as const)
-            .filter(([id, urls]) => Boolean(id && urls.length)),
-        );
+        const loadedMap = imageMapFromLibrary(library);
         if (requestRevision !== imageRevision) {
           imageMap.forEach((urls, exerciseId) => loadedMap.set(exerciseId, urls));
         }
@@ -377,6 +379,16 @@ export default function ExerciseTileMetadataEnhancer() {
         .querySelectorAll<HTMLElement>(`[data-exercise-card-id="${CSS.escape(detail.exerciseId)}"]`)
         .forEach(card => syncPrimaryImage(card, detail.images));
     };
+    const onLibraryUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ library?: ExerciseImage[] }>).detail;
+      if (Array.isArray(detail?.library)) {
+        imageRevision += 1;
+        imageMap = imageMapFromLibrary(detail.library);
+        scanCards();
+      } else {
+        void loadImages();
+      }
+    };
 
     const scheduleScan = () => {
       if (scanFrame !== null) return;
@@ -389,6 +401,7 @@ export default function ExerciseTileMetadataEnhancer() {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('click', onClick, true);
     window.addEventListener('pt-exercise-images-updated', onImagesUpdated);
+    window.addEventListener('pt-exercise-library-updated', onLibraryUpdated);
     const onMetricSaved = () => { loadedMetricDate = ''; void loadMetrics(true); };
     window.addEventListener('pt-exercise-metric-saved', onMetricSaved);
 
@@ -405,6 +418,7 @@ export default function ExerciseTileMetadataEnhancer() {
       if (scanFrame !== null) window.cancelAnimationFrame(scanFrame);
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('pt-exercise-images-updated', onImagesUpdated);
+      window.removeEventListener('pt-exercise-library-updated', onLibraryUpdated);
       window.removeEventListener('pt-exercise-metric-saved', onMetricSaved);
       window.clearInterval(dateTimer);
       previewCleanup?.();

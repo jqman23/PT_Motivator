@@ -151,6 +151,24 @@ function stringList(value: unknown, limit: number, itemLimit: number) {
   return Array.from(new Set(value.map(item => text(item, itemLimit)).filter(Boolean))).slice(0, limit);
 }
 
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function textOrList(value: unknown, limit: number, itemLimit: number) {
+  if (Array.isArray(value)) return stringList(value, limit, itemLimit);
+  const clean = multiline(value, limit * itemLimit)
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+  if (!clean) return [];
+  const parts = clean
+    .split(/\n+|(?:^|\s)(?:\d+[\).]|[-•*])\s+/)
+    .map(item => item.trim().replace(/^(?:\d+[\).]|[-•*—–])\s*/, '').slice(0, itemLimit))
+    .filter(Boolean);
+  return Array.from(new Set(parts.length > 1 ? parts : [clean.slice(0, itemLimit)])).slice(0, limit);
+}
+
 function webUrl(value: unknown) {
   const clean = text(value, 1_000);
   if (!clean) return '';
@@ -166,21 +184,32 @@ function normalizeExerciseInput(value: unknown, partial = false): AgentExerciseI
   const raw = record(value);
   if (!raw) return null;
   const name = text(raw.name, 180);
-  const cat = text(raw.cat ?? raw.type, 80).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
-  const cue = multiline(raw.cue, 800);
+  const cat = text(raw.cat ?? raw.category ?? raw.type, 80).toLowerCase().replace(/[^a-z0-9 /&-]+/g, '').trim();
+  const cue = multiline(raw.cue ?? raw.shortCue ?? raw.short_cue, 800);
+  const tipsSource = raw.tips
+    ?? raw.steps
+    ?? raw.instructions
+    ?? raw.instruction
+    ?? raw.howTo
+    ?? raw.how_to
+    ?? raw.howToDoIt
+    ?? raw.how_to_do_it
+    ?? raw.description;
   if (!partial && (!name || !cat || !cue)) return null;
   const result: AgentExercisePatch = {};
   if (name) result.name = name;
   if (cat) result.cat = cat;
-  if (cue || Object.prototype.hasOwnProperty.call(raw, 'cue')) result.cue = cue;
-  if (Object.prototype.hasOwnProperty.call(raw, 'sets')) result.sets = text(raw.sets, 180);
-  if (Object.prototype.hasOwnProperty.call(raw, 'tips')) result.tips = stringList(raw.tips, 8, 300);
+  if (cue || hasOwn(raw, 'cue') || hasOwn(raw, 'shortCue') || hasOwn(raw, 'short_cue')) result.cue = cue;
+  if (hasOwn(raw, 'sets') || hasOwn(raw, 'dosage')) result.sets = text(raw.sets ?? raw.dosage, 180);
+  if (['tips', 'steps', 'instructions', 'instruction', 'howTo', 'how_to', 'howToDoIt', 'how_to_do_it', 'description'].some(key => hasOwn(raw, key))) {
+    result.tips = textOrList(tipsSource, 8, 300);
+  }
   if (typeof raw.optional === 'boolean') result.optional = raw.optional;
-  if (Object.prototype.hasOwnProperty.call(raw, 'programs')) result.programs = stringList(raw.programs, 8, 80);
-  if (Object.prototype.hasOwnProperty.call(raw, 'imageSearch')) result.imageSearch = text(raw.imageSearch, 200);
-  if (Object.prototype.hasOwnProperty.call(raw, 'mainImageUrl')) result.mainImageUrl = webUrl(raw.mainImageUrl);
-  if (Object.prototype.hasOwnProperty.call(raw, 'mainImageUrls')) result.mainImageUrls = stringList(raw.mainImageUrls, 8, 1_000).map(webUrl).filter(Boolean);
-  if (Object.prototype.hasOwnProperty.call(raw, 'mainVideoUrl')) result.mainVideoUrl = webUrl(raw.mainVideoUrl);
+  if (hasOwn(raw, 'programs')) result.programs = stringList(raw.programs, 8, 80);
+  if (hasOwn(raw, 'imageSearch') || hasOwn(raw, 'image_search')) result.imageSearch = text(raw.imageSearch ?? raw.image_search, 200);
+  if (hasOwn(raw, 'mainImageUrl') || hasOwn(raw, 'main_image_url')) result.mainImageUrl = webUrl(raw.mainImageUrl ?? raw.main_image_url);
+  if (hasOwn(raw, 'mainImageUrls') || hasOwn(raw, 'main_image_urls')) result.mainImageUrls = stringList(raw.mainImageUrls ?? raw.main_image_urls, 8, 1_000).map(webUrl).filter(Boolean);
+  if (hasOwn(raw, 'mainVideoUrl') || hasOwn(raw, 'main_video_url')) result.mainVideoUrl = webUrl(raw.mainVideoUrl ?? raw.main_video_url);
   if (!partial) return result as AgentExerciseInput;
   return Object.keys(result).length ? result : null;
 }
