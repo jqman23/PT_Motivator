@@ -12,6 +12,8 @@ export type AiProviderBudget = {
   attemptTimeoutMs: number;
   totalTimeoutMs: number;
   maxAttempts: number;
+  maxAttemptsPerRoute: number;
+  preserveProviderDiversity: true;
 };
 
 export function createAiRequestDeadline(now = Date.now()) {
@@ -28,6 +30,7 @@ export function aiProviderBudget(
     maxTotalMs: number;
     attemptTimeoutMs: number;
     maxAttempts: number;
+    maxAttemptsPerRoute?: number;
     reserveMs?: number;
     now?: number;
   },
@@ -39,5 +42,10 @@ export function aiProviderBudget(
     attemptTimeoutMs: Math.max(1_000, Math.min(options.attemptTimeoutMs, totalTimeoutMs)),
     totalTimeoutMs,
     maxAttempts: Math.max(1, Math.min(8, Math.floor(options.maxAttempts))),
+    // Preserve provider/model diversity inside a small total attempt budget. Without
+    // this cap, four rate-limited keys for the first model can consume all four
+    // attempts and falsely report that every configured provider was unavailable.
+    maxAttemptsPerRoute: Math.max(1, Math.min(4, Math.floor(options.maxAttemptsPerRoute ?? 2))),
+    preserveProviderDiversity: true,
   };
 }

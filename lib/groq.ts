@@ -595,6 +595,10 @@ export async function callGroqChat(
     totalTimeoutMs?: number;
     /** Maximum number of actual network attempts, including alternate keys. */
     maxAttempts?: number;
+    /** Maximum attempts spent on one provider/model route before preserving budget for another route. */
+    maxAttemptsPerRoute?: number;
+    /** Try one viable route from each distinct provider before retrying keys or alternate models. */
+    preserveProviderDiversity?: boolean;
     /** Allows the caller to cancel work when its UI/request is no longer active. */
     signal?: AbortSignal;
   } = {},
@@ -604,19 +608,38 @@ export async function callGroqChat(
   const attemptTimeoutMs = Math.min(45_000, Math.max(1_000, options.attemptTimeoutMs ?? 20_000));
   const totalTimeoutMs = Math.min(120_000, Math.max(attemptTimeoutMs, options.totalTimeoutMs ?? 55_000));
   const maxAttempts = Math.min(40, Math.max(1, options.maxAttempts ?? 8));
+  const maxAttemptsPerRoute = Math.min(8, Math.max(1, options.maxAttemptsPerRoute ?? maxAttempts));
   const deadline = Date.now() + totalTimeoutMs;
 
-  // This legacy-named entry point is now the provider router. Each Groq model still exhausts
-  // keys 1-4 before the route advances, while Cerebras, Gemini, and free OpenRouter capacity
-  // provide independent failover pools selected by task and sensitivity.
-  routeLoop: for (const route of getAiRoutePlan(task)) {
+  const configuredRoutes = getAiRoutePlan(task);
+  const routeSchedule: Array<{ route: AiRoute; pass: 'normal' | 'diversity-first' | 'fallback' }> = options.preserveProviderDiversity
+    ? [
+        ...configuredRoutes.filter((route, index, routes) => routes.findIndex(candidate => candidate.provider === route.provider) === index)
+          .map(route => ({ route, pass: 'diversity-first' as const })),
+        ...configuredRoutes.map(route => ({ route, pass: 'fallback' as const })),
+      ]
+    : configuredRoutes.map(route => ({ route, pass: 'normal' as const }));
+  const attemptedRouteKeys = new Set<string>();
+
+  // The diversity-first pass spends at most one network attempt per distinct provider.
+  // A second pass can retry alternate credentials/models only after every configured
+  // provider had a fair chance and only while the global time/attempt budget remains.
+  routeLoop: for (const scheduled of routeSchedule) {
+    const route = scheduled.route;
     const keys = providerKeys(route.provider, apiKeys);
     if (!keys.length) continue;
+    let routeAttempts = 0;
+    const routeAttemptLimit = scheduled.pass === 'diversity-first' ? 1 : maxAttemptsPerRoute;
     for (const apiKey of keys) {
       if (options.signal?.aborted || Date.now() >= deadline || attempts.length >= maxAttempts) break routeLoop;
+      if (routeAttempts >= routeAttemptLimit) break;
+      const routeKeyId = `${route.provider}:${route.model}:${apiKey.name}`;
+      if (attemptedRouteKeys.has(routeKeyId)) continue;
       const keyId = `${route.provider}:${apiKey.name}`;
       const cooldownId = `${keyId}:${route.model}`;
       if (disabledKeys.has(keyId) || (cooldowns.get(cooldownId) ?? 0) > Date.now()) continue;
+      attemptedRouteKeys.add(routeKeyId);
+      routeAttempts += 1;
       const controller = new AbortController();
       const remainingMs = Math.max(1, deadline - Date.now());
       const timeout = setTimeout(() => controller.abort(), Math.min(attemptTimeoutMs, remainingMs));

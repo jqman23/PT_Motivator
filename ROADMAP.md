@@ -11,7 +11,7 @@ A short, living list of ideas planned for PT Motivator. Update this file as feat
 - Register AI capabilities and their read/write, permission, preview, Apply, and Undo boundaries explicitly.
 - Calculate supported structured analytics on the server. The model may choose the calculation and presentation, but it may not invent personal chart values.
 - Attach a compact execution and evidence ledger describing resolved scope, coverage, calculations, assumptions, completed outputs, and missing outputs.
-- Use one request-wide deadline below the browser timeout and propagate cancellation through retrieval checkpoints, reranking, model calls, repair calls, and analytics assembly.
+- Use one request-wide deadline below the browser timeout, propagate cancellation through retrieval checkpoints, reranking, model calls, repair calls, and analytics assembly, and preserve cross-provider diversity before retrying alternate credentials or models.
 - Maintain golden-request tests for real conversational failures: short follow-ups, past-week scope, semantic counts, compound chart-plus-action requests, advice versus writes, missing values, and provider failure.
 - Begin converging ordinary UI writes and AI actions on stable domain-command contracts without changing the current database schema or safety workflow.
 

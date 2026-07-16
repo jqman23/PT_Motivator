@@ -353,3 +353,146 @@ test('the provider cascade obeys a request-wide maximum attempt count', async ()
     globalThis.fetch = originalFetch;
   }
 });
+
+test('a diversity-first budget reaches Cerebras before retrying duplicate Groq keys', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'diversity-cerebras-secret' });
+  const attempts: Array<{ url: string; model: string }> = [];
+  globalThis.fetch = async (input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { model?: string };
+    attempts.push({ url: String(input), model: String(body.model ?? '') });
+    if (String(input).includes('api.groq.com')) {
+      return new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429, statusText: 'Too Many Requests' });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'diversity-groq-1', value: 'diversity-first' },
+      { name: 'diversity-groq-2', value: 'diversity-second' },
+      { name: 'diversity-groq-3', value: 'diversity-third' },
+      { name: 'diversity-groq-4', value: 'diversity-fourth' },
+    ], 'ask', { messages: [], response_format: { type: 'json_object' } }, {
+      maxAttempts: 4,
+      maxAttemptsPerRoute: 2,
+      preserveProviderDiversity: true,
+      totalTimeoutMs: 5_000,
+    });
+    assert.equal(attempts.length, 2);
+    assert.match(attempts[0].url, /groq/i);
+    assert.match(attempts[1].url, /cerebras/i);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('four rate-limited Groq keys cannot prevent a configured Gemini route from succeeding', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ GEMINI_KEY_PTMOTIVATOR: 'diversity-gemini-secret' });
+  const attemptedUrls: string[] = [];
+  globalThis.fetch = async input => {
+    attemptedUrls.push(String(input));
+    if (String(input).includes('api.groq.com')) {
+      return new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429, statusText: 'Too Many Requests' });
+    }
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: '{"answer":"Gemini answered"}' }] }, finishReason: 'STOP' }],
+    }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'gemini-failover-groq-1', value: 'groq-1' },
+      { name: 'gemini-failover-groq-2', value: 'groq-2' },
+      { name: 'gemini-failover-groq-3', value: 'groq-3' },
+      { name: 'gemini-failover-groq-4', value: 'groq-4' },
+    ], 'ask', { messages: [], response_format: { type: 'json_object' } }, {
+      maxAttempts: 4,
+      maxAttemptsPerRoute: 2,
+      preserveProviderDiversity: true,
+      totalTimeoutMs: 5_000,
+    });
+    assert.equal(attemptedUrls.length, 2);
+    assert.match(attemptedUrls[0], /groq/i);
+    assert.match(attemptedUrls[1], /googleapis/i);
+    assert.equal(result.model, 'gemini/gemini-3.5-flash');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('a timed-out first provider preserves time and attempts for another provider', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'timeout-cerebras-secret' });
+  const attemptedUrls: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    attemptedUrls.push(String(input));
+    if (String(input).includes('api.groq.com')) {
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
+      });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([{ name: 'timeout-diversity-groq', value: 'timeout-groq' }], 'ask', { messages: [], response_format: { type: 'json_object' } }, {
+      attemptTimeoutMs: 1_000,
+      totalTimeoutMs: 4_000,
+      maxAttempts: 3,
+      preserveProviderDiversity: true,
+    });
+    assert.equal(attemptedUrls.length, 2);
+    assert.match(attemptedUrls[1], /cerebras/i);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('genuine first-pass failure records distinct providers and honors a smaller global limit', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({
+    CEREBRAS_KEY_PTMOTIVATOR: 'all-fail-cerebras',
+    GEMINI_KEY_PTMOTIVATOR: 'all-fail-gemini',
+    OPENROUTER_KEY_PTMOTIVATOR: 'all-fail-openrouter',
+  });
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'unavailable' } }), { status: 503, statusText: 'Service Unavailable' });
+
+  try {
+    let fullError: GroqRouteError | null = null;
+    try {
+      await callGroqChat([{ name: 'all-fail-groq', value: 'all-fail-groq-secret' }], 'ask', { messages: [] }, {
+        maxAttempts: 4,
+        preserveProviderDiversity: true,
+        totalTimeoutMs: 5_000,
+      });
+    } catch (error) {
+      if (error instanceof GroqRouteError) fullError = error;
+    }
+    assert.ok(fullError);
+    assert.deepEqual(new Set(fullError.attempts.map(attempt => attempt.provider)), new Set(['groq', 'cerebras', 'gemini', 'openrouter']));
+
+    let smallError: GroqRouteError | null = null;
+    try {
+      await callGroqChat([{ name: 'small-budget-groq', value: 'small-budget-groq-secret' }], 'ask', { messages: [] }, {
+        maxAttempts: 2,
+        preserveProviderDiversity: true,
+        totalTimeoutMs: 5_000,
+      });
+    } catch (error) {
+      if (error instanceof GroqRouteError) smallError = error;
+    }
+    assert.ok(smallError);
+    assert.equal(smallError.attempts.length, 2);
+    assert.equal(new Set(smallError.attempts.map(attempt => attempt.provider)).size, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});

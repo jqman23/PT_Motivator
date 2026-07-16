@@ -16,7 +16,7 @@ test('provider calls share the request-wide deadline instead of starting fresh c
     reserveMs: 2_000,
     now: 12_000,
   });
-  assert.deepEqual(limits, { attemptTimeoutMs: 6_000, totalTimeoutMs: 6_000, maxAttempts: 4 });
+  assert.deepEqual(limits, { attemptTimeoutMs: 6_000, totalTimeoutMs: 6_000, maxAttempts: 4, maxAttemptsPerRoute: 2, preserveProviderDiversity: true });
 });
 
 test('provider work stops when only response-assembly reserve remains', () => {

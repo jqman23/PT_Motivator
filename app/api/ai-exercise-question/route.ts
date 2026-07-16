@@ -18,6 +18,13 @@ import { AI_ANSWER_DATE_LIMIT } from '@/lib/aiDatePresentation';
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
 const MAX_HISTORY_DAYS = Math.max(90, Math.min(730, Number(process.env.AI_HISTORY_DAYS_PTMOTIVATOR || 365)));
+const MAIN_ASK_PROVIDER_BUDGET = {
+  maxTotalMs: 22_000,
+  attemptTimeoutMs: 9_000,
+  maxAttempts: 4,
+  maxAttemptsPerRoute: 2,
+  reserveMs: 3_000,
+} as const;
 
 const AGENT_ACTION_CONTRACT = {
   rules: [
@@ -639,6 +646,19 @@ function hasSavedDayData(record: DayRecord) {
 function answerIncorrectlyDeniesSavedData(answer: string) {
   return /\b(?:no|not any|nothing|none)\b.{0,48}\b(?:recorded|logged|saved)\b.{0,80}\b(?:exercise|activity|health|metrics?|data|entries?)\b/i.test(answer)
     || /\b(?:no|not any|nothing|none)\b.{0,48}\b(?:exercise|activity|health|metrics?|data|entries?)\b.{0,80}\b(?:recorded|logged|saved)\b/i.test(answer);
+}
+
+function providerFailureMessage(error: GroqRouteError) {
+  if (!error.attempts.length) return 'No configured AI route could start on this attempt.';
+  const statuses = error.attempts.map(attempt => attempt.status);
+  const statusTexts = error.attempts.map(attempt => attempt.statusText);
+  if (statuses.every(status => status === 429)) return 'The AI provider routes attempted were rate-limited on this attempt.';
+  if (statuses.every(status => status === 401 || status === 403)) return 'The AI provider routes attempted rejected their configured credentials.';
+  if (statusTexts.every(status => /(?:INVALID|MISSING|CONTRACT|EMPTY)/.test(status))) {
+    return 'AI providers responded, but none returned an answer that passed the request contract.';
+  }
+  if (statusTexts.every(status => status === 'TIMEOUT' || status === 'CANCELLED')) return 'The AI provider routes attempted timed out before returning a usable answer.';
+  return 'The configured AI routes did not return a usable answer on this attempt.';
 }
 
 function savedDataFallbackAnswer(records: DayRecord[], scope?: BoundedHistoryWindow) {
@@ -1666,6 +1686,7 @@ export async function POST(req: NextRequest) {
         if (req.signal.aborted) return new NextResponse(null, { status: 499 });
         const attemptedModels = error instanceof GroqRouteError ? error.attempts.map(attempt => attempt.model) : [];
         const providerAttempts = error instanceof GroqRouteError ? error.attempts.map(attempt => ({
+          provider: attempt.provider,
           model: attempt.model,
           providerKey: attempt.keyName,
           status: attempt.status,
@@ -1720,12 +1741,7 @@ export async function POST(req: NextRequest) {
         acceptJson: visualizationIntent && !semanticTextAggregateIntent && !precomputedAnalytics && !aiAnalyticsNeedsDerivedEvents(analysisQuestion)
           ? candidate => Boolean(normalizeAiAnalyticsPlan(candidate) || normalizeAiVisualizations(candidate.visualizations).length)
           : undefined,
-        ...aiProviderBudget(requestDeadline, {
-          maxTotalMs: 22_000,
-          attemptTimeoutMs: 9_000,
-          maxAttempts: 4,
-          reserveMs: 3_000,
-        }),
+        ...aiProviderBudget(requestDeadline, MAIN_ASK_PROVIDER_BUDGET),
         signal: req.signal,
       });
     } catch (error) {
@@ -1743,6 +1759,37 @@ export async function POST(req: NextRequest) {
             : buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
         : [];
       if (error instanceof GroqRouteError) {
+        const attemptedModels = error.attempts.map(attempt => attempt.model);
+        const failureMessage = providerFailureMessage(error);
+        const providerFailureDebug = {
+          requestId: cleanText(req.headers.get('x-vercel-id'), 120) || globalThis.crypto.randomUUID(),
+          build: cleanText(process.env.VERCEL_GIT_COMMIT_SHA, 80) || 'local',
+          normalizedQuestion: cleanQuestion,
+          requestPlan,
+          historyScope: {
+            mode: historyWindow ? 'window' : wholeHistoryIntent ? 'whole' : shouldLoadHistory ? 'ranked' : 'none',
+            startDate: historyWindow?.startDate ?? dayRecords[0]?.date,
+            endDate: historyWindow?.endDate ?? dayRecords.at(-1)?.date,
+            loadedDays: dayRecords.length,
+          },
+          attemptedModels,
+          providerScheduling: {
+            mode: 'diversity-first',
+            maxAttempts: MAIN_ASK_PROVIDER_BUDGET.maxAttempts,
+            maxAttemptsPerRoute: MAIN_ASK_PROVIDER_BUDGET.maxAttemptsPerRoute,
+            attemptedProviders: Array.from(new Set(error.attempts.map(attempt => attempt.provider))),
+          },
+          providerAttempts: error.attempts.map(attempt => ({
+            provider: attempt.provider,
+            model: attempt.model,
+            providerKey: attempt.keyName,
+            status: attempt.status,
+            statusText: attempt.statusText,
+            detail: cleanText(attempt.detail, 240),
+          })),
+          elapsedMs: Date.now() - requestStartedAt,
+          remainingBudgetMs: remainingAiRequestMs(requestDeadline),
+        };
         if (deterministicAgentPlan) {
           const review = deterministicAgentPlan.actions.some(isAgentWriteAction)
             ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
@@ -1761,13 +1808,14 @@ export async function POST(req: NextRequest) {
             },
             degraded: true,
             model: '',
-            attemptedModels: error.attempts.map(attempt => attempt.model),
+            attemptedModels,
             usedPersonalHistory: shouldLoadHistory,
             searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
             comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
             rerankerModel,
             rerankerProviderKey,
             rerankedCandidates,
+            debug: providerFailureDebug,
           });
         }
         // A deterministic saved-data recap is useful for a requested recap, but it
@@ -1787,22 +1835,23 @@ export async function POST(req: NextRequest) {
             },
             degraded: true,
             model: '',
-            attemptedModels: error.attempts.map(attempt => attempt.model),
+            attemptedModels,
             usedPersonalHistory: shouldLoadHistory,
             searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
             comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
             rerankerModel,
             rerankerProviderKey,
             rerankedCandidates,
+            debug: providerFailureDebug,
           });
         }
         return NextResponse.json({
           reply: {
             answer: agentIntent
-              ? 'I’m ready to draft this change, but every AI provider is temporarily unavailable. Send it once more and I’ll retry the review card.'
+              ? `I’m ready to draft this change, but ${failureMessage.charAt(0).toLowerCase()}${failureMessage.slice(1)} Send it once more and I’ll retry the review card.`
               : fallbackLinks.length && (isHistoryQuestion(analysisQuestion) || patternIntent || wholeHistoryIntent)
-                ? 'The AI response failed, but I found these strongly supported dates in your saved history.'
-                : 'Every AI provider is temporarily unavailable, so I could not answer this reliably. Your question and conversation context are still here—retry and I will answer the same request directly.',
+                ? `${failureMessage} I still found these strongly supported dates in your saved history.`
+                : `${failureMessage} Your question and conversation context are still here—retry and I will answer the same request directly.`,
             options: [],
             dateLinks: fallbackLinks,
             visualizations: fallbackVisualizations,
@@ -1810,13 +1859,14 @@ export async function POST(req: NextRequest) {
           },
           degraded: true,
           model: '',
-          attemptedModels: error.attempts.map(attempt => attempt.model),
+          attemptedModels,
           usedPersonalHistory: shouldLoadHistory,
           searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
           comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
           rerankerModel,
           rerankerProviderKey,
           rerankedCandidates,
+          debug: providerFailureDebug,
         });
       }
       if (error instanceof AiRequestBudgetError) {

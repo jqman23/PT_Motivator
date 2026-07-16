@@ -378,7 +378,8 @@ The shared router is [`lib/groq.ts`](../lib/groq.ts). The legacy function name `
 ```text
 flowchart TD
     CALL["callGroqChat(task, prompt, contract, budgets, abort signal)"] --> PLAN["Build ordered task-specific AiRoute list"]
-    PLAN --> ROUTE["Take next provider and model route"]
+    PLAN --> PASS1["First pass: one viable route per distinct provider"]
+    PASS1 --> ROUTE["Take next scheduled provider and model route"]
     ROUTE --> KEYS["Enumerate configured keys for that provider"]
     KEYS --> SKIP{"Key disabled or model/key in cooldown?"}
     SKIP -->|Yes| NEXTKEY["Next key"]
@@ -423,7 +424,9 @@ flowchart TD
     TIMEOUT --> BUDGET
     OTHER --> BUDGET{"Another route/key and time/attempt budget remains?"}
     NEXTKEY --> BUDGET
-    BUDGET -->|Yes| ROUTE
+    BUDGET -->|Yes; first pass incomplete| ROUTE
+    BUDGET -->|Yes; every provider had a chance| PASS2["Second pass: alternate keys/models within per-route cap"]
+    PASS2 --> ROUTE
     BUDGET -->|No| FAIL["Throw GroqRouteError with every recorded attempt"]
     CANCEL --> FAIL
 ```
@@ -444,9 +447,9 @@ Environment overrides can prepend approved Groq models, but model names remain a
 | `log`, `edit`, `summary` | Short-task Gemini/Groq/Cerebras mix, including Cerebras GLM short-context route | Endpoint-specific JSON |
 | `enhance`, `standardize` | Stronger Gemini/Groq/Cerebras mix → free OpenRouter → remaining routes | Endpoint-specific enhanced/standardized text JSON |
 
-Current Groq families include GPT-OSS 120B/20B, Llama 3.3 70B, Qwen 3 32B, Llama 4 Scout, Qwen 3.6 27B, Llama 3.1 8B, plus Compound routes for `publicAsk`. OpenRouter routes are explicitly free-only. Up to four Groq API-key pools can be tried for quota failover.
+Current Groq families include GPT-OSS 120B/20B, Llama 3.3 70B, Qwen 3 32B, Llama 4 Scout, Qwen 3.6 27B, Llama 3.1 8B, plus Compound routes for `publicAsk`. OpenRouter routes are explicitly free-only. Up to four Groq API-key pools can be tried for quota failover, but alternate Groq credentials cannot monopolize the diversity-first pass.
 
-Default route budgets are 20 seconds per attempt, 55 seconds total, and eight real network attempts. Callers can set stricter budgets; hard caps prevent unbounded cascades. The browser independently stops an Ask AI request after 45 seconds.
+The browser stops an Ask AI request after 45 seconds and the server-wide request deadline ends at 38 seconds. Every provider and repair budget is derived from the remaining shared deadline, with response-assembly reserve and caller cancellation propagated through the cascade. The main answer call permits four real network attempts, at most two on one provider/model route, and preserves a first-pass opportunity for distinct configured providers.
 
 ## 5. Evidence-backed semantic visualizations
 
