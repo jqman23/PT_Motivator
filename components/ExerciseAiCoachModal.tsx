@@ -76,9 +76,20 @@ interface Props {
 
 type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; createdAt: string; note: string };
 
+const AI_ACTION_GROUPS = [
+  { id: 'guidance', title: 'Guidance', description: 'Decide what to do next', accent: '#476653' },
+  { id: 'evidence', title: 'Evidence & trends', description: 'Search, count, compare, visualize', accent: '#486680' },
+  { id: 'log', title: 'Log & update', description: 'Prepare safe review cards', accent: '#A85E53' },
+  { id: 'exercise', title: 'Exercises', description: 'Build, identify, organize', accent: '#477986' },
+  { id: 'care', title: 'Care team', description: 'Doctor notes and PT sessions', accent: '#836488' },
+  { id: 'app', title: 'App controls', description: 'Navigate, customize, review', accent: '#6A7350' },
+] as const;
+
 const AI_ACTION_STARTERS = [
   {
     id: 'today-plan',
+    group: 'guidance',
+    icon: '◆',
     title: "Today's plan",
     description: 'Use recent notes for advice without changing anything.',
     accent: '#476653',
@@ -86,6 +97,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'episode-timeline',
+    group: 'evidence',
+    icon: '↔',
     title: 'Find episodes',
     description: 'When symptoms showed up, oldest to newest, with dates.',
     accent: '#477986',
@@ -93,6 +106,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'exact-mentions',
+    group: 'evidence',
+    icon: '#',
     title: 'Count exact mentions',
     description: 'Source-verified note counts with inspectable evidence.',
     accent: '#836488',
@@ -100,6 +115,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'metric-summary',
+    group: 'evidence',
+    icon: 'Σ',
     title: 'Calculate metrics',
     description: 'Averages, maximums, totals, and unlogged days.',
     accent: '#5F7694',
@@ -107,6 +124,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'paired-relationship',
+    group: 'evidence',
+    icon: '∿',
     title: 'Compare two metrics',
     description: 'Paired-date relationships without causation claims.',
     accent: '#55709A',
@@ -114,6 +133,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'progress-brief',
+    group: 'guidance',
+    icon: '↗',
     title: 'Progress brief',
     description: 'A doctor/PT-ready summary from saved records.',
     accent: '#A27433',
@@ -121,6 +142,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'visualize-patterns',
+    group: 'evidence',
+    icon: '▦',
     title: 'Visualize patterns',
     description: 'Tables, lines, bars, and evidence-backed drilldowns.',
     accent: '#486680',
@@ -128,6 +151,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'log-today',
+    group: 'log',
+    icon: '+',
     title: 'Log today',
     description: 'Fast pain, health-note, and completion updates.',
     accent: '#A85E53',
@@ -135,6 +160,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'log-workout',
+    group: 'log',
+    icon: '✓',
     title: 'Log workout details',
     description: 'Completion, sets, reps, time, weight, or a note.',
     accent: '#476653',
@@ -142,6 +169,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'update-wellness',
+    group: 'log',
+    icon: '◌',
     title: 'Update wellness',
     description: 'Pain, sleep, energy, mood, treatments, and notes.',
     accent: '#A85E53',
@@ -149,6 +178,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'bulk-from-notes',
+    group: 'log',
+    icon: '≡',
     title: 'Bulk from notes',
     description: 'Find matching note text and prepare many completions.',
     accent: '#6A7350',
@@ -156,6 +187,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'manage-exercises',
+    group: 'exercise',
+    icon: '↕',
     title: 'Manage exercises',
     description: 'Add, edit, move, or remove exercises and categories.',
     accent: '#5F7694',
@@ -163,6 +196,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'build-exercise',
+    group: 'exercise',
+    icon: '✦',
     title: 'Build an exercise',
     description: 'Draft app-ready movements from goals or source matches.',
     accent: '#477986',
@@ -170,6 +205,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'identify-exercise',
+    group: 'exercise',
+    icon: '⌕',
     title: 'Identify movement',
     description: 'Use a photo or description to name and build it.',
     accent: '#8A6B45',
@@ -177,6 +214,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'doctor-note',
+    group: 'care',
+    icon: '?',
     title: 'Make a doctor note',
     description: 'Create or update questions, symptoms, visits, and plans.',
     accent: '#836488',
@@ -184,6 +223,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'doctor-response',
+    group: 'care',
+    icon: '↪',
     title: 'Answer doc note',
     description: 'Append a response or follow-up to an existing note.',
     accent: '#836488',
@@ -191,6 +232,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'schedule-session',
+    group: 'care',
+    icon: '◇',
     title: 'Add a PT session',
     description: 'Add or remove PT and training appointments.',
     accent: '#A27433',
@@ -198,6 +241,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'attach-photo',
+    group: 'exercise',
+    icon: '□',
     title: 'Attach a photo',
     description: 'Add a photo to an exercise, health, or doctor note.',
     accent: '#8A6B45',
@@ -205,6 +250,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'open-screen',
+    group: 'app',
+    icon: '→',
     title: 'Open something',
     description: 'Jump to a day, exercise, calendar, note, or setting.',
     accent: '#486680',
@@ -212,6 +259,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'personalize-app',
+    group: 'app',
+    icon: '⚙',
     title: 'Customize the app',
     description: 'Show or hide widgets, rename the app, or organize categories.',
     accent: '#6A7350',
@@ -219,6 +268,8 @@ const AI_ACTION_STARTERS = [
   },
   {
     id: 'undo-or-clarify',
+    group: 'app',
+    icon: '!',
     title: 'Review a change',
     description: 'Ask why, inspect evidence, or find undo options.',
     accent: '#A27433',
@@ -1424,25 +1475,52 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         </div>
 
         {actionsOpen ? (
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F4F0E8]" style={{ maxHeight: 'min(25rem, calc(94dvh - 9rem))' }}>
-            <div className="grid grid-cols-2 bg-white/20">
-              {AI_ACTION_STARTERS.map((action, index) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={() => handleActionStarter(action.prompt)}
-                  className={`group flex min-h-[3.75rem] items-center gap-2 border-b border-stone-200/75 px-2.5 py-2 text-left transition-colors duration-150 hover:bg-white/75 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7E9B86]/55 motion-reduce:transition-none ${index % 2 === 0 ? 'border-r' : ''}`}
-                  style={{ touchAction: 'manipulation' }}
-                  aria-label={`${action.title}. ${action.description}`}
-                >
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-125 motion-reduce:transition-none" style={{ background: action.accent }} aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-bold leading-tight text-stone-800">{action.title}</span>
-                    <span className="mt-0.5 block truncate text-[8.5px] leading-tight text-stone-500">{action.description}</span>
-                  </span>
-                  <span className="shrink-0 text-sm text-stone-300 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-stone-500 motion-reduce:transition-none" aria-hidden="true">›</span>
-                </button>
-              ))}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F4F0E8]" style={{ maxHeight: 'min(30rem, calc(94dvh - 9rem))' }}>
+            <div className="space-y-3 px-3 py-3">
+              {AI_ACTION_GROUPS.map(group => {
+                const actions = AI_ACTION_STARTERS.filter(action => action.group === group.id);
+                return (
+                  <section key={group.id} className="overflow-hidden rounded-2xl border border-white/70 bg-white/60 shadow-[0_1px_8px_rgba(71,59,43,0.06)]">
+                    <div className="flex items-center justify-between gap-3 border-b border-stone-200/60 bg-white/45 px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: group.accent }} aria-hidden="true" />
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[11px] font-extrabold uppercase tracking-[0.13em] text-stone-700">{group.title}</h3>
+                          <p className="truncate text-[9px] font-medium text-stone-400">{group.description}</p>
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[9px] font-bold text-stone-400">{actions.length}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 p-2">
+                      {actions.map(action => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          onClick={() => handleActionStarter(action.prompt)}
+                          className="group flex min-h-[4.85rem] items-start gap-2 rounded-xl border border-stone-200/70 bg-[#FFFDF9] px-2.5 py-2.5 text-left shadow-[0_1px_2px_rgba(71,59,43,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E9B86]/45 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+                          style={{ touchAction: 'manipulation' }}
+                          aria-label={`${action.title}. ${action.description}`}
+                        >
+                          <span
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[13px] font-black leading-none transition-transform duration-150 group-hover:scale-105 motion-reduce:transition-none"
+                            style={{ background: `${action.accent}18`, color: action.accent, boxShadow: `inset 0 0 0 1px ${action.accent}30` }}
+                            aria-hidden="true"
+                          >
+                            {action.icon}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-start justify-between gap-1">
+                              <span className="min-w-0 text-[11px] font-bold leading-tight text-stone-800">{action.title}</span>
+                              <span className="shrink-0 text-sm leading-none text-stone-300 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-stone-500 motion-reduce:transition-none" aria-hidden="true">›</span>
+                            </span>
+                            <span className="mt-1 line-clamp-2 text-[9.5px] leading-snug text-stone-500">{action.description}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           </div>
         ) : historyOpen ? (
