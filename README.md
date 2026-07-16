@@ -4,6 +4,7 @@ A personal physical therapy tracker for ankle recovery. Check off exercises dail
 
 ## Engineering Handoffs
 
+- [Comprehensive AI system flowchart: routing, models, retrieval, visuals, agent writes, and APIs](docs/AI_SYSTEM_FLOWCHART.md)
 - [Ask AI and agent architecture, rollout state, verification, and continuation guide](docs/ASK_AI_AGENT_HANDOFF.md)
 
 ## Features
