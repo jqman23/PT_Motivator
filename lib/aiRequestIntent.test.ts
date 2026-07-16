@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -108,6 +108,22 @@ test('recognizes requests that require comparison across the whole loaded histor
     'Give me the frequency with which I talk about each symptom.',
     'Count how much I mention each body part.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), true, request);
+});
+
+test('recognizes broad history summary prompts so failure recovery can summarize the window', () => {
+  for (const request of [
+    'What stood out to you this past week?',
+    'What caught your attention this week?',
+    'Give me an overview of the last few days.',
+    'Summarize what changed over the week.',
+    'What are the main takeaways from this week?',
+  ]) assert.equal(isHistorySummaryRequest(request), true, request);
+
+  for (const request of [
+    'When did I first mention heel pain?',
+    'Find the first day I mentioned stairs.',
+    'Take me to my doctor notes.',
+  ]) assert.equal(isHistorySummaryRequest(request), false, request);
 });
 
 test('keeps bounded and targeted history questions on retrieval instead of whole-history comparison', () => {

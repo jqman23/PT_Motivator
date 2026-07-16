@@ -115,3 +115,12 @@ export function isWholeHistoryComparisonRequest(value: string) {
 
   return scopeAndMarker || actionAndMarker || exhaustiveAnalysis || semanticTextAggregate || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
 }
+
+export function isHistorySummaryRequest(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+
+  if (isSemanticTextAggregateRequest(text) || isWholeHistoryComparisonRequest(text)) return true;
+
+  return /\b(?:what stood out|stood out|caught your attention|what caught your attention|what did you notice|what do you notice|what was notable|what's notable|main takeaways?|key takeaways?|highlights?|overview|summary|summarize|recap|what changed|what was different|how was (?:my|the|this|that)\s+(?:week|day|session)|how did (?:my|the|this|that)\s+(?:week|day|session)\s+go|what happened|what went on|anything (?:stand out|interesting|notable)|give me an overview)\b/.test(text);
+}
