@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -40,7 +40,20 @@ test('does not turn advice or capability questions into commands', () => {
     'What would happen without the timer?',
     'Make me a graph of every recorded exercise.',
     'Create a table using my complete history.',
+    'Can you see anything about the image?',
+    'I already attached the photo to general notes for today. Look at it.',
+    "I don't want to upload the picture again.",
+    'I am a little worried about the bruise that is painful but yet to show visually after my bike crash',
+    'Can you help me remain positive today?',
   ]) assert.equal(isAgentRequest(request), false, request);
+});
+
+test('recognizes existing attached-photo inspection separately from attachment commands', () => {
+  assert.equal(isExistingPhotoInspectionRequest('Can you see anything about the image?'), true);
+  assert.equal(isExistingPhotoInspectionRequest('I already attached it to general notes for today. look at it.'), true);
+  assert.equal(isExistingPhotoInspectionRequest("I don't want to upload the picture again."), true);
+  assert.equal(isExistingPhotoInspectionRequest('Can I send you an image you can attach to my general notes?'), false);
+  assert.equal(isAgentRequest('Can I send you an image you can attach to my general notes?'), true);
 });
 
 test('does not turn explicit no-change corrections into commands', () => {

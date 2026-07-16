@@ -7,7 +7,7 @@ const sql = neon(process.env.DATABASE_URL!);
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{12,100}$/;
 const MAX_PHOTO_DATA_URL_LENGTH = 2_000_000;
 
-type PhotoAttachment = { id: string; name: string; type: string; dataUrl: string; createdAt: string };
+type PhotoAttachment = { id: string; name: string; type: string; dataUrl: string; createdAt: string; note: string };
 type Row = Record<string, unknown>;
 
 type UndoPayload = {
@@ -40,6 +40,7 @@ function normalizePhoto(value: unknown): PhotoAttachment | null {
     type: cleanText(raw.type, 80) || 'image/jpeg',
     dataUrl,
     createdAt: cleanText(raw.createdAt, 60) || new Date().toISOString(),
+    note: cleanText(raw.note, 500),
   };
 }
 

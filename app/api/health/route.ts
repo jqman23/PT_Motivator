@@ -15,6 +15,7 @@ type GeneralNotePhoto = {
   type: string;
   dataUrl: string;
   createdAt: string;
+  note: string;
 };
 
 const NUMERIC_FIELDS = ['sleep_hours', 'sleep_quality', 'energy', 'mood', 'pain'] as const;
@@ -64,6 +65,7 @@ function normalizeGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
       type: typeof raw.type === 'string' && raw.type ? raw.type.slice(0, 80) : 'image/jpeg',
       dataUrl: raw.dataUrl,
       createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
+      note: typeof raw.note === 'string' ? raw.note.trim().slice(0, 500) : '',
     });
 
     if (photos.length >= MAX_GENERAL_NOTE_PHOTOS) break;

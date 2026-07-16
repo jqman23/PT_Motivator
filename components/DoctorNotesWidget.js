@@ -56,6 +56,7 @@ function parsePhotos(value) {
       type: text(item.type) || 'image/jpeg',
       dataUrl: text(item.dataUrl),
       createdAt: text(item.createdAt) || new Date().toISOString(),
+      note: text(item.note).slice(0, 500),
     }))
     .filter(photo => photo.dataUrl.startsWith('data:image/'))
     .slice(0, MAX_PHOTOS);
@@ -157,16 +158,19 @@ async function preparePhoto(file) {
     type: 'image/jpeg',
     dataUrl,
     createdAt: new Date().toISOString(),
+    note: '',
   };
 }
 
 function noteAsText(note) {
+  const photoNotes = (note.photoAttachments || []).map(photo => text(photo.note)).filter(Boolean);
   return [
     note.title || typeLabel(note.kind),
     note.provider ? `Provider: ${note.provider}` : '',
     note.referenceText ? `Reference: ${note.referenceText}` : '',
     note.linkedDates.length ? `Related dates: ${note.linkedDates.map(formatDate).join(', ')}` : '',
     stripSecretNotes(note.body),
+    photoNotes.length ? `Image notes:\n${photoNotes.map((value, index) => `${index + 1}. ${value}`).join('\n')}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -1140,6 +1144,14 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
     }
   }
 
+  function updateDraftPhotoNote(photoId, value) {
+    setDraft(current => current ? {
+      ...current,
+      photoAttachments: current.photoAttachments.map(photo => photo.id === photoId ? { ...photo, note: value.slice(0, 500) } : photo),
+    } : null);
+    setSelectedPhoto(current => current?.id === photoId ? { ...current, note: value.slice(0, 500) } : current);
+  }
+
   async function copyNote(note) {
     try {
       await copyValue(noteAsText(note));
@@ -1405,9 +1417,19 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
                 {draft.photoAttachments.length > 0 && (
                   <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
                     {draft.photoAttachments.map(photo => (
-                      <div key={photo.id} className="relative min-w-0 overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
-                        <button type="button" onClick={() => setSelectedPhoto(photo)} className="block w-full"><img src={photo.dataUrl} alt={photo.name} className="h-28 w-full object-cover sm:h-24" /></button>
-                        <button type="button" onClick={() => setDraft({ ...draft, photoAttachments: draft.photoAttachments.filter(item => item.id !== photo.id) })} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-lg text-white" aria-label="Remove photo">×</button>
+                      <div key={photo.id} className="min-w-0 overflow-hidden rounded-xl border border-stone-200 bg-white">
+                        <div className="relative bg-stone-100">
+                          <button type="button" onClick={() => setSelectedPhoto(photo)} className="block w-full"><img src={photo.dataUrl} alt={photo.name} className="h-28 w-full object-cover sm:h-24" /></button>
+                          <button type="button" onClick={() => setDraft({ ...draft, photoAttachments: draft.photoAttachments.filter(item => item.id !== photo.id) })} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-lg text-white" aria-label="Remove photo">×</button>
+                        </div>
+                        <textarea
+                          value={photo.note || ''}
+                          onChange={event => updateDraftPhotoNote(photo.id, event.target.value)}
+                          placeholder="Photo note"
+                          rows={2}
+                          maxLength={500}
+                          className="block w-full resize-none border-0 border-t border-stone-100 bg-white px-2 py-1.5 text-[11px] leading-snug text-stone-700 outline-none placeholder:text-stone-300"
+                        />
                       </div>
                     ))}
                   </div>
@@ -1552,8 +1574,9 @@ export default function DoctorNotesWidget({ selectedDate, onSelectDate, open, on
 
   const photoViewer = selectedPhoto ? (
     <div className="fixed inset-0 z-[140] flex h-[100dvh] w-screen max-w-full items-center justify-center overflow-hidden bg-black/90 p-3 sm:p-4" onClick={() => setSelectedPhoto(null)}>
-      <div className="relative flex h-full w-full min-w-0 items-center justify-center" onClick={event => event.stopPropagation()}>
-        <img src={selectedPhoto.dataUrl} alt={selectedPhoto.name} className="max-h-full max-w-full rounded-xl object-contain sm:rounded-2xl" />
+      <div className="relative flex h-full w-full min-w-0 flex-col items-center justify-center" onClick={event => event.stopPropagation()}>
+        <img src={selectedPhoto.dataUrl} alt={selectedPhoto.name} className="max-h-[86dvh] max-w-full rounded-xl object-contain sm:rounded-2xl" />
+        {selectedPhoto.note && <p className="mt-2 max-w-2xl rounded-xl bg-white/95 px-3 py-2 text-sm leading-snug text-stone-700 shadow-xl">{selectedPhoto.note}</p>}
         <button type="button" onClick={() => setSelectedPhoto(null)} className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-2xl text-white sm:right-2 sm:top-2" style={{ marginTop: 'env(safe-area-inset-top)' }} aria-label="Close photo">×</button>
       </div>
     </div>

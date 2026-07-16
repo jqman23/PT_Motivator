@@ -39,6 +39,7 @@ type NotePhotoAttachment = {
   type: string;
   dataUrl: string;
   createdAt: string;
+  note: string;
 };
 
 const MAX_PHOTOS = 5;
@@ -63,6 +64,7 @@ function cleanPhotoAttachments(value: unknown): NotePhotoAttachment[] {
       type: typeof item.type === 'string' && item.type ? item.type : 'image/jpeg',
       dataUrl: typeof item.dataUrl === 'string' ? item.dataUrl : '',
       createdAt: typeof item.createdAt === 'string' && item.createdAt ? item.createdAt : new Date().toISOString(),
+      note: typeof item.note === 'string' ? item.note.slice(0, 500) : '',
     }))
     .filter(item => item.dataUrl.startsWith('data:image/'))
     .slice(0, MAX_PHOTOS);
@@ -112,6 +114,7 @@ async function fileToPhotoAttachment(file: File): Promise<NotePhotoAttachment> {
       type: 'image/jpeg',
       dataUrl: canvas.toDataURL('image/jpeg', PHOTO_QUALITY),
       createdAt: new Date().toISOString(),
+      note: '',
     };
   } catch {
     return {
@@ -120,6 +123,7 @@ async function fileToPhotoAttachment(file: File): Promise<NotePhotoAttachment> {
       type: file.type || 'image/jpeg',
       dataUrl: originalDataUrl,
       createdAt: new Date().toISOString(),
+      note: '',
     };
   }
 }
@@ -247,6 +251,10 @@ export default function NotesModal({
     setPhotoError('');
   };
 
+  const updatePhotoNote = (id: string, value: string) => {
+    setPhotoAttachments(prev => prev.map(photo => photo.id === id ? { ...photo, note: value.slice(0, 500) } : photo));
+  };
+
   const handleReview = async () => {
     const rawNote = stripSecretNotes(preserveTypedNote(note));
     if (!rawNote) {
@@ -292,7 +300,7 @@ export default function NotesModal({
     }
   };
 
-  const useSuggestion = (value: string) => {
+  const applySuggestion = (value: string) => {
     setNote(value);
     setReview(null);
     setStandardizedNote('');
@@ -308,22 +316,36 @@ export default function NotesModal({
   const renderPhotoGrid = (allowRemove: boolean) => {
     if (photoAttachments.length === 0) return null;
     return (
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {photoAttachments.map(photo => (
-          <div key={photo.id} className="relative overflow-hidden rounded-xl border border-stone-200 bg-white">
-            <img src={photo.dataUrl} alt={photo.name || 'Exercise note photo'} className="h-24 w-full object-cover bg-stone-100" />
-            {allowRemove && (
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); removePhoto(photo.id); }}
-                className="absolute right-1 top-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center"
-                style={{ touchAction: 'manipulation' }}
-                title="Remove photo"
-              >
-                ×
-              </button>
-            )}
+          <div key={photo.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+            <div className="relative">
+              <img src={photo.dataUrl} alt={photo.name || 'Exercise note photo'} className="h-24 w-full object-cover bg-stone-100" />
+              {allowRemove && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); removePhoto(photo.id); }}
+                  className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-sm leading-none text-white"
+                  style={{ touchAction: 'manipulation' }}
+                  title="Remove photo"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {allowRemove ? (
+              <textarea
+                value={photo.note}
+                onChange={(event) => updatePhotoNote(photo.id, event.target.value)}
+                placeholder="Photo note"
+                rows={2}
+                className="block w-full resize-none border-0 border-t border-stone-100 bg-white px-2 py-1.5 text-[11px] leading-snug text-stone-700 outline-none placeholder:text-stone-300"
+                maxLength={500}
+              />
+            ) : photo.note ? (
+              <p className="border-t border-stone-100 px-2 py-1.5 text-[10px] leading-snug text-stone-500">{photo.note}</p>
+            ) : null}
           </div>
         ))}
       </div>
@@ -403,7 +425,7 @@ export default function NotesModal({
                   <button
                     key={`${s}-${i}`}
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); useSuggestion(s); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); applySuggestion(s); }}
                     className="flex-shrink-0 text-xs px-3 py-2 rounded-full border transition-colors text-left"
                     style={{
                       borderColor: note === s ? '#7E9B86' : '#e7e5e4',

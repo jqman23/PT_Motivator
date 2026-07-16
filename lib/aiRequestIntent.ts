@@ -2,11 +2,18 @@ export function isAgentRequest(value: string) {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (!text) return false;
 
+  if (isExistingPhotoInspectionRequest(text)) return false;
+
   // A generated visual is a chat response, not a persistent app mutation. Verbs
   // such as “make” and “create” must not turn charts or tables into Apply cards.
   if (isVisualizationRequest(text)) return false;
 
   if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|apply|change|delete|edit|log|record|remove|save|set|update)\b/.test(text)) {
+    return false;
+  }
+
+  const clearWriteIntent = /\b(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|note|open|pin|put|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update)\b/.test(text);
+  if (!clearWriteIntent && /\b(?:worried|worry|concerned|concern|nervous|scared|afraid|anxious|can you help|help me|reassure|positive|what do you think|is it normal|does this sound|should i)\b/.test(text)) {
     return false;
   }
 
@@ -32,6 +39,14 @@ export function isAgentRequest(value: string) {
   if (/\b(?:there should be|put down|book me for)\b.{0,40}\b(?:pt|physical therapy|training)(?: session| appointment)?\b/.test(text)) return true;
 
   return /\b(?:add(?:ing)?|append(?:ing)?|apply(?:ing)?|attach(?:ing)?|book(?:ed|ing)?|cancel(?:ed|ing)?|chang(?:e|ing)|check(?:ing)?|clear(?:ing)?|complet(?:e|ed|ing)|creat(?:e|ing)|customiz(?:e|ing)|delet(?:e|ing)|disabl(?:e|d|ing)|done|draft(?:ing)?|edit(?:ing)?|enabl(?:e|d|ing)|finished|get rid of|hid(?:e|den|ing)|log(?:ged|ging)?|mak(?:e|ing)|mark(?:ed|ing)?|mov(?:e|ed|ing)|not(?:e|ed|ing)|open(?:ed|ing)?|organi[sz](?:e|ed|ing)|pin(?:ned|ning)?|put(?:ting)?|record(?:ed|ing)?|remov(?:e|ed|ing)|renam(?:e|ed|ing)|replac(?:e|ed|ing)|reorder(?:ed|ing)?|sav(?:e|ed|ing)|schedul(?:e|ed|ing)|set(?:ting)?|show(?:n|ing)?|track(?:ed|ing)?|turn on|turn off|uncheck(?:ed|ing)?|updat(?:e|ed|ing))\b/.test(text);
+}
+
+export function isExistingPhotoInspectionRequest(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!/\b(?:photo|picture|image|screenshot|attachment|attached it|uploaded it)\b/.test(text)) return false;
+  if (/\b(?:(?:don't|dont|do not|not)\s+want\s+to\s+upload|without\s+uploading|upload\s+it\s+again|upload\s+(?:the\s+)?(?:photo|picture|image|screenshot)\s+again)\b/.test(text)) return true;
+  if (/\b(?:attach|add|choose|upload|send)\b.{0,28}\b(?:photo|picture|image|screenshot)\b|\b(?:photo|picture|image|screenshot)\b.{0,28}\b(?:attach|add|choose|upload|send)\b/.test(text)) return false;
+  return /\b(?:can you see|do you see|look at|look over|inspect|analy[sz]e|what.*see|anything about|already attached|already uploaded|don't want to upload|dont want to upload|do not want to upload|not want to upload|without uploading again)\b/.test(text);
 }
 
 export function isExerciseCompletionCoverageRequest(value: string) {

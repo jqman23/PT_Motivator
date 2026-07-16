@@ -5,7 +5,7 @@ import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi } 
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 
@@ -362,12 +362,17 @@ function numeric(value: unknown) {
 
 function compactHealth(row: Record<string, unknown> | undefined, includeSecretNotes = false) {
   if (!row) return null;
+  const generalPhotoNotes = Array.isArray(row.general_note_photo_notes)
+    ? row.general_note_photo_notes.map(value => cleanText(String(value ?? ''), 500)).filter(Boolean).slice(0, 5)
+    : [];
   return {
     pain: numeric(row.pain),
     energy: numeric(row.energy),
     mood: numeric(row.mood),
     sleepHours: numeric(row.sleep_hours),
     sleepQuality: numeric(row.sleep_quality),
+    generalNotePhotoCount: numeric(row.general_note_photo_count) ?? 0,
+    generalNotePhotoNotes: generalPhotoNotes,
     // Preserve the query's already-bounded note text internally so an explicitly
     // requested semantic aggregate can count the complete applicable fields.
     // Rich candidate prompts below still apply their smaller per-day clips.
@@ -430,7 +435,13 @@ async function loadDayRecords(startDate: string, endDate: string, exerciseMap: M
           'treatment_notes', LEFT(COALESCE(treatment_notes, ''), 1200),
           'sleep_notes', LEFT(COALESCE(sleep_notes, ''), 900),
           'energy_notes', LEFT(COALESCE(energy_notes, ''), 900),
-          'mood_notes', LEFT(COALESCE(mood_notes, ''), 900)
+          'mood_notes', LEFT(COALESCE(mood_notes, ''), 900),
+          'general_note_photo_count', jsonb_array_length(COALESCE(general_note_photos, '[]'::jsonb)),
+          'general_note_photo_notes', (
+            SELECT COALESCE(jsonb_agg(LEFT(photo ->> 'note', 500)), '[]'::jsonb)
+            FROM jsonb_array_elements(COALESCE(general_note_photos, '[]'::jsonb)) AS photo
+            WHERE COALESCE(photo ->> 'note', '') != ''
+          )
         ) AS payload
       FROM health_log
       WHERE date >= ${startDate}::date AND date <= ${endDate}::date
@@ -680,6 +691,8 @@ function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
       painNote: cleanText(health.painNote, 180),
       generalNote: cleanText(health.generalNote, 260),
       treatmentNote: cleanText(health.treatmentNote, 180),
+      generalNotePhotoCount: health.generalNotePhotoCount,
+      generalNotePhotoNotes: Array.isArray(health.generalNotePhotoNotes) ? health.generalNotePhotoNotes.slice(0, 3).map(note => cleanText(String(note), 160)) : [],
       sleepNote: cleanText(health.sleepNote, 120),
       energyNote: cleanText(health.energyNote, 120),
       moodNote: cleanText(health.moodNote, 120),
@@ -1043,9 +1056,14 @@ export async function POST(req: NextRequest) {
     const priorUserMessages = history.filter(message => message.role === 'user').map(message => message.content);
     const correctionFollowUp = isHistoryCorrectionFollowUp(cleanQuestion);
     const currentHistoryWindow = resolveBoundedHistoryWindow(cleanQuestion, appToday);
+    const existingPhotoInspectionIntent = isExistingPhotoInspectionRequest(cleanQuestion)
+      || (/\b(?:upload|send|attach)\s+it\s+again\b/i.test(cleanQuestion) && /\b(?:photo|picture|image|screenshot)\b/i.test(conversationText));
+    const photoInspectionDate = currentQuestionDates.at(-1) ?? selectedDate ?? appToday;
+    const photoInspectionWindow = existingPhotoInspectionIntent ? { startDate: photoInspectionDate, endDate: photoInspectionDate, dayCount: 1, sourceText: cleanQuestion } satisfies BoundedHistoryWindow : null;
     const mayCarryPriorWindow = isHistoryScopeFollowUp(cleanQuestion) && !isWholeHistoryComparisonRequest(cleanQuestion);
     const historyWindow = currentHistoryWindow
-      ?? (mayCarryPriorWindow ? resolveHistoryWindowFromConversation(cleanQuestion, priorUserMessages, appToday) : null);
+      ?? (mayCarryPriorWindow ? resolveHistoryWindowFromConversation(cleanQuestion, priorUserMessages, appToday) : null)
+      ?? photoInspectionWindow;
     const agentIntent = isAgentRequest(cleanQuestion)
       || /^(yes[,.! ]*)?(do it|go ahead|apply (?:it|that|those)|make (?:it|that) happen)\b/i.test(cleanQuestion);
     const priorUserQuestion = history.toReversed().find(message => message.role === 'user')?.content ?? '';
@@ -1060,7 +1078,8 @@ export async function POST(req: NextRequest) {
       || (!agentIntent && explicitDates.length > 0)
       || (!agentIntent && correctionFollowUp && priorHistoryIntent)
       || completionCoverageIntent
-      || visualizationIntent;
+      || visualizationIntent
+      || existingPhotoInspectionIntent;
     const patternIntent = isPatternQuestion(cleanQuestion);
     const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
     const instructionHistoryIntent = conversationAiInstructions.some(instruction =>
@@ -1127,6 +1146,40 @@ export async function POST(req: NextRequest) {
         usedPersonalHistory: true,
         searchedDays: historyWindow.dayCount,
         comparedDays: historyWindow.dayCount,
+        rerankerModel: '',
+        rerankerProviderKey: '',
+        rerankedCandidates: 0,
+      });
+    }
+
+    if (existingPhotoInspectionIntent && historyWindow) {
+      const targetDate = photoInspectionDate;
+      const record = dayRecords.find(day => day.date === targetDate);
+      const health = record?.health ?? {};
+      const count = numeric(health.generalNotePhotoCount) ?? 0;
+      const photoNotes = Array.isArray(health.generalNotePhotoNotes)
+        ? health.generalNotePhotoNotes.map(note => cleanText(String(note), 500)).filter(Boolean)
+        : [];
+      const answer = count > 0
+        ? [
+          `I can confirm ${count} photo${count === 1 ? ' is' : 's are'} attached to the general health note for ${targetDate}.`,
+          photoNotes.length ? `Saved photo note${photoNotes.length === 1 ? '' : 's'}: ${photoNotes.map(note => `"${note}"`).join('; ')}.` : '',
+          'I cannot visually inspect the saved image pixels from this chat path yet. You can now add a note/caption directly to uploaded images, and I can use that caption in later AI responses.',
+        ].filter(Boolean).join(' ')
+        : `I do not see a general-health-note photo attached for ${targetDate} in the saved records. If it is still sitting in an unapplied review card, press Apply first; if it is saved elsewhere, tell me where it is attached.`;
+      return NextResponse.json({
+        reply: {
+          answer,
+          options: [],
+          dateLinks: [{ date: targetDate, label: targetDate, reason: 'Photo inspection target date' }],
+          dateSummaries: record ? dateSummariesForAnswer(targetDate, dayRecords, appToday) : [],
+          visualizations: [],
+        },
+        model: 'deterministic',
+        attemptedModels: [],
+        usedPersonalHistory: true,
+        searchedDays: 1,
+        comparedDays: 1,
         rerankerModel: '',
         rerankerProviderKey: '',
         rerankedCandidates: 0,
@@ -1202,6 +1255,7 @@ export async function POST(req: NextRequest) {
       'Use exact exercise IDs from relevantExercisesInApp. Use exact doctor-note IDs from doctorNotes. Use currentlySelectedDate when the user says this day or does not specify a date for a clearly day-specific command.',
       'For many completion changes based on note text, emit one bulk_completion_from_note action rather than listing dates. The server will deterministically find and preview matches.',
       'A photo_attach action only opens a user-controlled photo chooser during review. Never invent photo data or claim access to the photo library. Propose at most one photo_attach action per plan.',
+      'If the user asks whether you can see, inspect, analyze, or look at an image/photo they already attached, do not create photo_attach. Answer from supplied photo metadata only; if no image pixels are supplied, say you cannot visually inspect the saved pixels from this chat path yet.',
       'Navigation is a navigate action. It may target date, exercise, health, doctorNotes, doctorNote, settings, exerciseTypes, library, calendar, ptSessions, treatments, progressReport, dataExport, exerciseGuide, manageExercises, masterDatabase, timer, or top.',
       'When visualizationRequested is true, return one or two concise visualizations based only on supplied factual data. Use table for a requested table, line for numeric trends, and bar for counts or comparisons. Never estimate missing values.',
       'For mention frequency, textual counts, or category breakdowns, use every row of the supplied bounded or whole-history noteCorpus. Count only supported mentions, label the counted unit clearly, and always return the requested table or bar visual.',
@@ -1241,6 +1295,7 @@ export async function POST(req: NextRequest) {
         reason: includeSecretNotes ? 'Latest /ai guidance explicitly allowed secret/private/hidden notes for this response.' : 'Excluded by default.',
       },
       agentPlanningRequested: agentIntent,
+      existingPhotoInspectionRequested: existingPhotoInspectionIntent,
       agentPlanningAllowed: true,
       agentActionContract: AGENT_ACTION_CONTRACT,
       agentPlanningDirective: agentIntent
@@ -1380,7 +1435,10 @@ export async function POST(req: NextRequest) {
       categories: categoryContext,
       doctorNotes: doctorNotesContext.map(note => ({ id: String(note.id ?? ''), title: String(note.title ?? '') })).filter(note => note.id),
     };
-    const modelAgentPlan = normalizeModelAgentPlan(raw, modelPlanContext);
+    const rawModelAgentPlan = normalizeModelAgentPlan(raw, modelPlanContext);
+    const modelAgentPlan = existingPhotoInspectionIntent && rawModelAgentPlan
+      ? normalizeAgentPlan({ summary: rawModelAgentPlan.summary, actions: rawModelAgentPlan.actions.filter(action => action.type !== 'photo_attach') })
+      : rawModelAgentPlan;
     const deterministicDoctorCreate = deterministicAgentPlan?.actions.some(action => action.type === 'doctor_note_upsert' && action.mode === 'create');
     const relevantModelActions = deterministicAgentPlan && modelAgentPlan
       ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, cleanQuestion)

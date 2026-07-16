@@ -16,6 +16,7 @@ type DoctorNotePhoto = {
   type: string;
   dataUrl: string;
   createdAt: string;
+  note: string;
 };
 
 type ResponseTranscript = {
@@ -50,6 +51,7 @@ function normalizePhotos(value: unknown): DoctorNotePhoto[] {
       type: cleanText(raw.type, 80) || 'image/jpeg',
       dataUrl: raw.dataUrl,
       createdAt: cleanText(raw.createdAt, 60) || new Date().toISOString(),
+      note: cleanText(raw.note, 500),
     });
 
     if (photos.length >= MAX_PHOTOS) break;

@@ -9,6 +9,7 @@ type GeneralNotePhoto = {
   type: string;
   dataUrl: string;
   createdAt: string;
+  note: string;
 };
 
 interface HealthData {
@@ -82,6 +83,7 @@ function cleanGeneralNotePhotos(value: unknown): GeneralNotePhoto[] {
       type: typeof item.type === 'string' && item.type ? item.type : 'image/jpeg',
       dataUrl: typeof item.dataUrl === 'string' ? item.dataUrl : '',
       createdAt: typeof item.createdAt === 'string' && item.createdAt ? item.createdAt : new Date().toISOString(),
+      note: typeof item.note === 'string' ? item.note.slice(0, 500) : '',
     }))
     .filter(photo => photo.dataUrl.startsWith('data:image/'))
     .slice(0, MAX_GENERAL_NOTE_PHOTOS);
@@ -124,6 +126,7 @@ async function fileToGeneralNotePhoto(file: File): Promise<GeneralNotePhoto> {
       type: 'image/jpeg',
       dataUrl: canvas.toDataURL('image/jpeg', PHOTO_QUALITY),
       createdAt: new Date().toISOString(),
+      note: '',
     };
   } catch {
     return {
@@ -132,6 +135,7 @@ async function fileToGeneralNotePhoto(file: File): Promise<GeneralNotePhoto> {
       type: file.type || 'image/jpeg',
       dataUrl: originalDataUrl,
       createdAt: new Date().toISOString(),
+      note: '',
     };
   }
 }
@@ -524,6 +528,15 @@ export default function HealthTracker({ today }: Props) {
     commitData(next);
   };
 
+  const updatePhotoNote = (id: string, value: string) => {
+    const nextPhotos = dataRef.current.general_note_photos.map(photo => photo.id === id ? { ...photo, note: value.slice(0, 500) } : photo);
+    const next = { ...dataRef.current, general_note_photos: nextPhotos };
+    dataRef.current = next;
+    setData(next);
+    setSelectedPhoto(current => current?.id === id ? { ...current, note: value.slice(0, 500) } : current);
+    scheduleSave(next);
+  };
+
   const handleReset = async () => {
     if (!confirmReset) { setConfirmReset(true); return; }
     setConfirmReset(false);
@@ -676,28 +689,38 @@ export default function HealthTracker({ today }: Props) {
         />
 
         {data.general_note_photos.length > 0 && (
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {data.general_note_photos.map(photo => (
-              <div key={photo.id} className="relative overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
-                <button
-                  type="button"
-                  onClick={() => setSelectedPhoto(photo)}
-                  className="block w-full"
-                  style={{ touchAction: 'manipulation' }}
-                  title="View photo"
-                >
-                  <img src={photo.dataUrl} alt={photo.name || 'Daily note photo'} className="h-24 w-full object-cover" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removePhoto(photo.id)}
-                  className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-sm leading-none text-white"
-                  style={{ touchAction: 'manipulation' }}
-                  title="Remove photo"
-                  aria-label="Remove photo"
-                >
-                  ×
-                </button>
+              <div key={photo.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+                <div className="relative bg-stone-100">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPhoto(photo)}
+                    className="block w-full"
+                    style={{ touchAction: 'manipulation' }}
+                    title="View photo"
+                  >
+                    <img src={photo.dataUrl} alt={photo.name || 'Daily note photo'} className="h-24 w-full object-cover" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(photo.id)}
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-sm leading-none text-white"
+                    style={{ touchAction: 'manipulation' }}
+                    title="Remove photo"
+                    aria-label="Remove photo"
+                  >
+                    ×
+                  </button>
+                </div>
+                <textarea
+                  value={photo.note}
+                  onChange={(event) => updatePhotoNote(photo.id, event.target.value)}
+                  placeholder="Photo note"
+                  rows={2}
+                  className="block w-full resize-none border-0 border-t border-stone-100 bg-white px-2 py-1.5 text-[11px] leading-snug text-stone-700 outline-none placeholder:text-stone-300"
+                  maxLength={500}
+                />
               </div>
             ))}
           </div>
@@ -719,7 +742,10 @@ export default function HealthTracker({ today }: Props) {
       {selectedPhoto && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4" onClick={() => setSelectedPhoto(null)}>
           <div className="relative max-h-full max-w-3xl" onClick={e => e.stopPropagation()}>
-            <img src={selectedPhoto.dataUrl} alt={selectedPhoto.name || 'Daily note photo'} className="max-h-[88dvh] max-w-full rounded-2xl object-contain shadow-2xl" />
+            <img src={selectedPhoto.dataUrl} alt={selectedPhoto.name || 'Daily note photo'} className="max-h-[82dvh] max-w-full rounded-2xl object-contain shadow-2xl" />
+            {selectedPhoto.note && (
+              <p className="mt-2 max-w-2xl rounded-xl bg-white/95 px-3 py-2 text-sm leading-snug text-stone-700 shadow-xl">{selectedPhoto.note}</p>
+            )}
             <button
               type="button"
               onClick={() => setSelectedPhoto(null)}

@@ -73,7 +73,7 @@ interface Props {
   onAgentNavigate: (action: Extract<AgentAction, { type: 'navigate' }>) => void;
 }
 
-type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; createdAt: string };
+type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; createdAt: string; note: string };
 
 const AI_ACTION_STARTERS = [
   {
@@ -184,6 +184,7 @@ async function prepareAgentPhoto(file: File): Promise<AgentPhoto> {
     type: dataUrl.startsWith('data:image/jpeg') ? 'image/jpeg' : file.type || 'image/jpeg',
     dataUrl,
     createdAt: new Date().toISOString(),
+    note: '',
   };
 }
 
@@ -416,7 +417,7 @@ async function copyValue(value: string) {
   else fallbackCopy(value);
 }
 
-function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onToggle, onApply, onNavigate, onChoosePhoto, onCopyJson }: {
+function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onToggle, onApply, onNavigate, onChoosePhoto, onPhotoNoteChange, onCopyJson }: {
   plan: PreviewedAgentPlan;
   selectedIds: string[];
   busy: boolean;
@@ -427,6 +428,7 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
   onApply: () => void;
   onNavigate: (action: Extract<AgentAction, { type: 'navigate' }>) => void;
   onChoosePhoto: () => void;
+  onPhotoNoteChange: (note: string) => void;
   onCopyJson: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -499,11 +501,21 @@ function AgentPlanCard({ plan, selectedIds, busy, error, copyStatus, photo, onTo
       )}
 
       {selectedNeedsPhoto && !applied && (
-        <div className="border-t border-[#D3DDD5] px-3 py-2.5">
+        <div className="space-y-2 border-t border-[#D3DDD5] px-3 py-2.5">
           <button type="button" onClick={onChoosePhoto} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#BFCFC3] bg-[#F6F1E7] py-2 text-xs font-bold text-[#52705C] disabled:opacity-50">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2" /><circle cx="7" cy="8" r="1.4" /><path d="m4.5 14 3.4-3 2.4 2 2.3-2.2 2.9 3.2" /></svg>
             {photo ? `Selected: ${photo.name}` : 'Choose photo'}
           </button>
+          {photo && (
+            <textarea
+              value={photo.note}
+              onChange={(event) => onPhotoNoteChange(event.target.value)}
+              placeholder="Photo note"
+              rows={2}
+              maxLength={500}
+              className="block w-full resize-none rounded-lg border border-[#D3DDD5] bg-white/85 px-2.5 py-2 text-xs leading-snug text-stone-700 outline-none placeholder:text-stone-300"
+            />
+          )}
         </div>
       )}
 
@@ -952,6 +964,14 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     }
   };
 
+  const updateAgentPhotoNote = (messageId: string, note: string) => {
+    setAgentPhotos(previous => {
+      const photo = previous[messageId];
+      if (!photo) return previous;
+      return { ...previous, [messageId]: { ...photo, note: note.slice(0, 500) } };
+    });
+  };
+
   const applyAgentPlan = async (message: ChatMessage, plan: PreviewedAgentPlan) => {
     if (agentBusyMessageId || plan.appliedRunId) return;
     const selectedIds = new Set(selectedAgentActionIds(message, plan));
@@ -1334,6 +1354,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                       onAgentNavigate(action);
                     }}
                     onChoosePhoto={() => chooseAgentPhoto(message.id)}
+                    onPhotoNoteChange={note => updateAgentPhotoNote(message.id, note)}
                     onCopyJson={() => void copyAgentPlan(message.id, reply.agentPlan!)}
                   />
                 )}

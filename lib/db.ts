@@ -8,6 +8,7 @@ export type NotePhotoAttachment = {
   type: string;
   dataUrl: string;
   createdAt: string;
+  note: string;
 };
 
 const MAX_NOTE_PHOTOS = 5;
@@ -30,6 +31,7 @@ function normalizePhotoAttachments(value: unknown): NotePhotoAttachment[] {
       type: typeof raw.type === 'string' ? raw.type.slice(0, 80) : 'image/jpeg',
       dataUrl: raw.dataUrl,
       createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
+      note: typeof raw.note === 'string' ? raw.note.trim().slice(0, 500) : '',
     });
 
     if (photos.length >= MAX_NOTE_PHOTOS) break;
