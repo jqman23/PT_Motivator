@@ -78,18 +78,81 @@ type AgentPhoto = { id: string; name: string; type: string; dataUrl: string; cre
 
 const AI_ACTION_STARTERS = [
   {
+    id: 'today-plan',
+    title: "Today's plan",
+    description: 'Use recent notes for advice without changing anything.',
+    accent: '#476653',
+    prompt: "Based on my recent notes and today's symptoms, what should I consider doing today? Advice only - do not save or change anything.",
+  },
+  {
+    id: 'episode-timeline',
+    title: 'Find episodes',
+    description: 'When symptoms showed up, oldest to newest, with dates.',
+    accent: '#477986',
+    prompt: 'When have I complained about [body part / symptom]? Summarize the main episodes oldest-to-newest, preserve laterality, and hyperlink every date you discuss.',
+  },
+  {
+    id: 'exact-mentions',
+    title: 'Count exact mentions',
+    description: 'Source-verified note counts with inspectable evidence.',
+    accent: '#836488',
+    prompt: 'Search my entire saved history and make a table counting exact mentions of [term 1], [term 2], and [term 3]. Let me inspect every supporting note.',
+  },
+  {
+    id: 'metric-summary',
+    title: 'Calculate metrics',
+    description: 'Averages, maximums, totals, and unlogged days.',
+    accent: '#5F7694',
+    prompt: 'Over [date range], show my [average pain], [maximum energy], and [total exercises]. Use the correct calculation for each measure and report recorded vs unlogged days.',
+  },
+  {
+    id: 'paired-relationship',
+    title: 'Compare two metrics',
+    description: 'Paired-date relationships without causation claims.',
+    accent: '#55709A',
+    prompt: 'Calculate the relationship between [metric A] and [metric B] over [date range]. Use only paired dates, state the sample size, and do not imply causation.',
+  },
+  {
+    id: 'progress-brief',
+    title: 'Progress brief',
+    description: 'A doctor/PT-ready summary from saved records.',
+    accent: '#A27433',
+    prompt: 'Create a concise progress brief for [doctor / PT] covering [date range]: symptoms, triggers, exercise consistency, what improved, what worsened, and questions to ask.',
+  },
+  {
+    id: 'visualize-patterns',
+    title: 'Visualize patterns',
+    description: 'Tables, lines, bars, and evidence-backed drilldowns.',
+    accent: '#486680',
+    prompt: 'Visualize [pattern or metrics] across [date range] as a [table / line chart / bar chart]. Focus on [what I want to understand] and keep the evidence clickable.',
+  },
+  {
+    id: 'log-today',
+    title: 'Log today',
+    description: 'Fast pain, health-note, and completion updates.',
+    accent: '#A85E53',
+    prompt: 'For today, set pain to [0-10], add the health note "[note]", and mark [exercise] complete.',
+  },
+  {
     id: 'log-workout',
-    title: 'Log a workout',
+    title: 'Log workout details',
     description: 'Completion, sets, reps, time, weight, or a note.',
     accent: '#476653',
-    prompt: 'On [date], mark [exercise] complete. Log [sets] sets of [reps or duration] with [weight, if any], and add this note: [details].',
+    prompt: 'On [date], mark [exercise] complete. Log [sets] sets of [reps or duration] with [weight, if any], and add this exercise note: [details].',
   },
   {
     id: 'update-wellness',
     title: 'Update wellness',
-    description: 'Pain, sleep, energy, mood, and health notes.',
+    description: 'Pain, sleep, energy, mood, treatments, and notes.',
     accent: '#A85E53',
-    prompt: 'For [date], set my pain to [0–10], energy to [0–10], mood to [0–10], and sleep to [hours]. Add this health note: [details].',
+    prompt: 'For [date], set my pain to [0-10], energy to [0-10], mood to [0-10], and sleep to [hours]. Add this health note: [details].',
+  },
+  {
+    id: 'bulk-from-notes',
+    title: 'Bulk from notes',
+    description: 'Find matching note text and prepare many completions.',
+    accent: '#6A7350',
+    prompt: 'Whenever my [general / pain / exercise] notes mention "[phrase]" from [start date] to [end date], mark [exercise] complete. Prepare the review card only.',
   },
   {
     id: 'manage-exercises',
@@ -99,6 +162,20 @@ const AI_ACTION_STARTERS = [
     prompt: 'Please [add / edit / move / remove] [exercise name]. Details: [exact change, category, cue, sets, or tips].',
   },
   {
+    id: 'build-exercise',
+    title: 'Build an exercise',
+    description: 'Draft app-ready movements from goals or source matches.',
+    accent: '#477986',
+    prompt: 'Create an app-ready exercise for [goal / body part / equipment]. Include the best name, category, cue, sets, tips, and image search terms. Use exercise sources if useful.',
+  },
+  {
+    id: 'identify-exercise',
+    title: 'Identify movement',
+    description: 'Use a photo or description to name and build it.',
+    accent: '#8A6B45',
+    prompt: 'Identify this [photo / movement description] and draft an app-ready exercise with category, cue, sets, tips, and image search terms.',
+  },
+  {
     id: 'doctor-note',
     title: 'Make a doctor note',
     description: 'Create or update questions, symptoms, visits, and plans.',
@@ -106,25 +183,18 @@ const AI_ACTION_STARTERS = [
     prompt: 'Create a [question / symptom / visit / result / plan] doctor note titled [title] for [provider]. Include: [details]. Link it to [date].',
   },
   {
+    id: 'doctor-response',
+    title: 'Answer doc note',
+    description: 'Append a response or follow-up to an existing note.',
+    accent: '#836488',
+    prompt: 'Respond to the [doctor note title] doc note by saying: [answer / follow-up].',
+  },
+  {
     id: 'schedule-session',
     title: 'Add a PT session',
     description: 'Add or remove PT and training appointments.',
     accent: '#A27433',
     prompt: 'Please [add / remove] a [PT / training] session on [date] with this note: [details].',
-  },
-  {
-    id: 'find-patterns',
-    title: 'Find a pattern',
-    description: 'Search saved days, compare trends, or find an event.',
-    accent: '#477986',
-    prompt: 'Look across [date range / all saved history] and tell me [what happened, what to compare, or the pattern to find].',
-  },
-  {
-    id: 'visualize-patterns',
-    title: 'Visualize patterns',
-    description: 'Turn saved history into a polished table, line, or bar chart.',
-    accent: '#55709A',
-    prompt: 'Visualize [pattern or metrics] across [date range] as a [table / line chart / bar chart]. Focus on [what I want to understand].',
   },
   {
     id: 'attach-photo',
@@ -136,9 +206,9 @@ const AI_ACTION_STARTERS = [
   {
     id: 'open-screen',
     title: 'Open something',
-    description: 'Jump to a day, exercise, calendar, report, timer, or setting.',
+    description: 'Jump to a day, exercise, calendar, note, or setting.',
     accent: '#486680',
-    prompt: 'Take me to [day, exercise, calendar, doctor notes, settings, report, timer, or another screen].',
+    prompt: 'Take me to [day, exercise, doctor note, calendar, settings, report, timer, treatments, PT sessions, or another screen].',
   },
   {
     id: 'personalize-app',
@@ -146,6 +216,13 @@ const AI_ACTION_STARTERS = [
     description: 'Show or hide widgets, rename the app, or organize categories.',
     accent: '#6A7350',
     prompt: 'Customize my app by [showing or hiding a widget / changing the app title / adding, renaming, or removing a category]. Exact change: [details].',
+  },
+  {
+    id: 'undo-or-clarify',
+    title: 'Review a change',
+    description: 'Ask why, inspect evidence, or find undo options.',
+    accent: '#A27433',
+    prompt: 'Help me review [the last AI response / a proposed review card / a recent applied change]. Explain what it would change, what evidence it used, and what I can undo.',
   },
 ] as const;
 
@@ -1339,7 +1416,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           </div>
           <p className={`${actionsOpen ? 'mt-1' : 'mt-2'} w-full text-xs leading-snug text-stone-500`}>
             {actionsOpen
-              ? 'Choose an action to edit in chat.'
+              ? 'Choose a high-signal prompt template, then fill in the brackets before sending.'
               : historyOpen
                 ? 'Open a saved conversation or start fresh.'
                 : 'Ask about any saved day, find when something happened, compare patterns, identify a movement, construct an exercise, or keep asking follow-ups.'}
