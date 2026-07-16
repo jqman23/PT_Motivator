@@ -8,7 +8,7 @@ import SecretTextarea from './SecretTextarea';
 import AiVisualizationCard from './AiVisualizationCard';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
-import { isAgentRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isVisualizationRequest } from '@/lib/aiRequestIntent';
 import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 import {
   aiChatArchiveDebugBundle,
@@ -225,6 +225,50 @@ function shouldSearchExerciseSources(value: string) {
   const exerciseWords = /exercise|movement|stretch|drill|band|raise|curl|squat|lunge|bridge|balance|mobility|strength|form|construct|build|identify/i;
   const historyWords = /which day|what day|when did|history|previous|last time|day after|day before|compare|pattern|trend/i;
   return exerciseWords.test(value) && !historyWords.test(value) && !isAgentRequest(value);
+}
+
+type AiLoadingKind = 'command' | 'visualization' | 'history' | 'exercise' | 'general';
+type AiLoadingPhase = 'preparing' | 'searchingSources' | 'askingAi' | 'checkingReview' | 'buildingVisual' | 'searchingHistory';
+type AiLoadingState = {
+  startedAt: number;
+  kind: AiLoadingKind;
+  phase: AiLoadingPhase;
+};
+
+function aiLoadingKind(value: string): AiLoadingKind {
+  if (isAgentRequest(value)) return 'command';
+  if (isVisualizationRequest(value)) return 'visualization';
+  if (shouldSearchExerciseSources(value)) return 'exercise';
+  if (/\b(?:history|past|previous|last \d+|last few|which day|what day|when did|compare|pattern|trend|frequency|how often|count|mention|all saved|complete history|records?)\b/i.test(value)) return 'history';
+  return 'general';
+}
+
+function aiLoadingCopy(state: AiLoadingState, elapsedSeconds: number) {
+  if (state.phase === 'searchingSources') {
+    return { title: 'Checking exercise sources', detail: 'Looking for movement matches before asking AI.' };
+  }
+  if (state.phase === 'checkingReview') {
+    return { title: 'Preparing the review card', detail: 'Validating the proposed app changes before showing Apply.' };
+  }
+  if (state.phase === 'buildingVisual') {
+    return { title: 'Building the visual', detail: 'Comparing the relevant records and shaping the chart data.' };
+  }
+  if (state.phase === 'searchingHistory') {
+    return { title: 'Searching saved history', detail: 'Ranking the relevant days and checking the full scope.' };
+  }
+  if (state.kind === 'command') {
+    return { title: elapsedSeconds >= 4 ? 'Drafting actions for review' : 'Reading the command', detail: 'Resolving dates, targets, values, and reviewable changes.' };
+  }
+  if (state.kind === 'visualization') {
+    return { title: 'Planning the visualization', detail: 'Choosing the right table or chart for the request.' };
+  }
+  if (state.kind === 'history') {
+    return { title: 'Searching saved history', detail: 'Finding the records needed to answer accurately.' };
+  }
+  if (state.kind === 'exercise') {
+    return { title: 'Understanding the movement', detail: 'Checking exercise context and matching useful sources.' };
+  }
+  return { title: elapsedSeconds >= 5 ? 'Still working through it' : 'Thinking through the answer', detail: 'Using the best available AI route for this request.' };
 }
 
 async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
@@ -493,6 +537,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [input, setInput] = useState(initialConversation.input);
   const [messages, setMessages] = useState<ChatMessage[]>(initialConversation.messages);
   const [loading, setLoading] = useState(false);
+  const [loadingState, setLoadingState] = useState<AiLoadingState | null>(null);
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
   const [error, setError] = useState('');
   const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
@@ -695,6 +741,17 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   }, [conversationId, messages]);
 
   useEffect(() => {
+    if (!loadingState) {
+      setLoadingElapsed(0);
+      return;
+    }
+    const update = () => setLoadingElapsed(Math.max(0, Math.floor((Date.now() - loadingState.startedAt) / 1000)));
+    update();
+    const id = window.setInterval(update, 1000);
+    return () => window.clearInterval(id);
+  }, [loadingState]);
+
+  useEffect(() => {
     const handleAgentUndone = (event: Event) => {
       const runId = String((event as CustomEvent<{ runId?: string }>).detail?.runId ?? '');
       if (!runId) return;
@@ -755,13 +812,21 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
     const userMessage: ChatMessage = { id: makeId(), role: 'user', content: clean, aiInstructions };
     const historyBeforeQuestion = apiHistory;
+    const loadingKind = aiLoadingKind(clean);
     setMessages(previous => [...previous, userMessage]);
     setInput('');
     setLoading(true);
+    setLoadingState({ startedAt: Date.now(), kind: loadingKind, phase: 'preparing' });
     setError('');
 
     try {
-      const sourceMatches = shouldSearchExerciseSources(clean) ? await searchExternalSources(clean) : [];
+      const shouldSearchSources = shouldSearchExerciseSources(clean);
+      if (shouldSearchSources) setLoadingState(previous => previous ? { ...previous, phase: 'searchingSources' } : previous);
+      const sourceMatches = shouldSearchSources ? await searchExternalSources(clean) : [];
+      setLoadingState(previous => previous ? {
+        ...previous,
+        phase: loadingKind === 'visualization' ? 'buildingVisual' : loadingKind === 'history' ? 'searchingHistory' : 'askingAi',
+      } : previous);
       const res = await fetch('/api/ai-exercise-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -789,6 +854,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       let agentPlanError = '';
       let agentPlanningStatus: AiReply['agentPlanningStatus'] = data.reply?.agentPlanningStatus;
       if (data.reply?.agentPlan) {
+        setLoadingState(previous => previous ? { ...previous, phase: 'checkingReview' } : previous);
         try {
           agentPlan = await previewAgentPlan(data.reply.agentPlan);
         } catch (planError) {
@@ -840,6 +906,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       void saveChatSession(conversationId, [...messages, userMessage]);
     } finally {
       setLoading(false);
+      setLoadingState(null);
       window.setTimeout(() => composerRef.current?.querySelector<HTMLElement>('[role="textbox"]')?.focus(), 100);
     }
   };
@@ -1003,6 +1070,9 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       setCopyBusy(false);
     }
   };
+
+  const loadingDisplaySeconds = loadingState ? Math.max(1, loadingElapsed) : 0;
+  const loadingCopy = loadingState ? aiLoadingCopy(loadingState, loadingDisplaySeconds) : null;
 
   return (
     <div
@@ -1325,7 +1395,22 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             );
           })}
 
-          {loading && <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm text-stone-500">Preparing a careful response and any requested review actions…</div>}
+          {loading && loadingCopy && (
+            <div className="mr-8 rounded-2xl border border-[#D9E4DB] bg-white px-3 py-2.5 text-sm text-stone-600 shadow-[0_1px_2px_rgba(71,59,43,0.04)]" aria-live="polite">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#7E9B86]" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-semibold leading-tight text-stone-800">{loadingCopy.title}</span>
+                    <span className="mt-0.5 block text-xs leading-snug text-stone-500">{loadingCopy.detail}</span>
+                  </span>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#EEF4EF] px-2 py-1 text-[10px] font-bold tabular-nums text-[#52705C]">{loadingDisplaySeconds}s</span>
+              </div>
+            </div>
+          )}
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 whitespace-pre-wrap">{error}</p>}
         </div>
 
@@ -1340,7 +1425,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             style={{ fontSize: 16, colorScheme: 'light' }}
           />
           <button type="button" onClick={() => void ask(input)} disabled={loading || !stripSecretNotes(input).trim()} className="mt-2 w-full py-3 rounded-lg text-sm font-bold text-white disabled:opacity-40" style={{ background: '#1F2F46', touchAction: 'manipulation' }}>
-            {loading ? 'Thinking…' : messages.length ? 'Send follow-up' : 'Ask AI'}
+            {loading ? `Working ${loadingDisplaySeconds}s` : messages.length ? 'Send follow-up' : 'Ask AI'}
           </button>
           {historySaveError && <p className="mt-2 text-center text-[10px] font-semibold text-red-500">The answer is here, but chat history could not save.</p>}
           <p className="mt-2 text-center text-[10px] leading-snug text-stone-400">App changes always appear for review before Apply. Health interpretations are not a diagnosis.</p>
