@@ -44,6 +44,10 @@ export type StoredAiReplyDebug = {
     endDate?: string;
     loadedDays: number;
   };
+  secretNotes?: {
+    included: boolean;
+    reason?: string;
+  };
   visualization?: {
     source: 'none' | 'deterministic' | 'model' | 'semantic-repair';
     firstPassCount: number;
@@ -114,6 +118,7 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
   const rawIntents = raw.intents && typeof raw.intents === 'object' && !Array.isArray(raw.intents) ? raw.intents as Record<string, unknown> : null;
   const rawScope = raw.historyScope && typeof raw.historyScope === 'object' && !Array.isArray(raw.historyScope) ? raw.historyScope as Record<string, unknown> : null;
   const rawVisual = raw.visualization && typeof raw.visualization === 'object' && !Array.isArray(raw.visualization) ? raw.visualization as Record<string, unknown> : null;
+  const rawSecrets = raw.secretNotes && typeof raw.secretNotes === 'object' && !Array.isArray(raw.secretNotes) ? raw.secretNotes as Record<string, unknown> : null;
   const scopeMode = rawScope?.mode === 'ranked' || rawScope?.mode === 'window' || rawScope?.mode === 'whole' ? rawScope.mode : 'none';
   const visualSource = rawVisual?.source === 'deterministic' || rawVisual?.source === 'model' || rawVisual?.source === 'semantic-repair' ? rawVisual.source : 'none';
   return {
@@ -133,6 +138,10 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
       startDate: cleanText(rawScope.startDate, 10) || undefined,
       endDate: cleanText(rawScope.endDate, 10) || undefined,
       loadedDays: cleanNumber(rawScope.loadedDays) ?? 0,
+    } : undefined,
+    secretNotes: rawSecrets ? {
+      included: rawSecrets.included === true,
+      reason: cleanText(rawSecrets.reason, 160) || undefined,
     } : undefined,
     visualization: rawVisual ? {
       source: visualSource,

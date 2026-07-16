@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { extractAiInstructions, parseSecretNote, serializeSecretNote, stripSecretNotes } from './secretNotes.ts';
+import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi, parseSecretNote, serializeSecretNote, stripSecretNotes } from './secretNotes.ts';
 
 test('round trips visible text, secret text, and AI instructions in order', () => {
   const blocks = [
@@ -20,6 +20,17 @@ test('extracts normalized AI guidance while visible text excludes every command 
 
   assert.deepEqual(extractAiInstructions(value), ['look at pain and general notes']);
   assert.equal(stripSecretNotes(value), 'Question  tail');
+});
+
+test('includes secret note text only with explicit AI permission', () => {
+  const value = 'Visible \u27e6secret:locked\u27e7private detail\u27e6/secret\u27e7 \u27e6ai\u27e7include secret notes\u27e6/ai\u27e7 tail';
+
+  assert.equal(noteTextForAi(value), 'Visible   tail');
+  assert.equal(noteTextForAi(value, { includeSecrets: true }), 'Visible private detail  tail');
+  assert.equal(aiInstructionsAllowSecretNotes(['include secret notes for this answer']), true);
+  assert.equal(aiInstructionsAllowSecretNotes(['do not include secret notes']), false);
+  assert.equal(aiInstructionsAllowSecretNotes(['can you not use secret notes']), false);
+  assert.equal(aiInstructionsAllowSecretNotes(['think through a health lens']), false);
 });
 
 test('does not expose malformed or unterminated command text as an instruction', () => {

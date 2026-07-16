@@ -48,12 +48,33 @@ export function stripSecretNotes(value: string | null | undefined) {
   return value.replace(NOTE_BLOCK_RE, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+export function noteTextForAi(value: string | null | undefined, options?: { includeSecrets?: boolean }) {
+  if (!value) return '';
+  return parseSecretNote(value).map(block => {
+    if (block.type === 'ai') return '';
+    if (block.type === 'secret') return options?.includeSecrets ? block.text : '';
+    return block.text;
+  }).join('').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export function extractAiInstructions(value: string | null | undefined) {
   if (!value) return [];
   return parseSecretNote(value)
     .filter((block): block is Extract<SecretNoteBlock, { type: 'ai' }> => block.type === 'ai')
     .map(block => block.text.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+}
+
+export function aiInstructionsAllowSecretNotes(instructions: string[]) {
+  return instructions.some(instruction => {
+    const clean = instruction.toLowerCase().replace(/\s+/g, ' ').trim();
+    const mentionsSecret = /\b(?:secret|private|hidden|locked)\b/.test(clean);
+    const allowsUse = /\b(?:include|use|look at|read|access|consider|permission|allow|allowed|may|can)\b/.test(clean);
+    const deniesUse = /\b(?:do not|don't|dont|never|without|exclude|ignore|redact)\b.{0,40}\b(?:secret|private|hidden|locked)\b/.test(clean)
+      || /\b(?:not|don't|dont|never)\b.{0,30}\b(?:include|use|look at|read|access|consider)\b.{0,40}\b(?:secret|private|hidden|locked)\b/.test(clean)
+      || /\b(?:secret|private|hidden|locked)\b.{0,40}\b(?:off|exclude|ignore|redact)\b/.test(clean);
+    return mentionsSecret && allowsUse && !deniesUse;
+  });
 }
 
 export function hasSecretNotes(value: string | null | undefined) {
