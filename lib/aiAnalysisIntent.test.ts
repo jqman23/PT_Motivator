@@ -66,8 +66,8 @@ test('inherits a visible unanswered first turn after a failed request', () => {
   const result = resolveAnalysisRequest('do what i asked', [], [
     {
       role: 'user',
-      content: 'Count how many times I mentioned each of my ten categories',
-      aiInstructions: ['Show the ten categories and counts in a compact table.'],
+      content: 'I want to know the frequency of times I have mentioned my ten categories',
+      aiInstructions: ['I refer to the categories in different ways. Show the ten categories and counts in a compact table.'],
     },
   ]);
   assert.equal(result.inheritedGoal, true);

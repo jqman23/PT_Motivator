@@ -63,8 +63,13 @@ function analyticalAnchor(messages: AnalysisConversationMessage[]) {
   for (const message of [...messages].reverse()) {
     if (message.role !== 'user') continue;
     const text = messageIntentText(message);
-    if (!text || isDependentFollowUp(text)) continue;
-    if (hasAnalyticalSubject(text) || isVisualizationRequest(text)) return text;
+    if (!text) continue;
+    // A complete analytical request remains a valid anchor even when its natural
+    // wording also contains referential words such as "that" or "those". Subject
+    // evidence is stronger than the broad dependent-follow-up heuristic.
+    if (hasAnalyticalSubject(text)) return text;
+    if (isDependentFollowUp(text)) continue;
+    if (isVisualizationRequest(text)) return text;
   }
   for (const message of [...messages].reverse()) {
     if (message.role !== 'assistant') continue;
