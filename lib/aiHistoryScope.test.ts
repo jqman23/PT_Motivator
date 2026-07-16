@@ -26,8 +26,8 @@ test('whole-history comparison contains one bounded row for every loaded day', (
 });
 
 test('date tiles are supported only by dates cited in the answer or explicitly requested', () => {
-  const supported = supportedDateLinkDates('The strongest day was 2026-07-12.', ['2026-07-02']);
-  assert.deepEqual([...supported], ['2026-07-12', '2026-07-02']);
+  const supported = supportedDateLinkDates('The strongest day was 2026-07-12, after 2026‑07‑10.', ['2026-07-02']);
+  assert.deepEqual([...supported], ['2026-07-12', '2026-07-10', '2026-07-02']);
   assert.equal(supported.has('2026-06-30'), false);
 });
 

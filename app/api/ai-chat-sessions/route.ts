@@ -127,7 +127,27 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const id = cleanText(new URL(req.url).searchParams.get('id'), 100);
+  const params = new URL(req.url).searchParams;
+  if (params.get('all') === '1') {
+    const confirm = cleanText(params.get('confirm'), 64);
+    if (confirm !== 'delete-all-saved-chats') return NextResponse.json({ error: 'Delete-all confirmation is required.' }, { status: 400 });
+    try {
+      const rows = await sql`
+        WITH deleted AS (
+          DELETE FROM ai_chat_sessions
+          RETURNING 1
+        )
+        SELECT COUNT(*)::int AS deleted_count
+        FROM deleted
+      `;
+      return NextResponse.json({ ok: true, deletedCount: Number(rows[0]?.deleted_count ?? 0) });
+    } catch (error) {
+      console.error('[ai-chat-sessions DELETE all]', error);
+      return NextResponse.json({ error: 'Could not delete AI chats.' }, { status: 500 });
+    }
+  }
+
+  const id = cleanText(params.get('id'), 100);
   if (!id) return NextResponse.json({ error: 'Chat id is required.' }, { status: 400 });
   try {
     await sql`DELETE FROM ai_chat_sessions WHERE id = ${id}`;

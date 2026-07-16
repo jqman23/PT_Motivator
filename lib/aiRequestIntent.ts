@@ -30,8 +30,7 @@ export function isAgentRequest(value: string) {
   const asksForAdviceOrInterpretation = /\b(?:advice|advise|recommendations?|what do you recommend|treatment options?|interpret|assessment|opinion|what do you think|is it normal|does this sound|should i|help me understand|describe my)\b/.test(text);
   const asksAboutAssistantBehavior = /^(?:why (?:did|do|would|are|were|can|can't|cannot) (?:you|the (?:ai|assistant|app))|what do you mean|i(?:'m| am) asking (?:you )?for|answer (?:me|my question)|just answer)\b/.test(text)
     || /\b(?:why (?:are|were) you asking|why (?:do|did) you need|doctor[- ]?note id|review card)\b/.test(text);
-  const doctorResponseCommand = /\b(?:answer|respond|reply)\b.{0,100}\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b/.test(text)
-    || /\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b.{0,100}\b(?:answer|respond|reply)\b/.test(text);
+  const doctorResponseCommand = isDoctorNoteResponseCommand(text);
   const explicitlyPersistsAdvice = /^(?:please\s+)?(?:add|append|record|save|write|put)\b.{0,100}\b(?:note|log|record|entry)\b/.test(text);
   if ((asksForAdviceOrInterpretation && !explicitlyPersistsAdvice) || (asksAboutAssistantBehavior && !doctorResponseCommand)) {
     return false;
@@ -83,6 +82,27 @@ export function isAgentRequest(value: string) {
   if (directCommand.test(text) && (namesAnAppTarget || /^(?:please\s+)?(?:add|create)\s+(?!up\b)\S+/.test(text))) return true;
 
   return false;
+}
+
+export function isDoctorNoteResponseCommand(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  return /\b(?:answer|respond|reply)\b.{0,100}\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b/.test(text)
+    || /\b(?:doc(?:tor)?(?:'s)?\s+(?:note|question)|medical note)\b.{0,100}\b(?:answer|respond|reply)\b/.test(text);
+}
+
+export function isBulkNoteAgentRequest(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!text || isDoctorNoteResponseCommand(text)) return false;
+  return /\b(?:anytime|every time|whenever|all days|across)\b/i.test(text)
+    || /\bwhere\b.{0,80}\bnotes?\b/i.test(text)
+    || /\bnotes?\b.{0,48}\b(?:contain|mention|include)\b/i.test(text);
+}
+
+export function prefersChronologicalHistoryAnswer(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  if (/\b(?:recent|latest|most recent|newest|last)\b/.test(text)) return false;
+  return /\bwhen have i\b|\bwhen did i\b|\bmain episodes?\b|\bepisode(?:s)?\b|\btimeline\b|\bchronolog(?:ical|ically|y)\b|\bearliest to latest\b|\boldest to newest\b/.test(text);
 }
 
 export function isExistingPhotoInspectionRequest(value: string) {

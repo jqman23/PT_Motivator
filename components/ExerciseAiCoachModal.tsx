@@ -639,6 +639,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [historySaveError, setHistorySaveError] = useState(false);
   const [openingChatId, setOpeningChatId] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState('');
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false);
+  const [deleteAllBusy, setDeleteAllBusy] = useState(false);
   const [agentSelections, setAgentSelections] = useState<Record<string, string[]>>({});
   const [agentBusyMessageId, setAgentBusyMessageId] = useState('');
   const [agentErrors, setAgentErrors] = useState<Record<string, string>>({});
@@ -744,6 +746,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setCopyMenuOpen(false);
     setHistoryOpen(true);
     setPendingDeleteId('');
+    setPendingDeleteAll(false);
     if (!historyLoadedRef.current) void chatSaveQueueRef.current.then(() => loadChatHistory(true));
   };
 
@@ -751,6 +754,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setHistoryOpen(false);
     setCopyMenuOpen(false);
     setPendingDeleteId('');
+    setPendingDeleteAll(false);
     setActionsOpen(true);
   };
 
@@ -779,6 +783,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setActionsOpen(false);
     setCopyMenuOpen(false);
     setPendingDeleteId('');
+    setPendingDeleteAll(false);
     setAgentSelections({});
     setAgentErrors({});
     setAgentPhotos({});
@@ -816,6 +821,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       setAgentPhotos({});
       setHistoryOpen(false);
       setCopyMenuOpen(false);
+      setPendingDeleteAll(false);
       persistConversation('', restored, session.id);
     } catch {
       setHistoryError('That conversation could not be opened.');
@@ -831,8 +837,37 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       if (!response.ok) throw new Error('Could not delete chat');
       setChatSessions(previous => previous.filter(session => session.id !== id));
       setPendingDeleteId('');
+      setPendingDeleteAll(false);
     } catch {
       setHistoryError('That conversation could not be deleted.');
+    }
+  };
+
+  const deleteAllSavedConversations = async () => {
+    if (deleteAllBusy || !chatSessions.length) return;
+    if (!pendingDeleteAll) {
+      setPendingDeleteAll(true);
+      setPendingDeleteId('');
+      setHistoryError('');
+      return;
+    }
+
+    setDeleteAllBusy(true);
+    setHistoryError('');
+    try {
+      await chatSaveQueueRef.current;
+      const response = await fetch('/api/ai-chat-sessions?all=1&confirm=delete-all-saved-chats', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Could not delete saved chats');
+      setChatSessions([]);
+      setHistoryCursor(null);
+      historyLoadedRef.current = true;
+      setPendingDeleteAll(false);
+      setPendingDeleteId('');
+      showConversationCopyStatus('Saved chats deleted ✓');
+    } catch {
+      setHistoryError('Saved conversations could not be deleted.');
+    } finally {
+      setDeleteAllBusy(false);
     }
   };
 
@@ -1342,6 +1377,15 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
               <div className="flex shrink-0 items-center gap-1">
                 <button type="button" onClick={() => void copyAllSavedConversations('chat')} disabled={copyBusy || !chatSessions.length} className="h-7 rounded-lg px-1.5 text-[10px] font-bold text-stone-500 hover:bg-white disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Copy all</button>
                 <button type="button" onClick={() => void copyAllSavedConversations('debug')} disabled={copyBusy || !chatSessions.length} className="h-7 rounded-lg px-1.5 text-[10px] font-bold text-[#52705C] hover:bg-[#EEF4EF] disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Debug</button>
+                <button
+                  type="button"
+                  onClick={() => void deleteAllSavedConversations()}
+                  disabled={deleteAllBusy || !chatSessions.length}
+                  className={`h-7 rounded-lg px-1.5 text-[10px] font-bold disabled:opacity-40 ${pendingDeleteAll ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'text-red-400 hover:bg-red-50'}`}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  {deleteAllBusy ? 'Deleting...' : pendingDeleteAll ? 'Confirm' : 'Delete all'}
+                </button>
                 <button type="button" onClick={startNewConversation} disabled={Boolean(openingChatId)} className="flex h-7 items-center gap-1 rounded-lg border border-[#C6DCE9] bg-[#F3F8FA] px-1.5 text-[10px] font-bold text-[#648399] disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
                   New
@@ -1350,6 +1394,15 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             </div>
 
             {copyStatus.conversation && <p className="border-b border-[#D3DDD5] bg-[#EEF4EF] px-5 py-1.5 text-center text-[10px] font-semibold text-[#64806D]" aria-live="polite">{copyStatus.conversation}</p>}
+
+            {pendingDeleteAll && (
+              <div className="border-b border-red-100 bg-red-50 px-5 py-2 text-[10px] text-red-700" role="status" aria-live="polite">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="leading-snug">This permanently deletes every saved chat, including older chats not currently shown. Tap Confirm to continue.</p>
+                  <button type="button" onClick={() => setPendingDeleteAll(false)} disabled={deleteAllBusy} className="shrink-0 rounded-md border border-red-200 bg-white px-2 py-1 font-bold text-red-600 disabled:opacity-50" style={{ touchAction: 'manipulation' }}>Cancel</button>
+                </div>
+              </div>
+            )}
 
             {historyError && (
               <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
@@ -1388,7 +1441,14 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                     {!isCurrent && (
                       <button
                         type="button"
-                        onClick={() => awaitingDelete ? void deleteSavedConversation(session.id) : setPendingDeleteId(session.id)}
+                        onClick={() => {
+                          if (awaitingDelete) {
+                            void deleteSavedConversation(session.id);
+                          } else {
+                            setPendingDeleteAll(false);
+                            setPendingDeleteId(session.id);
+                          }
+                        }}
                         onBlur={() => { if (awaitingDelete) setPendingDeleteId(''); }}
                         className={`flex w-14 shrink-0 items-center justify-center border-l border-stone-200/70 text-[10px] font-bold transition-colors ${awaitingDelete ? 'bg-red-50 text-red-600' : 'text-stone-300 hover:bg-stone-50 hover:text-stone-500'}`}
                         style={{ touchAction: 'manipulation' }}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from './aiDatePresentation.ts';
+import { aiAnswerDates, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate, normalizeAiDateText } from './aiDatePresentation.ts';
 
 test('formats dates in the current year without a year', () => {
   assert.equal(formatAiDate('2026-06-21', '2026-07-14'), '6/21');
@@ -27,5 +27,18 @@ test('does not make impossible dates interactive', () => {
     { text: 'The model returned ' },
     { text: '2026-02-29' },
     { text: '.' },
+  ]);
+});
+
+test('normalizes Unicode hyphens in model-generated dates', () => {
+  const answer = 'From 2026‑07‑10 through 2026‑07‑15, symptoms changed.';
+  assert.equal(normalizeAiDateText(answer), 'From 2026-07-10 through 2026-07-15, symptoms changed.');
+  assert.deepEqual(aiAnswerDates(answer), ['2026-07-10', '2026-07-15']);
+  assert.deepEqual(aiAnswerDateSegments(answer), [
+    { text: 'From ' },
+    { text: '2026-07-10', date: '2026-07-10' },
+    { text: ' through ' },
+    { text: '2026-07-15', date: '2026-07-15' },
+    { text: ', symptoms changed.' },
   ]);
 });

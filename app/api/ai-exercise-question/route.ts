@@ -5,7 +5,7 @@ import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi } 
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { agentActionSlotKey, buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, requiredAgentActionSlots, validateAgentPlanAgainstSlots, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isBulkNoteAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryScopePlan, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
@@ -13,7 +13,7 @@ import { buildSemanticNoteSources, chunkSemanticNoteSources, explicitSemanticCat
 import { AI_ANALYTICS_PLAN_CONTRACT, aiAnalyticsNeedsDerivedEvents, composeAiAnalyticsAnswer, executeAiAnalyticsPlan, inferAiAnalyticsPlan, normalizeAiAnalyticsPlan, type AiAnalyticsResult } from '@/lib/aiAnalytics';
 import { buildAiExecutionRecord, buildAiRequestPlan } from '@/lib/aiExecutionPlan';
 import { AiRequestBudgetError, aiProviderBudget, createAiRequestDeadline, remainingAiRequestMs } from '@/lib/aiRequestBudget';
-import { AI_ANSWER_DATE_LIMIT } from '@/lib/aiDatePresentation';
+import { AI_ANSWER_DATE_LIMIT, aiAnswerDates, normalizeAiDateText } from '@/lib/aiDatePresentation';
 import { aiPromptSystem, projectAiPromptContext, selectAiPromptProfile } from '@/lib/aiPromptProjection';
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -118,7 +118,7 @@ function actionFamilyWasRequested(action: AgentAction, question: string) {
     }
     case 'app_title_set': return /\b(?:app|application)\s+title\b/i.test(question);
     case 'photo_attach': return /\b(?:photo|picture|image)\b/i.test(question);
-    case 'bulk_completion_from_note': return /\b(?:anytime|every time|whenever|all days|across)\b/i.test(question);
+    case 'bulk_completion_from_note': return isBulkNoteAgentRequest(question);
     case 'navigate': {
       if (!/\b(?:open|go to|take me to|bring me to|show me)\b/i.test(question)) return false;
       const destinationPatterns: Partial<Record<Extract<AgentAction, { type: 'navigate' }>['destination'], RegExp>> = {
@@ -227,10 +227,12 @@ function pad(n: number) { return String(n).padStart(2, '0'); }
 function toDateStr(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
 function validDate(value?: unknown): string | null {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [year, month, day] = value.split('-').map(Number);
+  if (typeof value !== 'string') return null;
+  const normalized = normalizeAiDateText(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  const [year, month, day] = normalized.split('-').map(Number);
   const date = new Date(year, month - 1, day, 12);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? value : null;
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? normalized : null;
 }
 
 function shiftDate(base: string, days: number) {
@@ -259,13 +261,14 @@ function monthIndex(name: string) {
 }
 
 function extractDates(text: string, today: string, selectedDate?: string | null) {
+  text = normalizeAiDateText(text);
   const out: string[] = [];
   const add = (value?: string | null) => {
     const date = validDate(value);
     if (date && !out.includes(date)) out.push(date);
   };
 
-  for (const match of text.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)) add(match[1]);
+  for (const date of aiAnswerDates(text)) add(date);
   for (const match of text.matchAll(/\b(0?\d{1,2})[/-](0?\d{1,2})(?:[/-](\d{2,4}))?\b/g)) {
     const month = Number(match[1]);
     const day = Number(match[2]);
@@ -632,7 +635,7 @@ function summarizeDay(record: DayRecord): string | null {
 
 function dateSummariesForAnswer(answer: string, records: DayRecord[], today: string): DateSummary[] {
   const recordsByDate = new Map(records.map(record => [record.date, record]));
-  const dates = Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1]);
+  const dates = aiAnswerDates(answer);
   const uniqueDates = Array.from(new Set(dates)).filter(date => validDate(date) && date <= today).slice(0, AI_ANSWER_DATE_LIMIT);
   return uniqueDates.flatMap(date => {
     const record = recordsByDate.get(date);
@@ -700,7 +703,7 @@ function savedDataFallbackAnswer(records: DayRecord[], scope?: BoundedHistoryWin
 }
 
 function fallbackDateLinksFromAnswer(answer: string, allowedDates: Set<string>, today: string): DateLink[] {
-  const dates = Array.from(new Set(Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1])))
+  const dates = aiAnswerDates(answer)
     .filter(date => validDate(date) && date <= today && allowedDates.has(date))
     .slice(0, AI_ANSWER_DATE_LIMIT);
   return dates.map(date => ({
@@ -1305,7 +1308,8 @@ export async function POST(req: NextRequest) {
       || visualizationIntent
       || existingPhotoInspectionIntent;
     const patternIntent = isPatternQuestion(analysisQuestion);
-    const bulkAgentIntent = agentIntent && /anytime|every time|whenever|all days|across|where.*notes?|notes?.*(?:contain|mention|say)/i.test(cleanQuestion);
+    const bulkAgentIntent = agentIntent && isBulkNoteAgentRequest(cleanQuestion);
+    const chronologicalHistoryAnswer = prefersChronologicalHistoryAnswer(analysisQuestion);
     const instructionHistoryIntent = conversationAiInstructions.some(instruction =>
       isHistoryQuestion(instruction)
       || isPatternQuestion(instruction)
@@ -1637,7 +1641,7 @@ export async function POST(req: NextRequest) {
       conversation: history,
       today: appToday,
       currentlySelectedDate: selectedDate,
-      candidateDays: rankedDays.map(dayForPrompt),
+      candidateDays: (chronologicalHistoryAnswer ? [...rankedDays].sort((a, b) => a.date.localeCompare(b.date)) : rankedDays).map(dayForPrompt),
       boundedHistoryComparison: shouldLoadHistory && historyWindow ? buildBoundedHistoryComparison(dayRecords, historyWindow) : null,
       wholeHistoryComparison: wholeHistoryIntent && !semanticTextAggregateIntent ? buildWholeHistoryComparison(dayRecords) : null,
       historyAnalytics: analytics,
@@ -1675,7 +1679,10 @@ export async function POST(req: NextRequest) {
         : wholeHistoryIntent
           ? 'wholeHistoryComparison contains one compact metric/context row for every loaded saved day. Use all rows for overall, all-history, best, worst, or superlative claims; candidateDays supplies richer note detail. Exact text aggregation uses the separate source-verification path. State the evaluated day count accurately.'
         : rankedDays.length
-          ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
+          ? [
+            'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.',
+            chronologicalHistoryAnswer ? 'For this episode/timeline-style question, present discussed dates oldest to newest unless the user explicitly asks for newest first.' : '',
+          ].filter(Boolean).join(' ')
           : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
     };
     const promptProfile = selectAiPromptProfile({
@@ -2435,6 +2442,7 @@ export async function POST(req: NextRequest) {
       answer = `${answer}\n\nSecret notes were included for this response because you allowed it in /ai.`;
     }
     if (semanticLimitation && !answer.includes(semanticLimitation)) answer = `${answer}\n\n${semanticLimitation}`;
+    answer = normalizeAiDateText(answer);
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
     const cleanedDateLinks = cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const fallbackDateLinks = fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
@@ -2475,9 +2483,9 @@ export async function POST(req: NextRequest) {
     const loadedStartDate = historyWindow?.startDate ?? dayRecords[0]?.date;
     const loadedEndDate = historyWindow?.endDate ?? dayRecords.at(-1)?.date;
     const executionEvidence = serverAnalytics?.evidenceLedger ?? semanticEvidence;
-    const namedAnswerDates = Array.from(answer.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g));
+    const namedAnswerDates = aiAnswerDates(answer);
     const dateNavigationComplete = requestPlan.requestedOutputs.dateNavigation
-      && namedAnswerDates.every(match => dateLinks.some(link => link.date === match[0]));
+      && namedAnswerDates.every(date => dateLinks.some(link => link.date === date));
     const executionRecord = buildAiExecutionRecord(requestPlan, {
       scope: { startDate: loadedStartDate, endDate: loadedEndDate, loadedDays: historyWindow?.dayCount ?? dayRecords.length },
       completedCapabilities: requestPlan.steps.flatMap(step => {

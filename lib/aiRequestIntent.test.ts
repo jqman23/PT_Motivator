@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isBulkNoteAgentRequest, isDoctorNoteResponseCommand, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -32,6 +32,14 @@ test('recognizes natural app commands and short follow-ups', () => {
     'I am asking you for an answer to the Nerve issues/EMG doctor question',
     'i dont know what that means just create the note',
   ]) assert.equal(isAgentRequest(request), true, request);
+});
+
+test('keeps doctor-note responses out of bulk note-history routing', () => {
+  const response = "Respond to the Nerve issues/EMG doc note by saying I'll do a follow up.";
+  assert.equal(isDoctorNoteResponseCommand(response), true);
+  assert.equal(isAgentRequest(response), true);
+  assert.equal(isBulkNoteAgentRequest(response), false);
+  assert.equal(isBulkNoteAgentRequest('Whenever my general notes mention walked, mark Walk complete across those days.'), true);
 });
 
 test('keeps visual-only requests conversational while preserving a separate write clause', () => {
@@ -164,4 +172,9 @@ test('keeps bounded and targeted history questions on retrieval instead of whole
     'Mark Prone McKenzie complete and log 1 set of 12 reps.',
     'When have I complained about my left foot? Summarize the main episodes and hyperlink every date you discuss.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), false, request);
+});
+
+test('detects episode-style history answers that should be chronological', () => {
+  assert.equal(prefersChronologicalHistoryAnswer('When have I complained about my left foot? Summarize the main episodes.'), true);
+  assert.equal(prefersChronologicalHistoryAnswer('Show the recent times I complained about my left foot.'), false);
 });

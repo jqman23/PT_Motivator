@@ -10,7 +10,18 @@ export const AI_COACH_SESSION_KEY = 'pt-ai-coach-session-v1';
 // creating an unbounded response or an arbitrarily short five-date cutoff.
 export const AI_ANSWER_DATE_LIMIT = 31;
 
+const ISO_DATE_TEXT_PATTERN = /\b(\d{4})[-\u2010\u2011\u2012\u2013\u2014\u2212](\d{2})[-\u2010\u2011\u2012\u2013\u2014\u2212](\d{2})\b/g;
+
+export function normalizeAiDateText(value: string) {
+  return value.replace(ISO_DATE_TEXT_PATTERN, '$1-$2-$3');
+}
+
+export function aiAnswerDates(value: string) {
+  return Array.from(new Set(Array.from(normalizeAiDateText(value).matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1])));
+}
+
 export function isIsoCalendarDate(value: string) {
+  value = normalizeAiDateText(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -18,6 +29,7 @@ export function isIsoCalendarDate(value: string) {
 }
 
 export function formatAiDate(date: string, today: string) {
+  date = normalizeAiDateText(date);
   if (!isIsoCalendarDate(date)) return date;
   const [year, month, day] = date.split('-').map(Number);
   const currentYear = isIsoCalendarDate(today) ? Number(today.slice(0, 4)) : new Date().getFullYear();
@@ -25,6 +37,7 @@ export function formatAiDate(date: string, today: string) {
 }
 
 export function aiAnswerDateSegments(value: string): AiAnswerDateSegment[] {
+  value = normalizeAiDateText(value);
   const segments: AiAnswerDateSegment[] = [];
   let cursor = 0;
 

@@ -35,6 +35,13 @@ const NUMBER_WORDS: Record<string, number> = {
   several: 5,
 };
 
+const ISO_DATE_TEXT_PATTERN = /\b(\d{4})[-\u2010\u2011\u2012\u2013\u2014\u2212](\d{2})[-\u2010\u2011\u2012\u2013\u2014\u2212](\d{2})\b/g;
+
+function answerDates(value: string) {
+  const normalized = value.replace(ISO_DATE_TEXT_PATTERN, '$1-$2-$3');
+  return Array.from(new Set(Array.from(normalized.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1])));
+}
+
 function dateString(value: Date) {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
@@ -341,7 +348,7 @@ export function buildExerciseCompletionCoverage(records: HistoryDayRecord[], tra
 }
 
 export function supportedDateLinkDates(answer: string, explicitDates: string[]) {
-  const cited = Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1]);
+  const cited = answerDates(answer);
   return new Set([...cited, ...explicitDates]);
 }
 

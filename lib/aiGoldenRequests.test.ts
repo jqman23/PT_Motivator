@@ -9,7 +9,7 @@ import { resolveBoundedHistoryWindow, resolveHistoryScopePlan } from './aiHistor
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
 import { composeAiAnalyticsAnswer, executeAiAnalyticsPlan, inferAiAnalyticsPlan } from './aiAnalytics.ts';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isHistorySummaryRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isBulkNoteAgentRequest, isHistorySummaryRequest, prefersChronologicalHistoryAnswer } from './aiRequestIntent.ts';
 
 const today = '2026-07-15';
 
@@ -85,6 +85,13 @@ test('golden request: targeted laterality search is retrieval, not unsupported d
   assert.equal(result.analysis.visualization, false);
   assert.equal(result.plan.steps.some(step => step.capability === 'calculate_structured_analytics'), false);
   assert.equal(result.plan.steps.some(step => step.capability === 'retrieve_history'), true);
+  assert.equal(prefersChronologicalHistoryAnswer(result.analysis.effectiveQuestion), true);
+});
+
+test('golden request: doctor-note responses are direct actions, not bulk note scans', () => {
+  const question = "Respond to the Nerve issues/EMG doc note by saying I'll do a follow up.";
+  assert.equal(isAgentRequest(question), true);
+  assert.equal(isBulkNoteAgentRequest(question), false);
 });
 
 test('golden request: two-period averages bind both scopes and complete without a model', () => {
