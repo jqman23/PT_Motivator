@@ -38,6 +38,8 @@ test('does not turn advice or capability questions into commands', () => {
     'Do you recommend turning off reminders?',
     'What should I name the app?',
     'What would happen without the timer?',
+    'Make me a graph of every recorded exercise.',
+    'Create a table using my complete history.',
   ]) assert.equal(isAgentRequest(request), false, request);
 });
 
@@ -80,6 +82,12 @@ test('recognizes requests that require comparison across the whole loaded histor
     'What was my best day of all time?',
     'Scan each check-in before answering.',
     'Base this on all available saved data.',
+    'Visualize patterns across all exercises.',
+    'Graph every metric I have recorded.',
+    'Plot the complete recovery picture.',
+    'Chart everything and show me the trend.',
+    'Make a table summarizing each category.',
+    'Create a chart of all recorded activity.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), true, request);
 });
 
@@ -90,6 +98,9 @@ test('keeps bounded and targeted history questions on retrieval instead of whole
     'What happened yesterday?',
     'Find the first day I mentioned stairs.',
     'Summarize this PT session.',
+    'Visualize only the most recent entries.',
+    "Don't graph all of it—just use recent data.",
+    'Show me all exercises in my library.',
     'Mark Prone McKenzie complete and log 1 set of 12 reps.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), false, request);
 });

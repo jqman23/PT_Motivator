@@ -6,8 +6,8 @@ import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedH
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
 import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
-import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
-import { normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
+import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
+import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -788,21 +788,41 @@ function formatNumberForVisual(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
 }
 
-function buildHistoryVisualizations(question: string, records: DayRecord[], window: BoundedHistoryWindow | null): AiVisualization[] {
-  const scoped = window ? recordsForWindow(records, window) as DayRecord[] : records.slice(-14);
+function buildHistoryVisualizations(
+  question: string,
+  records: DayRecord[],
+  window: BoundedHistoryWindow | null,
+  includeWholeHistory = false,
+  trackedExercises: ExerciseContext[] = [],
+): AiVisualization[] {
+  const scoped = recordsForVisualization(records, window, includeWholeHistory) as DayRecord[];
   if (!scoped.length) return [];
   const rangeText = window ? `${window.startDate} through ${window.endDate}` : `${scoped[0].date} through ${scoped.at(-1)?.date}`;
+  const scopeText = includeWholeHistory && !window ? `All ${scoped.length} saved days · ${rangeText}` : rangeText;
   const asksTable = /\btable\b/i.test(question);
   const asksBar = /\bbar(?: graph| chart)?\b/i.test(question);
   const asksLine = /\bline(?: graph| chart)?\b|\btrend\b/i.test(question);
+  const asksExerciseDimension = /\b(?:exercise|exercises|movement|movements|stretch|stretches|workout|workouts|activity|activities)\b/i.test(question);
   const visuals: unknown[] = [];
+
+  const explicitlyRequestsSleepDuration = /\b(?:sleep duration|sleep hours?|hours? (?:of )?sleep|hours? slept|slept)\b/i.test(question);
+  const explicitlyRequestsSleepQuality = /\b(?:sleep quality|sleep scores?|sleep ratings?)\b/i.test(question);
+  const mentionsSleep = /\bsleep\b/i.test(question);
+  const metricDefinitions = [
+    { name: 'Pain', key: 'pain', unit: '/10', requested: /\bpain\b/i.test(question) },
+    { name: 'Energy', key: 'energy', unit: '/10', requested: /\benergy\b/i.test(question) },
+    { name: 'Mood', key: 'mood', unit: '/10', requested: /\bmood\b/i.test(question) },
+    { name: 'Sleep duration', key: 'sleepHours', unit: 'hours', requested: explicitlyRequestsSleepDuration || (mentionsSleep && !explicitlyRequestsSleepQuality) },
+    { name: 'Sleep quality', key: 'sleepQuality', unit: '/10', requested: explicitlyRequestsSleepQuality },
+  ];
+  const specificallyRequested = metricDefinitions.filter(metric => metric.requested);
 
   if (asksTable) {
     visuals.push({
       id: 'daily-pattern-table',
       type: 'table',
       title: `${scoped.length}-day pattern overview`,
-      subtitle: rangeText,
+      subtitle: scopeText,
       columns: ['Date', 'Recorded activity', 'Pain', 'Energy', 'Mood', 'Sleep'],
       rows: scoped.map(record => {
         const health = record.health ?? {};
@@ -824,38 +844,50 @@ function buildHistoryVisualizations(question: string, records: DayRecord[], wind
     });
   }
 
-  if (!asksTable || asksLine) {
-    const metricDefinitions = [
-      { name: 'Pain', key: 'pain', requested: /\bpain\b/i.test(question) },
-      { name: 'Energy', key: 'energy', requested: /\benergy\b/i.test(question) },
-      { name: 'Mood', key: 'mood', requested: /\bmood\b/i.test(question) },
-      { name: 'Sleep quality', key: 'sleepQuality', requested: /\bsleep(?: quality)?\b/i.test(question) },
-    ];
-    const specificallyRequested = metricDefinitions.filter(metric => metric.requested);
+  if ((!asksTable || asksLine) && (specificallyRequested.length || !asksExerciseDimension)) {
     const chosenMetrics = specificallyRequested.length ? specificallyRequested : metricDefinitions.slice(0, 3);
     const series = chosenMetrics.map(metric => ({
       name: metric.name,
       values: scoped.map(record => numeric(record.health?.[metric.key])),
-      unit: '/10',
+      unit: metric.unit,
     })).filter(metric => metric.values.some(value => value !== null));
     if (series.length) visuals.push({
       id: 'health-pattern-lines',
-      type: 'line',
-      title: 'Health patterns over time',
-      subtitle: rangeText,
+      type: asksBar ? 'bar' : 'line',
+      title: asksBar ? 'Health score comparison' : 'Health patterns over time',
+      subtitle: scopeText,
       labels: scoped.map(record => shortDateLabel(record.date)),
       series,
-      yLabel: 'Score (0–10)',
-      footnote: 'Lines connect saved values; missing values are left blank rather than estimated.',
+      yLabel: chosenMetrics.some(metric => metric.unit === 'hours') ? 'Recorded value' : 'Score (0–10)',
+      footnote: asksBar
+        ? 'Bars show saved values; missing values are left blank rather than estimated.'
+        : 'Lines connect saved values; missing values are left blank rather than estimated.',
     });
   }
 
-  if (!asksTable && (asksBar || !asksLine)) {
+  if (!asksTable && asksExerciseDimension && !specificallyRequested.length) {
+    const exerciseCounts = new Map<string, number>();
+    for (const exercise of trackedExercises) exerciseCounts.set(exercise.name, 0);
+    for (const record of scoped) {
+      for (const exercise of activityNames(record)) exerciseCounts.set(exercise, (exerciseCounts.get(exercise) ?? 0) + 1);
+    }
+    const exerciseRows = Array.from(exerciseCounts.entries()).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+    if (exerciseRows.length) visuals.push({
+      id: 'exercise-activity-bars',
+      type: 'bar',
+      title: 'Activity across exercises',
+      subtitle: scopeText,
+      labels: exerciseRows.map(([exercise]) => exercise),
+      series: [{ name: 'Recorded days', values: exerciseRows.map(([, count]) => count), unit: 'days' }],
+      yLabel: 'Days recorded',
+      footnote: 'Includes every current tracker exercise plus historical exercises with a completed checkmark or saved workout metrics in the requested scope.',
+    });
+  } else if (!asksTable && !specificallyRequested.length && (asksBar || !asksLine)) {
     visuals.push({
       id: 'daily-activity-bars',
       type: 'bar',
       title: 'Recorded exercise activity',
-      subtitle: rangeText,
+      subtitle: scopeText,
       labels: scoped.map(record => shortDateLabel(record.date)),
       series: [{ name: 'Exercises', values: scoped.map(record => activityNames(record).length), unit: 'count' }],
       yLabel: 'Exercises recorded',
@@ -863,7 +895,7 @@ function buildHistoryVisualizations(question: string, records: DayRecord[], wind
     });
   }
 
-  return normalizeAiVisualizations(visuals);
+  return normalizeAiVisualizations(visuals, { maxPoints: MAX_VISUAL_POINT_LIMIT });
 }
 
 export async function POST(req: NextRequest) {
@@ -978,7 +1010,7 @@ export async function POST(req: NextRequest) {
           options: [],
           dateLinks: deterministic.dateLinks,
           dateSummaries: deterministic.dateSummaries,
-          visualizations: visualizationIntent ? buildHistoryVisualizations(cleanQuestion, scopedRecords, historyWindow) : [],
+          visualizations: visualizationIntent ? buildHistoryVisualizations(cleanQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises) : [],
         },
         model: '',
         attemptedModels: [],
@@ -1157,7 +1189,7 @@ export async function POST(req: NextRequest) {
         reason: reasonForDay(day, cleanQuestion),
       }));
       const fallbackVisualizations = visualizationIntent
-        ? buildHistoryVisualizations(cleanQuestion, historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords, historyWindow)
+        ? buildHistoryVisualizations(cleanQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
         : [];
       if (error instanceof GroqRouteError) {
         if (deterministicAgentPlan) {
@@ -1296,7 +1328,7 @@ export async function POST(req: NextRequest) {
     const dateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
     const deterministicVisualizations = visualizationIntent
-      ? buildHistoryVisualizations(cleanQuestion, historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords, historyWindow)
+      ? buildHistoryVisualizations(cleanQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
       : [];
     const visualizations = deterministicVisualizations.length
       ? deterministicVisualizations

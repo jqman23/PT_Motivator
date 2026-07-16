@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { aiChatPreview, aiChatTitle, normalizeAiChatMessages } from './aiChatHistory.ts';
 
 test('normalizes a restorable AI conversation and removes oversized fields', () => {
+  const fullHistoryLabels = Array.from({ length: 47 }, (_, index) => `Day ${index + 1}`);
   const messages = normalizeAiChatMessages([
     { id: 'one', role: 'user', content: '  When did my ankle hurt?  ', aiInstructions: ['focus on pain'] },
     {
@@ -22,8 +23,8 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
           id: 'pain-trend',
           type: 'line',
           title: 'Pain trend',
-          labels: ['6/20', '6/21'],
-          series: [{ name: 'Pain', values: [4, 7], unit: '/10' }],
+          labels: fullHistoryLabels,
+          series: [{ name: 'Pain', values: fullHistoryLabels.map((_, index) => index % 11), unit: '/10' }],
         }],
       },
     },
@@ -37,6 +38,7 @@ test('normalizes a restorable AI conversation and removes oversized fields', () 
   assert.equal(messages[1].reply?.providerKey, 'Gemini');
   assert.equal(messages[1].reply?.agentPlanningStatus, 'missing');
   assert.equal(messages[1].reply?.visualizations?.[0].type, 'line');
+  assert.equal(messages[1].reply?.visualizations?.[0].type === 'line' ? messages[1].reply?.visualizations?.[0].labels.length : 0, 47);
 });
 
 test('builds useful history titles and previews', () => {

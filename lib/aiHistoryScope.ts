@@ -98,6 +98,17 @@ export function recordsForWindow<T extends HistoryDayRecord>(records: T[], windo
   });
 }
 
+export function recordsForVisualization<T extends HistoryDayRecord>(
+  records: T[],
+  window: BoundedHistoryWindow | null,
+  includeWholeHistory: boolean,
+  recentLimit = 14,
+): HistoryDayRecord[] {
+  if (window) return recordsForWindow(records, window);
+  if (includeWholeHistory) return records;
+  return records.slice(-Math.max(1, recentLimit));
+}
+
 function numeric(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);

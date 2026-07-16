@@ -37,3 +37,31 @@ test('rejects malformed or unbounded visual payloads', () => {
   ]);
   assert.deepEqual(visuals, []);
 });
+
+test('accepts a one-category bar chart without pretending it is a trend', () => {
+  const visuals = normalizeAiVisualizations([{
+    type: 'bar',
+    title: 'Only tracked exercise',
+    labels: ['Bike'],
+    series: [{ name: 'Recorded days', values: [4] }],
+  }]);
+  assert.equal(visuals[0].type, 'bar');
+  assert.deepEqual(visuals[0].type === 'bar' ? visuals[0].labels : [], ['Bike']);
+});
+
+test('keeps model visuals compact by default and preserves explicitly bounded full-history visuals', () => {
+  const labels = Array.from({ length: 47 }, (_, index) => `Day ${index + 1}`);
+  const source = [{
+    type: 'line',
+    title: 'Complete history',
+    labels,
+    series: [{ name: 'Pain', values: labels.map((_, index) => index % 11) }],
+  }];
+
+  const compact = normalizeAiVisualizations(source);
+  const complete = normalizeAiVisualizations(source, { maxPoints: labels.length });
+
+  assert.equal(compact[0].type === 'line' ? compact[0].labels.length : 0, 31);
+  assert.equal(complete[0].type === 'line' ? complete[0].labels.length : 0, 47);
+  assert.equal(complete[0].type === 'line' ? complete[0].series[0].values.length : 0, 47);
+});

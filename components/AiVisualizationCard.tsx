@@ -7,6 +7,7 @@ const SERIES_COLORS = ['#52705C', '#C17B4F', '#5B7F9B', '#8B668E'];
 const CHART_WIDTH = 440;
 const CHART_HEIGHT = 245;
 const PLOT = { left: 42, right: 14, top: 18, bottom: 44 };
+const MIN_POINT_SPACING = 18;
 
 type VisualSelection =
   | { kind: 'point'; label: string; series: string; value: number; unit?: string }
@@ -31,8 +32,15 @@ function chartScale(visual: AiChartVisualization) {
   return { min, max, span: Math.max(1, max - min) };
 }
 
-function xPosition(index: number, count: number) {
-  const width = CHART_WIDTH - PLOT.left - PLOT.right;
+function renderedChartWidth(visual: AiChartVisualization) {
+  const pointCount = visual.labels.length;
+  const spacing = visual.type === 'bar' ? Math.max(20, visual.series.length * 11) : MIN_POINT_SPACING;
+  const slots = visual.type === 'bar' ? pointCount : Math.max(1, pointCount - 1);
+  return Math.max(CHART_WIDTH, PLOT.left + PLOT.right + slots * spacing);
+}
+
+function xPosition(index: number, count: number, chartWidth: number) {
+  const width = chartWidth - PLOT.left - PLOT.right;
   return PLOT.left + (count <= 1 ? width / 2 : (index / (count - 1)) * width);
 }
 
@@ -41,9 +49,10 @@ function yPosition(value: number, scale: ReturnType<typeof chartScale>) {
   return PLOT.top + ((scale.max - value) / scale.span) * height;
 }
 
-function labelIndexes(count: number) {
-  if (count <= 7) return new Set(Array.from({ length: count }, (_, index) => index));
-  return new Set([0, Math.floor((count - 1) / 2), count - 1]);
+function labelIndexes(count: number, availableWidth = CHART_WIDTH - PLOT.left - PLOT.right) {
+  const labelCount = Math.max(2, Math.min(count, Math.floor(availableWidth / 74)));
+  if (count <= labelCount) return new Set(Array.from({ length: count }, (_, index) => index));
+  return new Set(Array.from({ length: labelCount }, (_, index) => Math.round((index / (labelCount - 1)) * (count - 1))));
 }
 
 function lineSegments(values: Array<number | null>) {
@@ -85,7 +94,9 @@ function wrapCanvasText(context: CanvasRenderingContext2D, value: string, maxWid
 }
 
 function drawDownloadCanvas(visual: AiVisualization) {
-  const width = 1600;
+  const width = visual.type === 'table'
+    ? 1600
+    : Math.min(12_000, Math.max(1600, 300 + visual.labels.length * 22));
   const rowHeight = visual.type === 'table' ? 78 : 0;
   const height = visual.type === 'table' ? Math.max(760, 300 + visual.rows.length * rowHeight) : 1000;
   const canvas = document.createElement('canvas');
@@ -166,7 +177,7 @@ function drawDownloadCanvas(visual: AiVisualization) {
       context.fillText(formatNumber(value), left - 18, y + 6);
     }
     context.textAlign = 'center';
-    const indexes = labelIndexes(visual.labels.length);
+    const indexes = labelIndexes(visual.labels.length, plotWidth);
     visual.labels.forEach((label, index) => {
       if (!indexes.has(index)) return;
       const x = left + (visual.labels.length <= 1 ? plotWidth / 2 : (index / (visual.labels.length - 1)) * plotWidth);
@@ -251,26 +262,29 @@ function downloadPng(visual: AiVisualization) {
 
 function LineChart({ visual, selected, onSelect }: { visual: AiChartVisualization; selected: VisualSelection | null; onSelect: (selection: VisualSelection) => void }) {
   const scale = chartScale(visual);
-  const indexes = labelIndexes(visual.labels.length);
+  const chartWidth = renderedChartWidth(visual);
+  const indexes = labelIndexes(visual.labels.length, chartWidth - PLOT.left - PLOT.right);
   return (
-    <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-label={`${visual.title}. ${visual.series.map(series => series.name).join(', ')} over ${visual.labels.length} points.`} className="block h-auto w-full overflow-visible">
+    <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} role="img" aria-label={`${visual.title}. ${visual.series.map(series => series.name).join(', ')} over ${visual.labels.length} points.`} className="block h-auto max-w-none overflow-visible" style={{ width: `${chartWidth}px` }}>
       <title>{visual.title}</title>
       <desc>{visual.subtitle || `${visual.series.map(series => series.name).join(', ')} trend across ${visual.labels.join(', ')}.`}</desc>
       {Array.from({ length: 5 }, (_, tick) => {
         const y = PLOT.top + (tick / 4) * (CHART_HEIGHT - PLOT.top - PLOT.bottom);
         const value = scale.max - (tick / 4) * scale.span;
-        return <g key={tick}><line x1={PLOT.left} x2={CHART_WIDTH - PLOT.right} y1={y} y2={y} stroke="#E7E1D8" strokeWidth="1" /><text x={PLOT.left - 7} y={y + 3.5} textAnchor="end" fontSize="10" fill="#A8A29E">{formatNumber(value)}</text></g>;
+        return <g key={tick}><line x1={PLOT.left} x2={chartWidth - PLOT.right} y1={y} y2={y} stroke="#E7E1D8" strokeWidth="1" /><text x={PLOT.left - 7} y={y + 3.5} textAnchor="end" fontSize="10" fill="#A8A29E">{formatNumber(value)}</text></g>;
       })}
-      {visual.labels.map((label, index) => indexes.has(index) ? <text key={`${label}-${index}`} x={xPosition(index, visual.labels.length)} y={CHART_HEIGHT - 15} textAnchor="middle" fontSize="10" fill="#A8A29E">{label}</text> : null)}
+      {visual.labels.map((label, index) => indexes.has(index) ? <text key={`${label}-${index}`} x={xPosition(index, visual.labels.length, chartWidth)} y={CHART_HEIGHT - 15} textAnchor="middle" fontSize="10" fill="#A8A29E">{label}</text> : null)}
       {visual.series.map((series, seriesIndex) => (
         <g key={series.name}>
-          {lineSegments(series.values).map((segment, segmentIndex) => <polyline key={segmentIndex} points={segment.map(point => `${xPosition(point.index, visual.labels.length)},${yPosition(point.value, scale)}`).join(' ')} fill="none" stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
+          {lineSegments(series.values).map((segment, segmentIndex) => <polyline key={segmentIndex} points={segment.map(point => `${xPosition(point.index, visual.labels.length, chartWidth)},${yPosition(point.value, scale)}`).join(' ')} fill="none" stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
           {series.values.map((value, index) => {
             if (value === null) return null;
             const isSelected = selected?.kind === 'point' && selected.label === visual.labels[index] && selected.series === series.name;
             const selection: VisualSelection = { kind: 'point', label: visual.labels[index], series: series.name, value, unit: series.unit };
             const ariaLabel = `${visual.labels[index]}, ${series.name}: ${formatNumber(value)}${series.unit ? ` ${series.unit}` : ''}`;
-            return <g key={index} role="button" tabIndex={0} aria-label={ariaLabel} className="cursor-pointer outline-none" onClick={() => onSelect(selection)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selection); } }}><circle cx={xPosition(index, visual.labels.length)} cy={yPosition(value, scale)} r={isSelected ? 6.2 : 4.2} fill={isSelected ? SERIES_COLORS[seriesIndex] : 'white'} stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.4" /><title>{ariaLabel}</title></g>;
+            const x = xPosition(index, visual.labels.length, chartWidth);
+            const y = yPosition(value, scale);
+            return <g key={index} role="button" tabIndex={0} aria-label={ariaLabel} className="cursor-pointer outline-none" onClick={() => onSelect(selection)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selection); } }}><circle cx={x} cy={y} r="8" fill="transparent" /><circle cx={x} cy={y} r={isSelected ? 6.2 : 4.2} fill={isSelected ? SERIES_COLORS[seriesIndex] : 'white'} stroke={SERIES_COLORS[seriesIndex]} strokeWidth="2.4" pointerEvents="none" /><title>{ariaLabel}</title></g>;
           })}
         </g>
       ))}
@@ -280,18 +294,19 @@ function LineChart({ visual, selected, onSelect }: { visual: AiChartVisualizatio
 
 function BarChart({ visual, selected, onSelect }: { visual: AiChartVisualization; selected: VisualSelection | null; onSelect: (selection: VisualSelection) => void }) {
   const scale = chartScale(visual);
-  const plotWidth = CHART_WIDTH - PLOT.left - PLOT.right;
+  const chartWidth = renderedChartWidth(visual);
+  const plotWidth = chartWidth - PLOT.left - PLOT.right;
   const groupWidth = plotWidth / visual.labels.length;
   const barWidth = Math.min(28, (groupWidth * 0.72) / visual.series.length);
-  const indexes = labelIndexes(visual.labels.length);
+  const indexes = labelIndexes(visual.labels.length, plotWidth);
   return (
-    <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-label={`${visual.title}. Bar chart with ${visual.labels.length} groups.`} className="block h-auto w-full overflow-visible">
+    <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} role="img" aria-label={`${visual.title}. Bar chart with ${visual.labels.length} groups.`} className="block h-auto max-w-none overflow-visible" style={{ width: `${chartWidth}px` }}>
       <title>{visual.title}</title>
       <desc>{visual.subtitle || `${visual.series.map(series => series.name).join(', ')} compared across ${visual.labels.join(', ')}.`}</desc>
       {Array.from({ length: 5 }, (_, tick) => {
         const y = PLOT.top + (tick / 4) * (CHART_HEIGHT - PLOT.top - PLOT.bottom);
         const value = scale.max - (tick / 4) * scale.span;
-        return <g key={tick}><line x1={PLOT.left} x2={CHART_WIDTH - PLOT.right} y1={y} y2={y} stroke="#E7E1D8" strokeWidth="1" /><text x={PLOT.left - 7} y={y + 3.5} textAnchor="end" fontSize="10" fill="#A8A29E">{formatNumber(value)}</text></g>;
+        return <g key={tick}><line x1={PLOT.left} x2={chartWidth - PLOT.right} y1={y} y2={y} stroke="#E7E1D8" strokeWidth="1" /><text x={PLOT.left - 7} y={y + 3.5} textAnchor="end" fontSize="10" fill="#A8A29E">{formatNumber(value)}</text></g>;
       })}
       {visual.labels.map((label, index) => indexes.has(index) ? <text key={`${label}-${index}`} x={PLOT.left + groupWidth * (index + 0.5)} y={CHART_HEIGHT - 15} textAnchor="middle" fontSize="10" fill="#A8A29E">{label}</text> : null)}
       {visual.series.flatMap((series, seriesIndex) => series.values.map((value, index) => {
@@ -339,7 +354,8 @@ export default function AiVisualizationCard({ visual }: { visual: AiVisualizatio
           </table>
         </div>
       ) : (
-        <div className="px-3 pb-2 pt-3">
+        <div className="max-w-full overflow-x-auto overscroll-x-contain px-3 pb-2 pt-3">
+          {visual.labels.length > 24 && <p className="sticky left-0 mb-1 w-fit rounded-full bg-[#F0F5F1] px-2 py-1 text-[9px] font-bold text-[#52705C]">All {visual.labels.length} points · scroll to explore</p>}
           {visual.type === 'line' ? <LineChart visual={visual} selected={selected} onSelect={setSelected} /> : <BarChart visual={visual} selected={selected} onSelect={setSelected} />}
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-2">
             {visual.series.map((series, index) => <span key={series.name} className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600"><span className="h-2 w-2 rounded-full" style={{ background: SERIES_COLORS[index] }} aria-hidden="true" />{series.name}{series.unit ? ` (${series.unit})` : ''}</span>)}

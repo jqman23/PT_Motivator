@@ -157,7 +157,9 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     agentPlanningStatus: raw.agentPlanningStatus === 'planned' || raw.agentPlanningStatus === 'clarification' || raw.agentPlanningStatus === 'missing' || raw.agentPlanningStatus === 'invalid'
       ? raw.agentPlanningStatus
       : undefined,
-    visualizations: normalizeAiVisualizations(raw.visualizations),
+    // Deterministic all-history visuals can legitimately contain one point per
+    // loaded day. Keep them complete when a saved conversation is reopened.
+    visualizations: normalizeAiVisualizations(raw.visualizations, { maxPoints: 730 }),
   };
 }
 

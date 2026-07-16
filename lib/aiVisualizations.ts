@@ -27,6 +27,13 @@ export type AiChartVisualization = {
 
 export type AiVisualization = AiTableVisualization | AiChartVisualization;
 
+const DEFAULT_VISUAL_POINT_LIMIT = 31;
+export const MAX_VISUAL_POINT_LIMIT = 730;
+
+type NormalizeAiVisualizationOptions = {
+  maxPoints?: number;
+};
+
 function cleanText(value: unknown, limit: number) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
@@ -42,9 +49,13 @@ function cleanId(value: unknown, index: number) {
   return cleanText(value, 80).replace(/[^a-zA-Z0-9_-]/g, '-') || `visual-${index + 1}`;
 }
 
-export function normalizeAiVisualizations(value: unknown): AiVisualization[] {
+export function normalizeAiVisualizations(value: unknown, options: NormalizeAiVisualizationOptions = {}): AiVisualization[] {
   if (!Array.isArray(value)) return [];
   const visuals: AiVisualization[] = [];
+  const maxPoints = Math.max(2, Math.min(
+    MAX_VISUAL_POINT_LIMIT,
+    Math.floor(Number(options.maxPoints) || DEFAULT_VISUAL_POINT_LIMIT),
+  ));
 
   for (let index = 0; index < value.length && visuals.length < 3; index += 1) {
     const item = value[index];
@@ -67,16 +78,16 @@ export function normalizeAiVisualizations(value: unknown): AiVisualization[] {
       if (columns.length < 2 || !Array.isArray(raw.rows)) continue;
       const rows = raw.rows.flatMap(row => Array.isArray(row)
         ? [columns.map((_, columnIndex) => cleanText(row[columnIndex], 260))]
-        : []).slice(0, 31);
+        : []).slice(0, maxPoints);
       if (!rows.length) continue;
       visuals.push({ ...base, type, columns, rows });
       continue;
     }
 
     const labels = Array.isArray(raw.labels)
-      ? raw.labels.map(label => cleanText(label, 60)).filter(Boolean).slice(0, 31)
+      ? raw.labels.map(label => cleanText(label, 60)).filter(Boolean).slice(0, maxPoints)
       : [];
-    if (labels.length < 2 || !Array.isArray(raw.series)) continue;
+    if (!labels.length || (type === 'line' && labels.length < 2) || !Array.isArray(raw.series)) continue;
     const series = raw.series.flatMap(itemSeries => {
       if (!itemSeries || typeof itemSeries !== 'object' || Array.isArray(itemSeries)) return [];
       const rawSeries = itemSeries as Record<string, unknown>;

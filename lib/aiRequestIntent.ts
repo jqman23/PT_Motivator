@@ -2,6 +2,10 @@ export function isAgentRequest(value: string) {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (!text) return false;
 
+  // A generated visual is a chat response, not a persistent app mutation. Verbs
+  // such as “make” and “create” must not turn charts or tables into Apply cards.
+  if (isVisualizationRequest(text)) return false;
+
   if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|apply|change|delete|edit|log|record|remove|save|set|update)\b/.test(text)) {
     return false;
   }
@@ -61,9 +65,19 @@ export function isWholeHistoryComparisonRequest(value: string) {
   const historyScope = /\b(?:days?|sessions?|history|timeline|logs?|records?|entries|check-?ins?|tracked data|saved data)\b/;
   const exhaustiveMarker = /\b(?:all|every|each|entire|full|whole|overall|all[- ]time|lifetime|everything)\b/;
   const exhaustiveAction = /\b(?:analy[sz]e|base|compare|consider|go through|include|look (?:back )?(?:at|through)|review|scan|take|use)\b/;
+  const analyticalOperation = /\b(?:analy[sz](?:e|ed|ing)?|chart(?:ed|ing|s)?|compar(?:e|ed|ing|ison)|correlat(?:e|ed|ing|ion)|graph(?:ed|ing|s)?|map(?:ped|ping)?|pattern|plot(?:ted|ting|s)?|summari[sz](?:e|ed|ing)?|table|trend|visuali[sz](?:e|ed|ing|ation|ations)?)\b/;
+  const negatesExhaustiveScope = /\b(?:do not|don't|dont|not)\b.{0,20}\b(?:all|every|each|entire|full|whole|everything)\b/.test(text);
+  const narrowsToPartialScope = /\b(?:just|only)\b.{0,20}\b(?:recent|latest|last|selected|some|top)\b/.test(text)
+    && !/\b(?:do not|don't|dont|not)\s+(?:just|only)\b/.test(text);
+  const rejectsExhaustiveScope = negatesExhaustiveScope || narrowsToPartialScope;
   const explicitlyCompleteHistory = /\bcomplete\s+(?:(?:saved|tracked|available)\s+)?(?:history|timeline|logs?|records?|entries|check-?ins?|data)\b/.test(text);
-  const scopeAndMarker = (historyScope.test(text) && exhaustiveMarker.test(text)) || explicitlyCompleteHistory;
-  const actionAndMarker = exhaustiveAction.test(text) && exhaustiveMarker.test(text);
+  const scopeAndMarker = !rejectsExhaustiveScope && ((historyScope.test(text) && exhaustiveMarker.test(text)) || explicitlyCompleteHistory);
+  const actionAndMarker = !rejectsExhaustiveScope && exhaustiveAction.test(text) && exhaustiveMarker.test(text);
+  // Exhaustive scope belongs to the analytical operation, regardless of which app
+  // dimension follows it. Retrieval ranking must not silently narrow a requested visual.
+  const exhaustiveAnalysis = !rejectsExhaustiveScope
+    && analyticalOperation.test(text)
+    && (exhaustiveMarker.test(text) || /\bcomplete\b/.test(text));
   const fromTheBeginning = /\b(?:from (?:the )?(?:very )?(?:start|beginning)|since (?:i|we) (?:started|began)|since (?:i|we)(?:'ve| have) been (?:logging|recording|tracking)|for as long as (?:i|we)(?:'ve| have) been (?:logging|recording|tracking))\b/.test(text)
     && (historyScope.test(text) || /\b(?:logging|logged|recording|recorded|tracking|tracked)\b/.test(text));
   const everythingLogged = /\beverything\b.{0,48}\b(?:i|we|you)(?:'ve| have)?\s*(?:logged|saved|recorded|tracked|have)\b/.test(text)
@@ -74,5 +88,5 @@ export function isWholeHistoryComparisonRequest(value: string) {
     || /\b(?:day|session|log|entry)\b.{0,40}\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b/.test(text)
     || /\b(?:best|worst|strongest|weakest|easiest|hardest)\b.{0,24}\b(?:ever|of all time)\b/.test(text);
 
-  return scopeAndMarker || actionAndMarker || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
+  return scopeAndMarker || actionAndMarker || exhaustiveAnalysis || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
 }

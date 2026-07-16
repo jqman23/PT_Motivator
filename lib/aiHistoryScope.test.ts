@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
+import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
 import type { HistoryDayRecord, RankedHistoryDay } from './historyRanking.ts';
 
 function day(date: string, health: Record<string, unknown> | null = null): HistoryDayRecord {
@@ -62,6 +62,15 @@ test('bounded comparisons include empty calendar days instead of sampling saved 
   assert.equal(comparison.coversEveryCalendarDay, true);
   assert.equal(comparison.rows.length, 5);
   assert.deepEqual(comparison.rows[2][1], ['Bike']);
+});
+
+test('visual scope keeps complete data only when requested and otherwise uses the readable recent default', () => {
+  const records = Array.from({ length: 47 }, (_, index) => day(`2026-06-${String(index + 1).padStart(2, '0')}`));
+  assert.equal(recordsForVisualization(records, null, false).length, 14);
+  assert.equal(recordsForVisualization(records, null, true).length, 47);
+
+  const window = { startDate: records[0].date, endDate: records[4].date, dayCount: 5, sourceText: 'past five days' };
+  assert.equal(recordsForVisualization(records, window, true).length, 5);
 });
 
 test('completion coverage uses current tracker ids and counts metrics as activity', () => {
