@@ -4,7 +4,7 @@ A short, living list of ideas planned for PT Motivator. Update this file as feat
 
 ## AI execution platform
 
-### Phase 1 in progress: general planning without a UX rewrite
+### Phase 1 implemented and hardening: general planning without a UX rewrite
 
 - Keep the existing Ask AI composer, clickable dates, evidence drilldowns, visual cards, and Review / Apply / Undo workflow.
 - Represent each request as a typed, dependency-aware plan so one message can request retrieval, analysis, a chart, an explanation, navigation, and proposed changes together.
@@ -14,6 +14,14 @@ A short, living list of ideas planned for PT Motivator. Update this file as feat
 - Use one request-wide deadline below the browser timeout, propagate cancellation through retrieval checkpoints, reranking, model calls, repair calls, and analytics assembly, and preserve cross-provider diversity before retrying alternate credentials or models.
 - Maintain golden-request tests for real conversational failures: short follow-ups, past-week scope, semantic counts, compound chart-plus-action requests, advice versus writes, missing values, and provider failure.
 - Begin converging ordinary UI writes and AI actions on stable domain-command contracts without changing the current database schema or safety workflow.
+- Bind all named comparison scopes and measures into executable analytics steps; supported arithmetic now returns directly from the server without a reranker or answer-model dependency.
+- Support multiple analytical subgoals in one execution, including independent per-field operations plus observed and missing counts, with bounded month and comparison scopes.
+- Project prompts by capability so read, analytics, exercise, and action tasks carry only the contracts and records they need.
+- Decompose independent app commands outside quoted values and merge every validated sub-action into one existing Review / Apply / Undo card.
+- Bind explicit commands to required action slots and reject both incomplete plans and unrelated targets before Review.
+- Keep focal dates separate from evidence windows, preserve compact prior visual/execution/action artifacts for follow-ups, and isolate quoted payloads from command interpretation.
+- Return explicit unsupported-capability results and derive execution completion statuses only from artifacts actually produced.
+- Preserve an exact-wording, source-inspectable fallback when the user explicitly lists semantic count categories and terminology-expansion providers fail.
 
 ### Next: complete the shared intelligence and command layers
 

@@ -68,6 +68,7 @@ export type StoredAiReplyDebug = {
   requestPlan?: Record<string, unknown>;
   execution?: Record<string, unknown>;
   providerScheduling?: Record<string, unknown>;
+  promptProjection?: Record<string, unknown>;
   attemptedModels?: string[];
   providerAttempts?: Array<{
     provider?: string;
@@ -192,6 +193,7 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
     requestPlan: cleanDebugRecord(raw.requestPlan, 20_000),
     execution: cleanDebugRecord(raw.execution, 50_000),
     providerScheduling: cleanDebugRecord(raw.providerScheduling, 10_000),
+    promptProjection: cleanDebugRecord(raw.promptProjection, 10_000),
     attemptedModels: Array.isArray(raw.attemptedModels)
       ? raw.attemptedModels.map(model => cleanText(model, 120)).filter(Boolean).slice(0, 40)
       : undefined,

@@ -36,7 +36,15 @@ test('golden: semantic frequency scans source evidence and does not substitute g
 });
 
 test('golden: compound chart plus app update retains both outputs in one dependency graph', () => {
-  const plan = buildAiRequestPlan({ ...base, needsHistory: true, wholeHistory: true, visualization: true, actionProposal: true, patternAnalysis: true });
+  const plan = buildAiRequestPlan({
+    ...base,
+    needsHistory: true,
+    wholeHistory: true,
+    visualization: true,
+    actionProposal: true,
+    patternAnalysis: true,
+    analytics: { scopes: [{ id: 'whole', startDate: '2026-01-01', endDate: '2026-07-15' }], measures: [{ field: 'pain', aggregation: 'maximum' }], groupBy: 'day', requestedCoverage: { observedCount: false, missingCount: false } },
+  });
   assert.equal(plan.compound, true);
   assert.equal(plan.requestedOutputs.visualization, true);
   assert.equal(plan.requestedOutputs.actionProposal, true);
@@ -45,6 +53,10 @@ test('golden: compound chart plus app update retains both outputs in one depende
   assert.ok(capabilities.includes('render_visualization'));
   assert.ok(capabilities.includes('propose_actions'));
   assert.ok(capabilities.includes('compose_response'));
+  const analyticsStep = plan.steps.find(step => step.capability === 'calculate_structured_analytics');
+  const actionStep = plan.steps.find(step => step.capability === 'propose_actions');
+  assert.deepEqual(actionStep?.dependsOn, [analyticsStep?.id]);
+  assert.equal(plan.bindings?.analytics?.measures[0].field, 'pain');
 });
 
 test('every registered write proposal retains preview, apply, and undo safeguards', () => {
@@ -74,4 +86,20 @@ test('execution records expose incomplete requested outputs instead of hiding th
   assert.equal(record.completedOutputs.actionProposal, false);
   assert.equal(record.capabilities.find(step => step.capability === 'propose_actions')?.status, 'incomplete');
   assert.equal(record.scope.loadedDays, 7);
+});
+
+test('plan bindings keep the focal date separate from the evidence window', () => {
+  const plan = buildAiRequestPlan({
+    ...base,
+    needsHistory: true,
+    hasBoundedWindow: true,
+    context: {
+      focalDates: ['2026-07-15'],
+      evidenceScopes: [{ id: 'primary', startDate: '2026-07-09', endDate: '2026-07-15' }],
+    },
+  });
+  assert.deepEqual(plan.bindings?.context, {
+    focalDates: ['2026-07-15'],
+    evidenceScopes: [{ id: 'primary', startDate: '2026-07-09', endDate: '2026-07-15' }],
+  });
 });

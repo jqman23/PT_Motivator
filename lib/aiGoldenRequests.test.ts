@@ -5,7 +5,9 @@ import { resolveAnalysisRequest } from './aiAnalysisIntent.ts';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
 import { buildAiRequestPlan } from './aiExecutionPlan.ts';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { resolveBoundedHistoryWindow } from './aiHistoryScope.ts';
+import { resolveBoundedHistoryWindow, resolveHistoryScopePlan } from './aiHistoryScope.ts';
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { composeAiAnalyticsAnswer, executeAiAnalyticsPlan, inferAiAnalyticsPlan } from './aiAnalytics.ts';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
 import { isAgentRequest, isHistorySummaryRequest } from './aiRequestIntent.ts';
 
@@ -72,4 +74,37 @@ test('golden request: symptom advice never becomes a write merely because it des
   assert.equal(result.agent, false);
   assert.equal(result.plan.requestedOutputs.actionProposal, false);
   assert.equal(result.plan.steps.some(step => step.capability === 'propose_actions'), false);
+});
+
+test('golden request: two-period averages bind both scopes and complete without a model', () => {
+  const question = 'what is avg pain score past 7 days and how compare to avg score 7 days before that';
+  const scopes = resolveHistoryScopePlan(question, today);
+  const analyticsPlan = inferAiAnalyticsPlan(question, scopes?.windows);
+  const records = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date('2026-07-01T12:00:00Z');
+    date.setUTCDate(date.getUTCDate() + index);
+    return {
+      date: date.toISOString().slice(0, 10), completed: [], exerciseNotes: [], session: null,
+      health: { pain: index < 7 ? 4 : 6 },
+    };
+  });
+  const result = analyticsPlan ? executeAiAnalyticsPlan(analyticsPlan, records) : null;
+  assert.deepEqual(scopes?.loadWindow && [scopes.loadWindow.startDate, scopes.loadWindow.endDate, scopes.loadWindow.dayCount], ['2026-07-01', '2026-07-14', 14]);
+  assert.deepEqual(result?.visualization.type === 'table' ? result.visualization.rows.map(row => row[1]) : [], ['6', '4']);
+  assert.match(result ? composeAiAnalyticsAnswer(result) : '', /higher than the previous period by 2/i);
+});
+
+test('golden request: weekly averages remain averages when coverage is also requested', () => {
+  const question = 'Chart my average pain by week over the last 7 days. State how many days had recorded pain and how missing days were handled.';
+  const plan = inferAiAnalyticsPlan(question);
+  const values = [6, 6, 6, 5, 5, 4, 3];
+  const records = values.map((pain, index) => ({
+    date: `2026-06-${String(index + 1).padStart(2, '0')}`, completed: [], exerciseNotes: [], session: null, health: { pain },
+  }));
+  const result = plan ? executeAiAnalyticsPlan(plan, records) : null;
+  assert.equal(plan?.measures[0].aggregation, 'average');
+  assert.deepEqual(plan?.requestedCoverage, { observedCount: true, missingCount: true });
+  assert.deepEqual(result?.visualization.type === 'line' ? result.visualization.series[0].values : [], [5]);
+  assert.equal(result?.coverage.measures[0].observedValues, 7);
+  assert.match(result ? composeAiAnalyticsAnswer(result) : '', /7 recorded days? and 0 unlogged days?/i);
 });

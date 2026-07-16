@@ -151,6 +151,26 @@ export function normalizeSemanticCategoryPlan(value: unknown, sources: SemanticN
   return { title: compact(planRaw.title, 160) || 'Mention frequency', categories };
 }
 
+/**
+ * When the user supplies the ontology explicitly, the server can still produce
+ * an exact-wording artifact if terminology expansion providers fail. This does
+ * not guess synonyms; it preserves every requested category, including zeros.
+ */
+export function explicitSemanticCategoryPlan(question: string, sources: SemanticNoteSource[], expectedCategoryCount?: number) {
+  const match = question.match(/\b(?:each\s+of\s+(?:these|the\s+following)|(?:these|the\s+following)\s+(?:terms|words|phrases|symptoms|items|categories))\s*:\s*([^?]+?)(?:\.(?:\s|$)|$)/i);
+  if (!match?.[1]) return null;
+  const labels = match[1]
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map(label => compact(label, 100).replace(/^(?:and\s+)?["“'‘]+|["”'’]+$/gi, '').replace(/^and\s+/i, '').trim())
+    .filter(Boolean);
+  if (labels.length < 2 || labels.length > 30) return null;
+  if (expectedCategoryCount && labels.length !== expectedCategoryCount) return null;
+  return normalizeSemanticCategoryPlan({ semanticPlan: {
+    title: 'Exact requested mention frequency',
+    categories: labels.map(label => ({ label, aliases: [label] })),
+  } }, sources, labels.length);
+}
+
 export function mergeSemanticCategoryPlans(plans: SemanticCategoryPlan[]) {
   const first = plans[0];
   if (!first) return null;

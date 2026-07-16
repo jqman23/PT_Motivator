@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { aiAnalyticsNeedsDerivedEvents, executeAiAnalyticsPlan, inferAiAnalyticsPlan, normalizeAiAnalyticsPlan } from './aiAnalytics.ts';
+import { aiAnalyticsNeedsDerivedEvents, composeAiAnalyticsAnswer, executeAiAnalyticsPlan, inferAiAnalyticsPlan, normalizeAiAnalyticsPlan } from './aiAnalytics.ts';
 import type { HistoryDayRecord } from './historyRanking.ts';
 
 function day(date: string, pain: number | null, sleepHours: number | null, completed: string[] = [], session: HistoryDayRecord['session'] = null): HistoryDayRecord {
@@ -80,8 +80,38 @@ test('calculates correlation from paired saved values and states the causal limi
   const result = executeAiAnalyticsPlan(plan, records);
   assert.equal(result?.visualization.type, 'table');
   assert.equal(result?.visualization.type === 'table' ? result.visualization.rows[0][2] : '', '2');
+  assert.equal(result?.visualization.type === 'table' ? result.visualization.rows[0][1] : '', '—');
   assert.match(result?.visualization.footnote ?? '', /not causation/i);
   assert.equal(result?.evidenceLedger.assumptions.some(assumption => /does not establish causation/i.test(assumption)), true);
+});
+
+test('executes named period comparisons and composes an answer without a model', () => {
+  const scopes = [
+    { id: 'primary', label: 'Current period (2026-07-08 through 2026-07-14)', startDate: '2026-07-08', endDate: '2026-07-14', dayCount: 7, sourceText: 'past 7 days' },
+    { id: 'previous', label: 'Previous period (2026-07-01 through 2026-07-07)', startDate: '2026-07-01', endDate: '2026-07-07', dayCount: 7, sourceText: 'preceding comparison period' },
+  ];
+  const plan = inferAiAnalyticsPlan('Compare my average pain over these periods', scopes);
+  assert.equal(plan?.groupBy, 'scope');
+  const result = plan ? executeAiAnalyticsPlan(plan, records) : null;
+  assert.deepEqual(result?.visualization.type === 'table' ? result.visualization.rows : [], [
+    ['Current period (2026-07-08 through 2026-07-14)', '5'],
+    ['Previous period (2026-07-01 through 2026-07-07)', '4.5'],
+  ]);
+  assert.match(result ? composeAiAnalyticsAnswer(result) : '', /current period was higher than the previous period by 0\.5/i);
+});
+
+test('distinguishes quantity sums, observation counts, and unsupported percentages', () => {
+  assert.equal(inferAiAnalyticsPlan('How many exercises did I do?')?.measures[0].aggregation, 'sum');
+  assert.equal(inferAiAnalyticsPlan('How many days have recorded pain?')?.measures[0].aggregation, 'count');
+  assert.equal(inferAiAnalyticsPlan('What percentage of days was my pain high?'), null);
+  assert.ok(inferAiAnalyticsPlan('What percentage of days had a PT session?'));
+  assert.equal(normalizeAiAnalyticsPlan({ title: 'Unsafe percent', measures: [{ field: 'pain', aggregation: 'percentage' }], groupBy: 'overall', visual: 'table', missingData: 'exclude' }), null);
+  assert.deepEqual(inferAiAnalyticsPlan('Show my average pain and maximum energy')?.measures.map(measure => [measure.field, measure.aggregation]), [
+    ['pain', 'average'], ['energy', 'maximum'],
+  ]);
+  assert.deepEqual(inferAiAnalyticsPlan('Show my average pain and total exercises')?.measures.map(measure => [measure.field, measure.aggregation]), [
+    ['pain', 'average'], ['activityCount', 'sum'],
+  ]);
 });
 
 test('does not substitute generic metrics for unsupported anatomy or adherence analytics', () => {

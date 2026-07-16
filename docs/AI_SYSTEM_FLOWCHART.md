@@ -1,6 +1,6 @@
 # PT Motivator AI System: Comprehensive Flowchart
 
-Implementation snapshot updated on 2026-07-15. The rendered route-family diagrams remain the detailed baseline; the typed execution overlay below records the newer orchestration that wraps those paths.
+Implementation snapshot updated on 2026-07-15. The rendered route-family diagrams include the executable analytics, capability-specific prompt, provider-independent fallback, and multi-action planning paths now present in the Ask route.
 
 This document maps the implemented Ask AI, model-routing, history-retrieval, visualization, agent-preview, apply, undo, and persistence paths. It is written for a technically informed reader and is intended to be read with the detailed [Ask AI and Agent Handoff](./ASK_AI_AGENT_HANDOFF.md).
 
@@ -14,28 +14,41 @@ The route families below are no longer treated as mutually exclusive user goals.
 
 ```mermaid
 flowchart LR
-    U[User request] --> S[Resolve conversation goal and date scope]
-    S --> P[Typed RequestPlan]
+    U[User request] --> S[Resolve conversation goal and every required date scope]
+    S --> F[Separate focal dates, evidence windows, and prior response artifacts]
+    F --> P[Typed RequestPlan]
     P --> H[Bounded history retrieval]
     P --> E[Semantic evidence extraction]
     P --> A[Server analytics]
-    P --> C[AI explanation]
+    A --> D{Open-ended interpretation needed?}
+    D -->|No| R
+    D -->|Yes| C[Capability-specific AI explanation]
     P --> V[Validated visualization]
     P --> W[Review-only action proposal]
+    W --> X[Require every requested action slot; reject missing or extra targets]
+    P --> N[Explicit unsupported-capability result]
     H --> L[Evidence and execution ledger]
     E --> L
     A --> L
     C --> L
     V --> L
-    W --> L
-    L --> R[Ordered response with clickable dates]
-    W --> Q[Existing Preview / Apply / Undo safeguards]
+    X --> L
+    N --> L
+    L --> R[Ordered response with clickable dates and truthful completion statuses]
+    X --> Q[Existing Preview / Apply / Undo safeguards]
 ```
 
 Important boundaries:
 
 - The plan coordinates multiple subgoals; it does not authorize writes.
 - Models interpret requests and explain evidence. Server code retrieves records, computes supported chart values, validates evidence, and executes approved actions.
+- Supported structured calculations are terminally complete without a provider: the server composes the factual answer, coverage, evidence, visual, and clickable dates directly.
+- Comparative requests bind every named period to the analytics step and load their bounded union; “past 7 days versus 7 days before” therefore analyzes 14 calendar days rather than only the first window.
+- Model prompts are projected by capability. Read questions do not carry mutation schemas or the exercise library, analytics interpretation receives verified server results, and action planning receives only its contract and relevant targets.
+- Compound direct commands are split outside quoted values, compiled independently, and coalesced so wording inside a saved note cannot steal another action's target.
+- Explicit action commands create required slots keyed by exact type, date, and entity. A model plan is rejected if any requested slot is absent or if an unrelated target is introduced.
+- Focal dates (for example “today”) are kept separate from broader evidence windows (for example “based on my recent notes”), and compact prior visual/execution/action artifacts are carried into follow-ups.
+- Unsupported derived operations return the supported scope and exact missing capability; they do not fall through to a generic recap, an unrelated chart, or a falsely successful execution record.
 - Stable domain-command IDs insulate planning from tables and `user_config`; full shared UI/AI command handlers remain the next migration step.
 - A compact execution record exposes scope, coverage, calculations, assumptions, and incomplete outputs without duplicating large note excerpts.
 - One request-wide deadline ends before the browser timeout, with cancellation propagated through provider and repair calls.
@@ -80,8 +93,10 @@ flowchart TD
 
     subgraph AskRoute["Main Ask AI route"]
         ASKPOST --> PARSE["Parse, redact, normalize, recover conversational goal"]
-        PARSE --> CLASSIFY["Resolve dates, history window, intent flags, and task"]
-        CLASSIFY --> LOAD{"Does this request need saved history?"}
+        PARSE --> STATE["Recover compact prior goal, visual, execution, and action artifacts"]
+        STATE --> CLASSIFY["Resolve focal dates separately from evidence scopes, history mode, outputs, and action permission"]
+        CLASSIFY --> PLAN["Build typed RequestPlan with scope, analytics, action-slot bindings, and dependencies"]
+        PLAN --> LOAD{"Does this request need saved history?"}
         LOAD -->|Yes| HIST["One bounded UNION query plus compact app context"]
         LOAD -->|No| EARLY
         HIST --> RETRIEVE["Complete window, whole scope, or deterministic ranking plus optional AI rerank"]
@@ -90,10 +105,12 @@ flowchart TD
         EARLY -->|Completion coverage| COVERAGE["Deterministic completion answer"]
         EARLY -->|Existing saved photo inspection| PHOTOINFO["Photo metadata and captions only; no pixel vision"]
         EARLY -->|Semantic count visual| SEMANTIC["Evidence-backed semantic aggregation pipeline"]
-        EARLY -->|No special branch| PROMPT["Build compact JSON prompt and server-owned contracts"]
+        EARLY -->|Supported structured analytics| ANALYTICS["Server calculates and composes answer, coverage, evidence, visual, and dates"]
+        EARLY -->|Open-ended reasoning remains| PROMPT["Project capability-specific context and JSON contract"]
 
         PROMPT --> TASK{"Task route"}
-        TASK -->|Explicit app mutation or navigation| AGENTTASK["agent"]
+        TASK -->|Explicit app mutation or navigation| SLOTS["Compile required actions outside quoted payloads"]
+        SLOTS --> AGENTTASK["agent"]
         TASK -->|Personal data or history| ASKTASK["ask"]
         TASK -->|General knowledge, no private history| PUBTASK["publicAsk"]
         AGENTTASK --> ROUTER["Shared AI provider router"]
@@ -110,6 +127,7 @@ flowchart TD
         COVERAGE --> RESPONSE["Structured API response"]
         PHOTOINFO --> RESPONSE
         SEMANTIC --> RESPONSE
+        ANALYTICS --> RESPONSE
         GUARDS --> RESPONSE
     end
 
@@ -190,7 +208,9 @@ flowchart TD
     WINDOW -->|today plus yesterday| TWO["Two complete calendar days"]
     WINDOW -->|past week| PASTWEEK["Previous seven complete days; excludes today"]
     WINDOW -->|this week| THISWEEK["Week start through today"]
-    WINDOW -->|N days or weeks| NDAYS["Bounded calendar window; optional through today"]
+    WINDOW -->|N days, weeks, or months| NDAYS["Bounded calendar window; optional through today"]
+    WINDOW -->|Comparison names a preceding period| MULTI["Resolve named current and prior windows; load their bounded union"]
+    WINDOW -->|Recent notes without a number| RECENT["Seven calendar days through today"]
     WINDOW -->|Follow-up inherits prior scope| INHERIT["Reuse previous bounded window"]
     WINDOW -->|Whole history language| WHOLE["Bounded configured history horizon, extended for explicit older dates"]
     WINDOW -->|No explicit window| NOWINDOW["Ranked retrieval only if the request needs personal history"]
@@ -201,6 +221,8 @@ flowchart TD
     PASTWEEK --> INTENTS
     THISWEEK --> INTENTS
     NDAYS --> INTENTS
+    MULTI --> INTENTS
+    RECENT --> INTENTS
     INHERIT --> INTENTS
     WHOLE --> INTENTS
     NOWINDOW --> INTENTS["Compute independent intent flags"]
@@ -234,6 +256,7 @@ flowchart TD
     NEEDHIST -->|No personal context needed| NOLOAD["No Neon history query"]
     LOAD --> MODE{"Retrieval mode"}
     MODE -->|Semantic aggregate| ALLNOTES["Every applicable note field in scope"]
+    MODE -->|Supported structured analytics| ALLROWS["Every bounded daily row; skip relevance reranking"]
     MODE -->|Window is 31 days or less| FULLWINDOW["Every calendar day in the requested range, including empty days"]
     MODE -->|Whole-history analysis| WHOLECOMPACT["All bounded days for compact comparison plus rich ranked candidates"]
     MODE -->|Other history request| RANK24["Deterministic rank up to 24 candidate days"]
@@ -242,16 +265,18 @@ flowchart TD
     RERANK -->|No or fails| TOP8D["Deterministic top 8"]
 
     ALLNOTES --> TERMINAL
+    ALLROWS --> TERMINAL
     FULLWINDOW --> TERMINAL
     WHOLECOMPACT --> TERMINAL
     TOP8 --> TERMINAL
     TOP8D --> TERMINAL
-    NOLOAD --> TERMINAL{"Terminal route, evaluated in priority order"}
+    NOLOAD --> TERMINAL{"Execute required plan capabilities; outputs may coexist"}
 
     TERMINAL -->|Completion coverage with window| TCOVER["Return deterministic answer and optional deterministic visual"]
     TERMINAL -->|Saved-photo inspection| TPHOTO["Return photo count/captions and clickable target date"]
     TERMINAL -->|Semantic count visual| TSEM["Run evidence-backed semantic pipeline"]
-    TERMINAL -->|Otherwise| TASKSEL{"Model task"}
+    TERMINAL -->|Supported structured calculation| TANALYTICS["Calculate and compose deterministic answer; no provider required"]
+    TERMINAL -->|Open-ended interpretation or unsupported operation| TASKSEL{"Capability-specific model task"}
     TASKSEL -->|Agent mode| TAGENT["agent"]
     TASKSEL -->|Personal/history context| TASK["ask"]
     TASKSEL -->|No private history| TPUB["publicAsk"]
@@ -266,7 +291,10 @@ flowchart TD
     MODEL -->|Valid response| POST["Normalize and validate artifacts"]
     MODEL -->|Provider cascade fails| FAIL{"Fallback family"}
     FAIL -->|Deterministic agent plan| DPLAN
+    FAIL -->|Verified structured analytics| TANALYTICS
+    FAIL -->|Explicit semantic category list| DEXACT["Count exact supplied wording with evidence; disclose no synonym expansion"]
     FAIL -->|Requested recap or coverage| DRECAP["Saved-data deterministic recap"]
+    FAIL -->|Needs unavailable derived-event capability| DUNSUPPORTED["Return exact unsupported capability and incomplete outputs"]
     FAIL -->|Strongly supported history dates| DDATE["Degraded failure plus supported clickable dates"]
     FAIL -->|Advice, interpretation, explanation, or general chat| DGEN["Transparent provider-unavailable response; no fake recap"]
     FAIL -->|Unexpected non-router exception| OUTER["Outer error payload; HTTP 500 or 502"]
@@ -274,11 +302,15 @@ flowchart TD
     POST --> ACTIONCHECK{"Server classified request as agent?"}
     ACTIONCHECK -->|No| DROPPLAN["Discard any model-proposed actions"]
     ACTIONCHECK -->|Yes| MERGEPLAN["Merge deterministic and relevant model actions; coalesce conflicts"]
-    MERGEPLAN --> VALIDPLAN{"Valid plan exists?"}
+    MERGEPLAN --> SLOTGUARD["Require every exact action slot; reject missing or unrelated targets"]
+    SLOTGUARD --> VALIDPLAN{"Valid plan exists?"}
     VALIDPLAN -->|No| REPAIR["Dedicated agent repair call"]
     REPAIR -->|Valid| PLANOUT["Review-card response"]
     REPAIR -->|Still invalid| CLARIFY["Concrete clarification or planning status"]
     VALIDPLAN -->|Yes| PLANOUT
+    TANALYTICS --> ANSWERGUARD
+    DEXACT --> ANSWERGUARD
+    DUNSUPPORTED --> ANSWERGUARD
     DROPPLAN --> ANSWERGUARD
     PLANOUT --> ANSWERGUARD
     CLARIFY --> ANSWERGUARD["Final response guards"]
@@ -297,6 +329,8 @@ flowchart TD
 - “Record pain as 6.5 today” opens the agent protocol because it explicitly requests persistence.
 - “Make a table of each toe and its count” combines whole-history, visualization, and semantic-text aggregation.
 - “Triple check” or “do what I asked” can inherit the prior analytical goal and scope rather than becoming a context-free request.
+- “Average pain for the past seven days versus the seven days before” binds both periods, computes both averages on the server, and does not call a model or reranker.
+- “Set pain, append this health note, and complete calf raises” becomes three independently validated review actions; quoted note text is never treated as an exercise target.
 - A model may reason freely inside the selected context, but only server code can open write mode, validate actions, execute writes, or certify evidence.
 
 ## 3. Saved-history loading and ranking
@@ -326,7 +360,8 @@ flowchart LR
     ASSEMBLE --> COMPACT["Clip text, omit image pixels, map exercise IDs to names"]
 
     COMPACT --> PATH{"Requested analysis"}
-    PATH -->|Complete short window| CAL["Calendar-complete records; empty dates retained"]
+    PATH -->|Complete bounded window| CAL["Calendar-complete records; empty dates retained"]
+    PATH -->|Structured analytics| STRUCTCAL["All required bounded rows; no relevance reranking or model calculation"]
     PATH -->|Semantic text counting| CORPUS["All applicable note fields in scope"]
     PATH -->|Whole history| ALL["Compact row per day plus bounded note corpus"]
     PATH -->|Relevance lookup| INDEX["Field-aware deterministic index"]
@@ -353,6 +388,7 @@ flowchart LR
     ALL --> PROMPT
     SELECT --> PROMPT
     DET --> PROMPT
+    STRUCTCAL --> DIRECT["Deterministic analytics executor, evidence ledger, and response composer"]
 ```
 
 </details>
@@ -365,6 +401,8 @@ Cost and privacy properties of this path:
 - Doctor notes are queried separately only for doctor/provider-related questions, with clipped text and a fixed limit.
 - Secret blocks are excluded unless the latest `/ai` instruction explicitly grants access.
 - Reranking reduces rich main-model context; it does not remove required days from a complete bounded window or semantic whole-scope count.
+- Reranking is skipped entirely for supported structured analytics because relevance cannot improve a complete arithmetic calculation.
+- Only genuinely open-ended reasoning receives a model prompt, and that prompt is projected to the active capability instead of carrying the route's universal context.
 
 ## 4. AI provider and model failover state machine
 
@@ -469,7 +507,10 @@ flowchart TD
 
     CHUNK --> SCHEMA["AI semantic schema pass: exact requested entities and category count"]
     SCHEMA --> SCHEMAV{"Server validates category cardinality, labels, uniqueness, and shape"}
-    SCHEMAV -->|Fail| NEXTSCHEMA["Provider router tries another model"]
+    SCHEMAV -->|Fail| EXPLICIT{"Did the user explicitly list every category?"}
+    EXPLICIT -->|Yes; provider routes exhausted| EXACT["Build exact-wording category plan; keep zero categories and disclose no synonym inference"]
+    EXACT --> MATCH
+    EXPLICIT -->|No or terminology expansion still viable| NEXTSCHEMA["Provider router tries another model"]
     NEXTSCHEMA --> SCHEMA
     SCHEMAV -->|Pass| EACH["For each text chunk"]
 

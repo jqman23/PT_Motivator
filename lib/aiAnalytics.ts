@@ -1,9 +1,10 @@
 import type { AiVisualization } from './aiVisualizations';
+import type { NamedHistoryWindow } from './aiHistoryScope';
 import type { HistoryDayRecord } from './historyRanking';
 
 export type AiAnalyticsField = 'pain' | 'energy' | 'mood' | 'sleepHours' | 'sleepQuality' | 'activityCount' | 'ptSession' | 'trainingSession';
 export type AiAnalyticsAggregation = 'average' | 'sum' | 'minimum' | 'maximum' | 'median' | 'count' | 'percentage' | 'longestStreak';
-export type AiAnalyticsGroup = 'day' | 'week' | 'month' | 'overall' | 'activityState' | 'sessionKind';
+export type AiAnalyticsGroup = 'day' | 'week' | 'month' | 'overall' | 'activityState' | 'sessionKind' | 'scope';
 export type AiAnalyticsMissingPolicy = 'exclude' | 'zero' | 'labelMissing';
 
 export type AiAnalyticsMeasure = {
@@ -20,6 +21,9 @@ export type AiAnalyticsPlan = {
   groupBy: AiAnalyticsGroup;
   visual: 'table' | 'line' | 'bar';
   missingData: AiAnalyticsMissingPolicy;
+  requestedCoverage?: { observedCount: boolean; missingCount: boolean };
+  /** Server-resolved named periods. Model output cannot directly authorize these ranges. */
+  scopes?: NamedHistoryWindow[];
 };
 
 export type AiAnalyticsResult = {
@@ -32,6 +36,7 @@ export type AiAnalyticsResult = {
     observedValues: number;
     missingValues: number;
     missingData: AiAnalyticsMissingPolicy;
+    measures: Array<{ field: AiAnalyticsField; observedValues: number; missingValues: number }>;
   };
   evidenceLedger: {
     operation: 'structured-analytics';
@@ -131,6 +136,7 @@ export function normalizeAiAnalyticsPlan(value: unknown): AiAnalyticsPlan | null
   if (groupBy === 'overall' && visual === 'line') return null;
   if (measures.some(measure => measure.aggregation === 'longestStreak') && groupBy !== 'overall') return null;
   if (analysis === 'correlation' && (measures.length !== 2 || groupBy !== 'overall' || visual !== 'table')) return null;
+  if (measures.some(measure => measure.aggregation === 'percentage' && measure.field !== 'ptSession' && measure.field !== 'trainingSession')) return null;
   return { version: 1, title: text(raw.title, 120) || 'Saved data analysis', analysis, measures, groupBy, visual, missingData };
 }
 
@@ -141,14 +147,43 @@ export function aiAnalyticsNeedsDerivedEvents(question: string) {
   return asksLateralityOrAnatomy || asksEventSemantics;
 }
 
-export function inferAiAnalyticsPlan(question: string): AiAnalyticsPlan | null {
+function requestedAggregation(value: string): AiAnalyticsAggregation {
+  return /\b(?:longest|best)\b.{0,40}\bstreak\b/.test(value) ? 'longestStreak'
+    : /\b(?:percent|percentage|rate|proportion)\b/.test(value) ? 'percentage'
+      : /\bmedian\b/.test(value) ? 'median'
+        : /\b(?:minimum|lowest|min)\b/.test(value) ? 'minimum'
+          : /\b(?:maximum|highest|max)\b/.test(value) ? 'maximum'
+            : /\b(?:sum|total)\b/.test(value) ? 'sum'
+              : /\b(?:avg|average|mean)\b/.test(value) ? 'average'
+                : /\b(?:count|how many|number of)\b/.test(value) ? 'count'
+                  : 'average';
+}
+
+function fieldClause(source: string, field: AiAnalyticsField) {
+  const terms: Record<AiAnalyticsField, RegExp> = {
+    pain: /\bpain\b/, energy: /\benergy\b/, mood: /\bmood\b/,
+    sleepHours: /\b(?:sleep hours?|hours? (?:of )?sleep|sleep duration|slept|sleep)\b/,
+    sleepQuality: /\bsleep quality\b/, activityCount: /\b(?:exercise|exercises|workout|workouts|activity|activities)\b/,
+    ptSession: /\b(?:pt sessions?|physical therapy sessions?)\b/, trainingSession: /\btraining sessions?\b/,
+  };
+  const match = terms[field].exec(source);
+  if (!match || match.index === undefined) return source;
+  const before = source.slice(0, match.index);
+  const after = source.slice(match.index + match[0].length);
+  const beforeBoundary = Math.max(before.lastIndexOf(','), before.lastIndexOf(';'), before.lastIndexOf(' and '));
+  const afterBoundaries = [after.indexOf(','), after.indexOf(';'), after.indexOf(' and ')].filter(index => index >= 0);
+  const afterBoundary = afterBoundaries.length ? Math.min(...afterBoundaries) : after.length;
+  return source.slice(beforeBoundary + 1, match.index + match[0].length + afterBoundary);
+}
+
+export function inferAiAnalyticsPlan(question: string, scopes: NamedHistoryWindow[] = []): AiAnalyticsPlan | null {
   const source = question.toLowerCase().replace(/[’]/g, "'");
   if (aiAnalyticsNeedsDerivedEvents(source)) return null;
   const fields: AiAnalyticsField[] = [];
   if (/\bpain\b/.test(source)) fields.push('pain');
   if (/\benergy\b/.test(source)) fields.push('energy');
   if (/\bmood\b/.test(source)) fields.push('mood');
-  if (/\b(?:sleep hours?|hours? (?:of )?sleep|sleep duration|slept)\b/.test(source)) fields.push('sleepHours');
+  if (/\b(?:sleep hours?|hours? (?:of )?sleep|sleep duration|slept|sleep)\b/.test(source) && !/\bsleep quality\b/.test(source)) fields.push('sleepHours');
   if (/\bsleep quality\b/.test(source)) fields.push('sleepQuality');
   if (/\b(?:exercise|exercises|workout|workouts|activity|activities|adherence)\b/.test(source)) fields.push('activityCount');
   if (/\bpt sessions?|physical therapy sessions?\b/.test(source)) fields.push('ptSession');
@@ -156,31 +191,43 @@ export function inferAiAnalyticsPlan(question: string): AiAnalyticsPlan | null {
   if (!fields.length) return null;
 
   const analysis: AiAnalyticsPlan['analysis'] = /\b(?:correlat(?:e|ed|es|ion)|relationship|associated with)\b/.test(source) ? 'correlation' : 'aggregate';
-  const aggregation: AiAnalyticsAggregation = /\b(?:longest|best)\b.{0,40}\bstreak\b/.test(source) ? 'longestStreak'
-    : /\b(?:percent|percentage|rate|proportion)\b/.test(source) ? 'percentage'
-      : /\bmedian\b/.test(source) ? 'median'
-        : /\b(?:minimum|lowest|min)\b/.test(source) ? 'minimum'
-          : /\b(?:maximum|highest|max)\b/.test(source) ? 'maximum'
-            : /\b(?:sum|total)\b/.test(source) ? 'sum'
-              : /\b(?:count|how many|number of)\b/.test(source) ? 'count'
-                : 'average';
+  const defaultAggregation = requestedAggregation(source);
+  const measures = Array.from(new Set(fields)).slice(0, analysis === 'correlation' ? 2 : 4).map(field => {
+    const clause = fieldClause(source, field);
+    let aggregation = analysis === 'correlation' ? 'average' as const : requestedAggregation(clause);
+    if (aggregation === 'average' && !/\b(?:avg|average|mean)\b/.test(clause)) aggregation = defaultAggregation;
+    // activityCount is already a per-day quantity. "How many exercises" asks
+    // for its sum; count is reserved for observed day/record counts.
+    if (aggregation === 'count' && field === 'activityCount' && !/\b(?:day|days|dates|entries|records)\b/.test(clause)) aggregation = 'sum';
+    return { field, aggregation, label: FIELD_LABELS[field] };
+  });
+  // A percentage over a continuous score is undefined without a predicate such
+  // as pain >= 7. Refuse to invent a >0 predicate; a planner with predicates can
+  // support that explicitly in a later contract version.
+  if (measures.some(measure => measure.aggregation === 'percentage' && measure.field !== 'ptSession' && measure.field !== 'trainingSession')) return null;
   const groupBy: AiAnalyticsGroup = analysis === 'correlation' ? 'overall'
+    : scopes.length > 1 ? 'scope'
     : /\b(?:workout|exercise|active)\s+(?:versus|vs\.?|compared (?:with|to))\s+(?:rest|inactive)|\brest\s+(?:versus|vs\.?|compared (?:with|to))\s+(?:workout|exercise|active)\b/.test(source)
     ? 'activityState'
     : /\b(?:pt|training|session)\s+(?:versus|vs\.?|compared (?:with|to))\b|\b(?:session type|session kind)\b/.test(source) ? 'sessionKind'
       : /\b(?:by|per|each|every|group(?:ed)? by)\s+month|\bmonthly\b/.test(source) ? 'month'
         : /\b(?:by|per|each|every|group(?:ed)? by)\s+week|\bweekly\b/.test(source) ? 'week'
-          : aggregation === 'longestStreak' || /\boverall\b/.test(source) ? 'overall' : 'day';
-  const visual: AiAnalyticsPlan['visual'] = analysis === 'correlation' || /\btable\b/.test(source) || groupBy === 'overall' ? 'table'
+          : measures.some(measure => measure.aggregation === 'longestStreak') || /\boverall\b/.test(source) || !/\b(?:daily|by day|per day|each day|trend|over time|chart|graph|plot)\b/.test(source) ? 'overall' : 'day';
+  const visual: AiAnalyticsPlan['visual'] = analysis === 'correlation' || /\btable\b/.test(source) || groupBy === 'overall' || groupBy === 'scope' ? 'table'
     : /\bbar(?: graph| chart)?\b/.test(source) || groupBy === 'activityState' || groupBy === 'sessionKind' ? 'bar' : 'line';
   return {
     version: 1,
     title: text(question.replace(/\b(?:show|make|create|give me|please)\b/gi, ''), 120) || 'Saved data analysis',
     analysis,
-    measures: Array.from(new Set(fields)).slice(0, analysis === 'correlation' ? 2 : 4).map(field => ({ field, aggregation, label: FIELD_LABELS[field] })),
+    measures,
     groupBy,
     visual,
     missingData: 'exclude',
+    requestedCoverage: {
+      observedCount: /\b(?:recorded|observed|logged)\s+(?:day|days|value|values)|\bhow many\s+(?:day|days|dates|entries|records)\b/i.test(question),
+      missingCount: /\b(?:missing|unlogged|not logged|not recorded)\b/i.test(question),
+    },
+    scopes: scopes.length > 1 ? scopes.slice(0, 8) : undefined,
   };
 }
 
@@ -192,7 +239,8 @@ function dateString(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function groupLabel(record: HistoryDayRecord, group: AiAnalyticsGroup) {
+function groupLabel(record: HistoryDayRecord, group: AiAnalyticsGroup, scopes: NamedHistoryWindow[] = []) {
+  if (group === 'scope') return scopes.find(scope => record.date >= scope.startDate && record.date <= scope.endDate)?.label ?? null;
   if (group === 'day') return record.date;
   if (group === 'month') return record.date.slice(0, 7);
   if (group === 'activityState') return uniqueActivityCount(record) > 0 ? 'Exercise/activity recorded' : 'No exercise/activity recorded';
@@ -248,11 +296,15 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
     const [leftMeasure, rightMeasure] = plan.measures;
     const pairs: Array<{ date: string; left: number; right: number }> = [];
     let missingValues = 0;
+    let leftObserved = 0;
+    let rightObserved = 0;
     for (const record of sortedRecords) {
       const leftRaw = fieldValue(record, leftMeasure.field);
       const rightRaw = fieldValue(record, rightMeasure.field);
       if (leftRaw === null) missingValues += 1;
+      else leftObserved += 1;
       if (rightRaw === null) missingValues += 1;
+      else rightObserved += 1;
       if (plan.missingData === 'zero') pairs.push({ date: record.date, left: leftRaw ?? 0, right: rightRaw ?? 0 });
       else if (leftRaw !== null && rightRaw !== null) pairs.push({ date: record.date, left: leftRaw, right: rightRaw });
     }
@@ -261,7 +313,7 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
     const numerator = pairs.reduce((sum, pair) => sum + ((pair.left - leftMean) * (pair.right - rightMean)), 0);
     const leftVariance = pairs.reduce((sum, pair) => sum + ((pair.left - leftMean) ** 2), 0);
     const rightVariance = pairs.reduce((sum, pair) => sum + ((pair.right - rightMean) ** 2), 0);
-    const coefficient = pairs.length >= 2 && leftVariance > 0 && rightVariance > 0
+    const coefficient = pairs.length >= 5 && leftVariance > 0 && rightVariance > 0
       ? round(numerator / Math.sqrt(leftVariance * rightVariance))
       : null;
     const startDate = sortedRecords[0].date;
@@ -274,7 +326,7 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
       subtitle: `${sortedRecords.length} days checked · ${range}`,
       columns: ['Measure pair', 'Pearson correlation', 'Paired days'],
       rows: [[pairLabel, display(coefficient), String(pairs.length)]],
-      footnote: `Server-calculated Pearson correlation. Missing values were ${missingDescription}. Correlation describes association, not causation.`,
+      footnote: `Server-calculated Pearson correlation. Missing values were ${missingDescription}. At least five paired days are required; fewer pairs are reported as insufficient. Correlation describes association, not causation.`,
       drilldowns: [{
         label: pairLabel,
         items: pairs.slice(0, 120).map(pair => ({
@@ -287,7 +339,18 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
     return {
       plan,
       visualization,
-      coverage: { startDate, endDate, analyzedDays: sortedRecords.length, observedValues: pairs.length * 2, missingValues, missingData: plan.missingData },
+      coverage: {
+        startDate,
+        endDate,
+        analyzedDays: sortedRecords.length,
+        observedValues: leftObserved + rightObserved,
+        missingValues,
+        missingData: plan.missingData,
+        measures: [
+          { field: leftMeasure.field, observedValues: leftObserved, missingValues: sortedRecords.length - leftObserved },
+          { field: rightMeasure.field, observedValues: rightObserved, missingValues: sortedRecords.length - rightObserved },
+        ],
+      },
       evidenceLedger: {
         operation: 'structured-analytics',
         scope: { startDate, endDate, analyzedDays: sortedRecords.length },
@@ -300,24 +363,30 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
       },
     };
   }
+  if (plan.groupBy === 'scope' && (!plan.scopes || plan.scopes.length < 2)) return null;
   const groups = new Map<string, HistoryDayRecord[]>();
+  for (const scope of plan.scopes ?? []) groups.set(scope.label, []);
   for (const record of sortedRecords) {
-    const label = groupLabel(record, plan.groupBy);
+    const label = groupLabel(record, plan.groupBy, plan.scopes);
+    if (!label) continue;
     groups.set(label, [...(groups.get(label) ?? []), record]);
   }
   const labels = Array.from(groups.keys());
   let observedValues = 0;
   let missingValues = 0;
-  const valuesByMeasure = plan.measures.map(measure => labels.map(label => {
+  const measureCoverage = plan.measures.map(measure => ({ field: measure.field, observedValues: 0, missingValues: 0 }));
+  const valuesByMeasure = plan.measures.map((measure, measureIndex) => labels.map(label => {
     const groupRecords = groups.get(label) ?? [];
     const datedValues: Array<{ date: string; value: number }> = [];
     for (const record of groupRecords) {
       const raw = fieldValue(record, measure.field);
       if (raw === null) {
         missingValues += 1;
+        measureCoverage[measureIndex].missingValues += 1;
         if (plan.missingData === 'zero') datedValues.push({ date: record.date, value: 0 });
       } else {
         observedValues += 1;
+        measureCoverage[measureIndex].observedValues += 1;
         datedValues.push({ date: record.date, value: raw });
       }
     }
@@ -365,6 +434,7 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
       observedValues,
       missingValues,
       missingData: plan.missingData,
+      measures: measureCoverage,
     },
     evidenceLedger: {
       operation: 'structured-analytics',
@@ -388,6 +458,46 @@ export function executeAiAnalyticsPlan(plan: AiAnalyticsPlan, records: HistoryDa
       ],
     },
   };
+}
+
+function valueWithUnit(value: string, field: AiAnalyticsField, aggregation: AiAnalyticsAggregation) {
+  if (value === '—') return 'unavailable';
+  const unit = aggregation === 'percentage' ? '%' : aggregation === 'longestStreak' ? ' days' : FIELD_UNITS[field] ?? '';
+  return unit === '%' ? `${value}%` : `${value}${unit ? ` ${unit}` : ''}`;
+}
+
+/** Compose factual analytical output directly from server-calculated values. */
+export function composeAiAnalyticsAnswer(result: AiAnalyticsResult) {
+  if (result.visualization.type !== 'table') {
+    const series = result.visualization.series.map(item => `${item.name}: ${result.visualization.type === 'line' || result.visualization.type === 'bar' ? result.visualization.labels.map((label, index) => `${label} ${item.values[index] ?? 'unavailable'}`).join('; ') : ''}`);
+    const coverage = result.coverage.measures.map(item => `${FIELD_LABELS[item.field]} had ${item.observedValues} recorded day${item.observedValues === 1 ? '' : 's'} and ${item.missingValues} unlogged day${item.missingValues === 1 ? '' : 's'}`).join('; ');
+    return `I calculated this directly from your saved records. ${series.join(' ')} ${coverage}. Missing values were ${result.plan.missingData === 'zero' ? 'treated as zero' : 'excluded, not treated as zero'}.`.trim();
+  }
+  const rows = result.visualization.rows;
+  if (!rows.length) return 'I checked the requested saved records, but there were no observed values available for this calculation.';
+  if (result.plan.analysis === 'correlation') {
+    const row = rows[0];
+    return row[1] === '—'
+      ? `There were ${row[2]} paired saved days for ${row[0]}. At least five paired days with variation are required for a meaningful server-calculated correlation, so I am not presenting a coefficient.`
+      : `The server-calculated Pearson correlation for ${row[0]} was ${row[1]} across ${row[2]} paired saved days. Correlation describes association, not causation.`;
+  }
+
+  const sentences = rows.flatMap(row => result.plan.measures.map((measure, index) => {
+    const value = String(row[index + 1] ?? '—');
+    return `${measure.label} for ${row[0]} was ${valueWithUnit(value, measure.field, measure.aggregation)}.`;
+  }));
+  if (rows.length === 2 && result.plan.measures.length === 1) {
+    const current = Number(rows[0][1]);
+    const baseline = Number(rows[1][1]);
+    if (Number.isFinite(current) && Number.isFinite(baseline)) {
+      const difference = round(current - baseline);
+      const direction = difference === 0 ? 'the same as' : difference > 0 ? 'higher than' : 'lower than';
+      const magnitude = difference === 0 ? '' : ` by ${Math.abs(difference)}`;
+      sentences.push(`The current period was ${direction} the previous period${magnitude}.`);
+    }
+  }
+  const coverage = result.coverage.measures.map(item => `${FIELD_LABELS[item.field]} had ${item.observedValues} recorded day${item.observedValues === 1 ? '' : 's'} and ${item.missingValues} unlogged day${item.missingValues === 1 ? '' : 's'}.`);
+  return [...sentences, ...coverage, `Missing values were ${result.plan.missingData === 'zero' ? 'treated as zero.' : 'excluded from the calculation, not treated as zero.'}`].join(' ');
 }
 
 export const AI_ANALYTICS_PLAN_CONTRACT = {

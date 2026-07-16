@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildDeterministicAgentFallback } from './aiAgent.ts';
+import { buildDeterministicAgentFallback, requiredAgentActionSlots, validateAgentPlanAgainstSlots } from './aiAgent.ts';
 
 test('builds safe navigation plans for explicit destinations', () => {
   const plan = buildDeterministicAgentFallback({ question: 'Open settings', today: '2026-07-15' });
@@ -129,6 +129,33 @@ test('compiles every filled wellness starter field and ignores untouched placeho
     today: '2026-07-15',
   });
   assert.equal(untouched, undefined);
+});
+
+test('compiles and merges independent action clauses without treating note text as an exercise target', () => {
+  const context = {
+    question: 'For today, set pain to 6, add the health note “Pain increased while walking,” and mark my calf raises complete.',
+    today: '2026-07-15',
+    explicitDates: ['2026-07-15'],
+    exercises: [
+      { id: 'walk', name: 'Walk' },
+      { id: 'calf-raises', name: 'Calf Raises' },
+    ],
+  };
+  const plan = buildDeterministicAgentFallback(context);
+  const slots = requiredAgentActionSlots(context);
+  assert.deepEqual(plan?.actions.map(action => action.type), ['health_change', 'health_change', 'completion_set']);
+  assert.deepEqual(plan?.actions.filter(action => action.type === 'health_change').map(action => [action.field, action.value]), [
+    ['pain', 6],
+    ['general_notes', 'Pain increased while walking'],
+  ]);
+  assert.equal(plan?.actions[2]?.type === 'completion_set' ? plan.actions[2].exerciseId : '', 'calf-raises');
+  assert.equal(slots.length, 3);
+  assert.ok(validateAgentPlanAgainstSlots(plan, slots));
+  assert.equal(validateAgentPlanAgainstSlots({
+    version: 1,
+    summary: 'Wrong extra target',
+    actions: [...(plan?.actions ?? []), { id: 'wrong', type: 'completion_set', date: '2026-07-15', exerciseId: 'walk', completed: true }],
+  }, slots), undefined);
 });
 
 test('compiles filled doctor, scheduling, exercise-management, and navigation starters', () => {

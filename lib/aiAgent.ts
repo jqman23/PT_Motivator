@@ -829,7 +829,7 @@ function actionDetailField(details: string, field: 'category' | 'cue' | 'sets' |
   return match?.[1]?.trim().replace(/[.!?]+$/, '') ?? '';
 }
 
-export function buildDeterministicAgentFallback(context: {
+export type DeterministicAgentContext = {
   question: string;
   today: string;
   selectedDate?: string | null;
@@ -838,7 +838,9 @@ export function buildDeterministicAgentFallback(context: {
   categories?: Array<{ id: string; name: string }>;
   doctorNotes?: Array<{ id: string; title?: string }>;
   priorUserMessages?: string[];
-}): AgentPlan | undefined {
+};
+
+function buildDeterministicAgentFallbackSingle(context: DeterministicAgentContext): AgentPlan | undefined {
   const { question, today, selectedDate, explicitDates = [], exercises = [], categories = [], doctorNotes = [], priorUserMessages = [] } = context;
   const shortApproval = /^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/i.test(question.trim());
   const instructionQuestion = withoutTemplateBrackets(shortApproval && priorUserMessages.length ? priorUserMessages.at(-1)! : question);
@@ -1160,7 +1162,13 @@ export function buildDeterministicAgentFallback(context: {
       });
     }
   }
-  const generalHealthNote = instructionQuestion.match(/\b(?:add|append|save|record|write)\s+(?:(?:a|this|the)\s+)?(?:health|general)\s+note\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i)?.[1]?.trim().replace(/^[\s.!?]+|[\s.!?]+$/g, '');
+  const generalHealthNote = instructionQuestion.match(/\b(?:add|append|save|record|write)\s+(?:(?:a|this|the)\s+)?(?:health|general)\s+note\s*(?:(?:that|saying|reading)\s+|:\s*)["“]?(.+?)["”]?[.!?]*$/i)?.[1]
+    ?.trim()
+    .replace(/^[“"'‘]+/, '')
+    .replace(/[”"'’](?=[,;:.!?]*$)/, '')
+    // A comma/semicolon after the closing quote is a command delimiter, not
+    // part of the saved note payload. Internal punctuation remains untouched.
+    .replace(/^[\s,;.!?]+|[\s,;.!?]+$/g, '');
   if (generalHealthNote) healthActions.push({
     id: 'health-general-note',
     type: 'health_change',
@@ -1197,7 +1205,9 @@ export function buildDeterministicAgentFallback(context: {
     const afterField = instructionQuestion.slice((healthNoteMatch.index ?? 0) + healthNoteMatch[0].length)
       .replace(/^\s*(?:to|with|that|saying|reading|as|:|-)+\s*/i, '')
       .trim()
-      .replace(/[.!?]+$/, '');
+      .replace(/^[“"'‘]+/, '')
+      .replace(/[”"'’](?=[,;:.!?]*$)/, '')
+      .replace(/[\s,;.!?]+$/, '');
     const replacing = /\b(?:replace|rewrite|clear|overwrite)\b/i.test(instructionQuestion);
     if (afterField || replacing) {
       const actionDate = explicitDates.at(-1) ?? selectedDate ?? today;
@@ -1233,6 +1243,122 @@ export function buildDeterministicAgentFallback(context: {
     summary: `Set ${metricLabel} for ${actionDate}`,
     actions: [{ id: 'health-1', type: 'health_change', date: actionDate, field, mode: 'replace', value, reason: `You asked to record ${metricLabel} as ${value}.` }],
   });
+}
+
+function splitAgentCommandClauses(value: string) {
+  type Quote = '"' | '\'' | '“' | '‘';
+  const clauses: string[] = [];
+  let current = '';
+  let quote: Quote | null = null;
+  const closes: Record<Quote, string> = { '"': '"', "'": "'", '“': '”', '‘': '’' };
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (!quote && (character === '"' || character === "'" || character === '“' || character === '‘')) {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (quote && character === closes[quote]) {
+      quote = null;
+      current += character;
+      continue;
+    }
+    if (!quote && (character === ',' || character === ';')) {
+      if (current.trim()) clauses.push(current.trim());
+      current = '';
+      continue;
+    }
+    if (!quote && /^\s+and\s+/i.test(value.slice(index))) {
+      if (current.trim()) clauses.push(current.trim());
+      current = '';
+      const separator = value.slice(index).match(/^\s+and\s+/i)?.[0] ?? '';
+      index += separator.length - 1;
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim()) clauses.push(current.trim());
+  return clauses.map(item => item.replace(/^(?:and|then)\s+/i, '').trim()).filter(Boolean);
+}
+
+export type RequiredAgentActionSlot = {
+  key: string;
+  type: AgentAction['type'];
+};
+
+export function agentActionSlotKey(action: AgentAction) {
+  switch (action.type) {
+    case 'completion_set': return `completion:${action.date}:${action.exerciseId}`;
+    case 'exercise_note_change': return `exercise-note:${action.date}:${action.exerciseId}:${action.mode}`;
+    case 'health_change': return `health:${action.date}:${action.field}:${action.mode}`;
+    case 'metrics_set': return `metrics-set:${action.date}:${action.exerciseId}`;
+    case 'metrics_clear': return `metrics-clear:${action.date}:${action.exerciseId}`;
+    case 'exercise_add': return `exercise-add:${action.exercise.name.toLowerCase()}`;
+    case 'exercise_update': return `exercise-update:${action.exerciseId}`;
+    case 'exercise_move': return `exercise-move:${action.exerciseId}:${action.categoryName.toLowerCase()}`;
+    case 'exercise_remove': return `exercise-remove:${action.exerciseId}`;
+    case 'category_upsert': return `category-upsert:${action.categoryId || action.name.toLowerCase()}`;
+    case 'category_remove': return `category-remove:${action.categoryId}`;
+    case 'doctor_note_upsert': return `doctor-upsert:${action.noteId || action.patch.title || action.id}:${action.mode}`;
+    case 'doctor_note_remove': return `doctor-remove:${action.noteId}`;
+    case 'pt_session_upsert': return `session-upsert:${action.date}:${action.kind}`;
+    case 'pt_session_remove': return `session-remove:${action.date}:${action.kind}`;
+    case 'widget_set': return `widget:${action.key}:${action.enabled}`;
+    case 'app_title_set': return `app-title:${action.title}`;
+    case 'photo_attach': return `photo:${action.target}:${action.date || ''}:${action.exerciseId || ''}:${action.noteId || ''}`;
+    case 'bulk_completion_from_note': return `bulk-completion:${action.exerciseId}:${action.field}:${action.startDate}:${action.endDate}`;
+    case 'navigate': return `navigate:${action.destination}:${action.date || ''}:${action.exerciseId || ''}:${action.noteId || ''}`;
+  }
+}
+
+function compileIndependentAgentClauses(context: DeterministicAgentContext) {
+  const clauses = splitAgentCommandClauses(context.question);
+  const actionableClauses = clauses.filter(question => /\b(?:open|go to|show|hide|enable|disable|turn on|turn off|set|record|log|change|update|put|save|track|mark|add|append|write|create|remove|delete|clear|schedule|attach|upload|choose|rename|move|complete|done)\b|\b(?:pain|energy|mood|sleep(?: hours?| quality)?)\b[^0-9]{0,32}\d/i.test(question));
+  const clausePlans = clauses.flatMap(question => {
+    const plan = buildDeterministicAgentFallbackSingle({ ...context, question });
+    return plan ? [plan] : [];
+  });
+  const complete = clauses.length > 1 && clausePlans.length >= 2 && clausePlans.length >= actionableClauses.length;
+  const actions = complete ? coalesceAgentActions(clausePlans.flatMap(plan => plan.actions)) : [];
+  return { actions, complete };
+}
+
+export function requiredAgentActionSlots(context: DeterministicAgentContext): RequiredAgentActionSlot[] {
+  const compiled = compileIndependentAgentClauses(context);
+  if (!compiled.complete) return [];
+  return compiled.actions.map(action => ({ key: agentActionSlotKey(action), type: action.type }));
+}
+
+export function validateAgentPlanAgainstSlots(plan: AgentPlan | undefined, slots: RequiredAgentActionSlot[]) {
+  if (!plan || !slots.length) return plan;
+  const required = new Set(slots.map(slot => slot.key));
+  const actual = new Set(plan.actions.map(agentActionSlotKey));
+  if ([...required].some(key => !actual.has(key))) return undefined;
+  if (plan.actions.some(action => !required.has(agentActionSlotKey(action)))) return undefined;
+  return plan;
+}
+
+/**
+ * Compile independent commands separately before merging them. This prevents a
+ * term inside one requested value (for example "walking" inside a health note)
+ * from stealing the target of another command in the same message. If clause
+ * parsing finds fewer than two executable subgoals, retain the existing whole-
+ * sentence compiler so tightly coupled commands still share their target.
+ */
+export function buildDeterministicAgentFallback(context: DeterministicAgentContext): AgentPlan | undefined {
+  const compiled = compileIndependentAgentClauses(context);
+  if (compiled.complete) {
+      const actions = compiled.actions.map((action, index) => ({
+        ...action,
+        id: `action-${index + 1}`,
+      }));
+      return normalizeAgentPlan({
+        version: 1,
+        summary: actions.length === 1 ? 'Prepare 1 requested update' : `Prepare all ${actions.length} requested updates`,
+        actions,
+      });
+  }
+  return buildDeterministicAgentFallbackSingle(context);
 }
 
 export function agentActionNeedsPhoto(action: AgentAction) {

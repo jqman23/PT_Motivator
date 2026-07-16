@@ -7,6 +7,16 @@ export type BoundedHistoryWindow = {
   sourceText: string;
 };
 
+export type NamedHistoryWindow = BoundedHistoryWindow & {
+  id: string;
+  label: string;
+};
+
+export type HistoryScopePlan = {
+  windows: NamedHistoryWindow[];
+  loadWindow: BoundedHistoryWindow;
+};
+
 const NUMBER_WORDS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -52,6 +62,14 @@ function weekStartDate(today: string) {
 
 export function resolveBoundedHistoryWindow(value: string, today: string): BoundedHistoryWindow | null {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (/\brecent\s+(?:notes?|history|records?|entries|logs?|symptoms?)\b/.test(text) && !/\brecent\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)?[ -]?(?:days?|weeks?|months?)\b/.test(text)) {
+    return {
+      startDate: shiftDate(today, -6),
+      endDate: today,
+      dayCount: 7,
+      sourceText: 'recent saved records',
+    };
+  }
   if (/\b(?:this\s+past|past|last|previous|recent)\s+week\b/.test(text)) {
     const endDate = shiftDate(today, -1);
     return {
@@ -70,7 +88,7 @@ export function resolveBoundedHistoryWindow(value: string, today: string): Bound
       sourceText: 'this week',
     };
   }
-  const relative = text.match(/\b(?:past|last|previous|recent)\s+(?:(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)[ -]?)?(days?|weeks?)\b/);
+  const relative = text.match(/\b(?:past|last|previous|recent)\s+(?:(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)[ -]?)?(days?|weeks?|months?)\b/);
   if (!relative) {
     const mentionsToday = /\b(?:today|this morning|this afternoon|this evening|tonight)\b/.test(text);
     const mentionsYesterday = /\b(?:yesterday|the previous day)\b/.test(text);
@@ -86,10 +104,10 @@ export function resolveBoundedHistoryWindow(value: string, today: string): Bound
     return null;
   }
 
-  const unit = relative[2].startsWith('week') ? 7 : 1;
-  const defaultCount = unit === 7 ? 1 : 1;
+  const unit = relative[2].startsWith('month') ? 30 : relative[2].startsWith('week') ? 7 : 1;
+  const defaultCount = 1;
   const requestedCount = (relative[1] ? parsedCount(relative[1]) : defaultCount) * unit;
-  const dayCount = Math.max(1, Math.min(90, requestedCount));
+  const dayCount = Math.max(1, Math.min(365, requestedCount));
   const includesToday = /\b(?:including|through|thru|up to) today\b|\btoday and (?:the )?(?:past|previous|last)\b/.test(text);
   const endDate = includesToday ? today : shiftDate(today, -1);
   return {
@@ -108,6 +126,51 @@ export function resolveHistoryWindowFromConversation(current: string, priorUserM
     if (window) return window;
   }
   return null;
+}
+
+function comparisonDayCount(text: string, fallback: number) {
+  const beforeReference = text.match(new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join('|')}|\\d{1,3})[ -]?(days?|weeks?)[ -](?:immediately[ -])?before[ -](?:that|this|those|it|the[ -](?:current|first|recent|last|past)[ -](?:period|range|window))\\b`));
+  const priorReference = text.match(new RegExp(`\\b(?:previous|prior|preceding|earlier)[ -](?:(${Object.keys(NUMBER_WORDS).join('|')}|\\d{1,3})[ -]?)?(days?|weeks?|period|range|window)\\b`));
+  const weekBefore = /\b(?:the[ -])?week[ -]before\b/.test(text);
+  const match = beforeReference ?? priorReference;
+  if (!match) return weekBefore ? 7 : fallback;
+  if (/^week/.test(match[2] ?? '')) return Math.max(1, Math.min(90, (match[1] ? parsedCount(match[1]) : 1) * 7));
+  if (/^day/.test(match[2] ?? '')) return Math.max(1, Math.min(90, match[1] ? parsedCount(match[1]) : fallback));
+  return fallback;
+}
+
+/**
+ * Resolve every bounded period needed by an analytical comparison, rather than
+ * returning only the first date phrase. This is a typed scope stage: analytics
+ * consumes named windows and the database receives their single bounded union.
+ */
+export function resolveHistoryScopePlan(value: string, today: string, primaryWindow?: BoundedHistoryWindow | null): HistoryScopePlan | null {
+  const primary = primaryWindow ?? resolveBoundedHistoryWindow(value, today);
+  if (!primary) return null;
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  const comparisonConnector = /\b(?:compare(?:d|s|ing)?(?:\s+\w+){0,8}\s+(?:to|with|against)|versus|vs\.?|against|difference between|change from)\b/.test(text);
+  const precedingReference = /\b(?:before that|before those|previous|prior|preceding|earlier|week before)\b/.test(text);
+  if (!precedingReference || (!comparisonConnector && !/\bbefore (?:that|those|this|it)\b/.test(text))) {
+    const only = { ...primary, id: 'primary', label: `${primary.sourceText} (${primary.startDate} through ${primary.endDate})` };
+    return { windows: [only], loadWindow: primary };
+  }
+
+  const previousDays = comparisonDayCount(text, primary.dayCount);
+  const previousEnd = shiftDate(primary.startDate, -1);
+  const previousStart = shiftDate(previousEnd, -(previousDays - 1));
+  const windows: NamedHistoryWindow[] = [
+    { ...primary, id: 'primary', label: `Current period (${primary.startDate} through ${primary.endDate})` },
+    { startDate: previousStart, endDate: previousEnd, dayCount: previousDays, sourceText: 'preceding comparison period', id: 'previous', label: `Previous period (${previousStart} through ${previousEnd})` },
+  ];
+  return {
+    windows,
+    loadWindow: {
+      startDate: previousStart,
+      endDate: primary.endDate,
+      dayCount: primary.dayCount + previousDays,
+      sourceText: `${primary.sourceText} and preceding comparison period`,
+    },
+  };
 }
 
 export function calendarDays(window: BoundedHistoryWindow) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, mergeSemanticCategoryPlans, normalizeEvidenceBackedSemanticVisualizations, normalizeSemanticCategoryPlan, visualizationFromSemanticCategoryPlan } from './aiSemanticEvidence.ts';
+import { buildSemanticNoteSources, chunkSemanticNoteSources, explicitSemanticCategoryPlan, filterSemanticNoteSourcesForQuestion, mergeSemanticCategoryPlans, normalizeEvidenceBackedSemanticVisualizations, normalizeSemanticCategoryPlan, visualizationFromSemanticCategoryPlan } from './aiSemanticEvidence.ts';
 
 const records = [{
   date: '2026-07-15', completed: [], exerciseNotes: [], session: null,
@@ -100,5 +100,28 @@ test('accepts equivalent nested plan and vocabulary field shapes from fallback m
   assert.deepEqual(plan?.categories, [
     { label: 'Primary', aliases: ['big joint'] },
     { label: 'Secondary', aliases: ['small joint'] },
+  ]);
+});
+
+test('builds an exact-wording fallback when the user explicitly supplies every category', () => {
+  const sources = buildSemanticNoteSources([{
+    date: '2026-07-15', completed: [], exerciseNotes: [], session: null,
+    health: { generalNote: 'Burning and tingling today. No swelling.' },
+  }]);
+  const plan = explicitSemanticCategoryPlan(
+    'Make a table showing how many times I mentioned each of these: numbness, tingling, burning, swelling, and bruising. Let me inspect the notes.',
+    sources,
+    5,
+  );
+  assert.deepEqual(plan?.categories.map(category => [category.label, category.aliases]), [
+    ['numbness', []],
+    ['tingling', ['tingling']],
+    ['burning', ['burning']],
+    ['swelling', ['swelling']],
+    ['bruising', []],
+  ]);
+  const visual = plan ? visualizationFromSemanticCategoryPlan(plan, sources)[0] : null;
+  assert.deepEqual(visual?.type === 'table' ? visual.rows : [], [
+    ['numbness', '0'], ['tingling', '1'], ['burning', '1'], ['swelling', '1'], ['bruising', '0'],
   ]);
 });

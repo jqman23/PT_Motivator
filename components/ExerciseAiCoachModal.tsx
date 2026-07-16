@@ -429,10 +429,25 @@ function historyForApi(messages: ChatMessage[]) {
       }).join('\n').slice(0, 1800)
       : '';
     const resolvedGoal = message.role === 'assistant' ? message.reply?.debug?.resolvedAnalysis?.effectiveQuestion : '';
+    const executionState = message.role === 'assistant' && message.reply?.debug
+      ? JSON.stringify({
+        requestBindings: message.reply.debug.requestPlan?.bindings,
+        completedOutputs: message.reply.debug.execution?.completedOutputs,
+      }).slice(0, 700)
+      : '';
+    const actionState = message.role === 'assistant' && message.reply?.agentPlan
+      ? JSON.stringify({
+        summary: message.reply.agentPlan.summary,
+        actions: message.reply.agentPlan.actions,
+        appliedActionIds: message.reply.agentPlan.appliedActionIds,
+      }).slice(0, 900)
+      : '';
     const artifacts = [
       resolvedGoal ? `Resolved analytical goal: ${resolvedGoal}` : '',
+      executionState ? `Previous execution state: ${executionState}` : '',
+      actionState ? `Previous action artifact: ${actionState}` : '',
       visualArtifacts ? `Previous artifact: ${visualArtifacts}` : '',
-    ].filter(Boolean).join('\n').slice(0, 2200);
+    ].filter(Boolean).join('\n').slice(0, 3000);
     return {
       role: message.role,
       content: `${message.content}${dates}`.slice(0, 900),

@@ -46,6 +46,23 @@ export type AiExecutionStep = {
   required: boolean;
 };
 
+export type AiAnalyticsExecutionBinding = {
+  scopes: Array<{ id: string; startDate: string; endDate: string }>;
+  measures: Array<{ field: string; aggregation: string }>;
+  groupBy: string;
+  requestedCoverage: { observedCount: boolean; missingCount: boolean };
+};
+
+export type AiContextExecutionBinding = {
+  focalDates: string[];
+  evidenceScopes: Array<{ id: string; startDate: string; endDate: string }>;
+};
+
+export type AiActionExecutionBinding = {
+  key: string;
+  type: string;
+};
+
 export type AiRequestPlan = {
   version: 1;
   historyStrategy: 'none' | 'bounded-complete' | 'whole-compact' | 'semantic-corpus' | 'ranked-expanded';
@@ -57,6 +74,11 @@ export type AiRequestPlan = {
     dateNavigation: boolean;
   };
   compound: boolean;
+  bindings?: {
+    analytics?: AiAnalyticsExecutionBinding;
+    context?: AiContextExecutionBinding;
+    actions?: AiActionExecutionBinding[];
+  };
   steps: AiExecutionStep[];
 };
 
@@ -68,6 +90,8 @@ export type BuildAiRequestPlanInput = {
   visualization: boolean;
   actionProposal: boolean;
   patternAnalysis: boolean;
+  analytics?: AiAnalyticsExecutionBinding;
+  context?: AiContextExecutionBinding;
 };
 
 export function buildAiRequestPlan(input: BuildAiRequestPlanInput): AiRequestPlan {
@@ -87,7 +111,7 @@ export function buildAiRequestPlan(input: BuildAiRequestPlanInput): AiRequestPla
     else if (input.visualization || input.patternAnalysis) analysis = add('calculate_structured_analytics', [history]);
     if (!input.hasBoundedWindow && !input.wholeHistory && !input.semanticAggregate) add('rank_history', [history], false);
   }
-  const action = input.actionProposal ? add('propose_actions', [scope]) : '';
+  const action = input.actionProposal ? add('propose_actions', [analysis || scope]) : '';
   const composeDependencies = [analysis || history, action].filter(Boolean);
   const compose = add('compose_response', composeDependencies);
   if (input.visualization) add('render_visualization', [analysis || history || compose]);
@@ -113,6 +137,7 @@ export function buildAiRequestPlan(input: BuildAiRequestPlanInput): AiRequestPla
     historyStrategy,
     requestedOutputs,
     compound: outputCount > 1,
+    bindings: input.analytics || input.context ? { analytics: input.analytics, context: input.context } : undefined,
     steps,
   };
   validateAiRequestPlan(plan);

@@ -126,7 +126,7 @@ export function resolveAnalysisRequest(
     inheritedGoal ? `Current follow-up or correction: ${current}` : '',
     artifactContext ? `Previous response artifact: ${artifactContext}` : '',
   ].filter(Boolean).join('\n'), 6000);
-  const explicitlyNarrowsScope = /\b(?:past|last|previous|recent)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|few|several)?[ -]?(?:days?|weeks?)\b/i.test(question);
+  const explicitlyNarrowsScope = /\b(?:past|last|previous|recent)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|few|several)?[ -]?(?:days?|weeks?|months?)\b/i.test(question);
 
   const semanticTextAggregate = isSemanticTextAggregateRequest(effectiveQuestion);
   return {

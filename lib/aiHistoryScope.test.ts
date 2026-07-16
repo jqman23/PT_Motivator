@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
+import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveHistoryScopePlan, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates } from './aiHistoryScope.ts';
 import type { HistoryDayRecord, RankedHistoryDay } from './historyRanking.ts';
 
 function day(date: string, health: Record<string, unknown> | null = null): HistoryDayRecord {
@@ -82,6 +82,32 @@ test('resolves natural week phrasing without changing the existing bounded-windo
 
   const todayAndYesterday = resolveHistoryWindowFromConversation('Compare today with yesterday', [], '2026-07-16');
   assert.deepEqual(todayAndYesterday && [todayAndYesterday.startDate, todayAndYesterday.endDate], ['2026-07-15', '2026-07-16']);
+
+  const pastMonth = resolveHistoryWindowFromConversation('Compare my energy and sleep over the past month', [], '2026-07-16');
+  assert.deepEqual(pastMonth && [pastMonth.startDate, pastMonth.endDate, pastMonth.dayCount], ['2026-06-16', '2026-07-15', 30]);
+
+  const recentNotes = resolveHistoryWindowFromConversation('Based on my recent notes, what should I consider doing today?', [], '2026-07-16');
+  assert.deepEqual(recentNotes && [recentNotes.startDate, recentNotes.endDate, recentNotes.dayCount], ['2026-07-10', '2026-07-16', 7]);
+});
+
+test('resolves every period in a comparison into one bounded load window', () => {
+  const plan = resolveHistoryScopePlan('what is avg pain score past 7 days and how compare to avg score 7 days before that', '2026-07-15');
+  assert.deepEqual(plan?.windows.map(window => [window.id, window.startDate, window.endDate]), [
+    ['primary', '2026-07-08', '2026-07-14'],
+    ['previous', '2026-07-01', '2026-07-07'],
+  ]);
+  assert.deepEqual(plan?.loadWindow, {
+    startDate: '2026-07-01',
+    endDate: '2026-07-14',
+    dayCount: 14,
+    sourceText: 'past 7 days and preceding comparison period',
+  });
+
+  const varied = resolveHistoryScopePlan('Compare my average energy this past week versus the prior week', '2026-07-16');
+  assert.deepEqual(varied?.windows.map(window => [window.startDate, window.endDate]), [
+    ['2026-07-09', '2026-07-15'],
+    ['2026-07-02', '2026-07-08'],
+  ]);
 });
 
 test('bounded comparisons include empty calendar days instead of sampling saved days', () => {

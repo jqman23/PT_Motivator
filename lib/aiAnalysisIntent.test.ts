@@ -45,6 +45,15 @@ test('an explicit new bounded scope overrides inherited whole-history scope', ()
   assert.equal(result.wholeHistory, false);
 });
 
+test('an explicit month window is not promoted to whole history by dimensional each wording', () => {
+  const resolved = resolveAnalysisRequest(
+    'Compare left-heel pain with right-heel pain over the past three months and chart each side.',
+    [],
+    [],
+  );
+  assert.equal(resolved.wholeHistory, false);
+});
+
 test('extracts a generic explicitly requested group size without domain rules', () => {
   assert.equal(requestedCategoryCount('Show each of my ten categories'), 10);
   assert.equal(requestedCategoryCount('Count all 12 medications'), 12);
