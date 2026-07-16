@@ -45,6 +45,7 @@ export interface Exercise {
   sourceId?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
+  mainImageNotes?: string[];
   mainVideoUrl?: string;
   timerPrescription?: ExerciseTimerPrescription;
 }

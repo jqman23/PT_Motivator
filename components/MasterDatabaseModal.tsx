@@ -5,7 +5,7 @@ import { Exercise, ExerciseProgramMeta, ExerciseTimerPrescription, getExercisePr
 import { CategoryConfig } from '@/lib/layout';
 import { exerciseVideoSource } from '@/lib/media';
 
-type Field = 'name'|'cue'|'sets'|'imageSearch'|'mainImageUrl'|'mainImageUrls'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
+type Field = 'name'|'cue'|'sets'|'imageSearch'|'mainImageUrl'|'mainImageUrls'|'mainImageNotes'|'mainVideoUrl'|'cat'|'optional'|'programs'|'videoIds'|'videoTitles'|'tips';
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,120}$/;
 
@@ -100,7 +100,7 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
     let next: unknown = value;
     if (field === 'optional') next = /true|yes|1/i.test(value);
     if (field === 'cat') next = cleanType(value) || 'mobility';
-    if (['videoIds','videoTitles','tips','mainImageUrls'].includes(field)) next = split(value).slice(0, field === 'mainImageUrls' ? 3 : 999);
+    if (['videoIds','videoTitles','tips','mainImageUrls','mainImageNotes'].includes(field)) next = split(value).slice(0, field === 'mainImageUrls' || field === 'mainImageNotes' ? 3 : 999);
     if (field === 'programs') next = Array.from(new Set(split(value)));
 
     return { ...e, [field]: next } as Exercise;
@@ -207,6 +207,7 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
   const uploadImages = async (id: string, selectedFiles?: FileList | null) => {
     const current = draft.find(ex => ex.id === id);
     const currentPhotos = Array.from(new Set([...(current?.mainImageUrls ?? []), current?.mainImageUrl].filter(Boolean) as string[])).slice(0, 3);
+    const currentNotes = currentPhotos.map((_, index) => (current?.mainImageNotes?.[index] ?? '').slice(0, 500));
     const files = Array.from(selectedFiles ?? []).slice(0, 3 - currentPhotos.length);
     if (!files.length) return;
     setUploadingId(id);
@@ -225,7 +226,8 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
       const uploadedUrls = results.filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled').map(result => result.value);
       if (!uploadedUrls.length) throw new Error('Upload failed');
       const nextPhotos = [...currentPhotos, ...uploadedUrls].slice(0, 3);
-      patch(id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
+      const nextNotes = [...currentNotes, ...uploadedUrls.map(() => '')].slice(0, nextPhotos.length);
+      patch(id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextNotes });
       if (uploadedUrls.length < files.length) alert(`${uploadedUrls.length} of ${files.length} images uploaded. Retry the others.`);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
@@ -260,11 +262,13 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
     const videoTitles = importedList(item.videoTitles);
     const tips = importedList(item.tips ?? item.instructions);
     const mainImageUrls = importedList(item.mainImageUrls ?? item.imageUrls ?? item.photoUrls);
+    const mainImageNotes = importedList(item.mainImageNotes ?? item.imageNotes ?? item.photoNotes);
     const programs = importedList(item.programs);
     if (videoIds) out.videoIds = videoIds;
     if (videoTitles) out.videoTitles = videoTitles;
     if (tips) out.tips = tips;
     if (mainImageUrls) out.mainImageUrls = mainImageUrls.slice(0, 3);
+    if (mainImageNotes) out.mainImageNotes = mainImageNotes.slice(0, 3).map(note => note.slice(0, 500));
     if (programs) out.programs = Array.from(new Set(programs));
     const timerPrescription = importedTimerPrescription(item.timerPrescription);
     if (timerPrescription) out.timerPrescription = timerPrescription;
@@ -463,8 +467,9 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
     }
     const normalized = draft.map(ex => {
       const photos = Array.from(new Set([...(ex.mainImageUrls ?? []), ex.mainImageUrl].filter((url): url is string => Boolean(url?.trim())))).slice(0, 3);
+      const photoNotes = photos.map((_, index) => (ex.mainImageNotes?.[index] ?? '').trim().slice(0, 500));
       const video = exerciseVideoSource(ex.mainVideoUrl);
-      return { ...ex, mainImageUrl: photos[0], mainImageUrls: photos, mainVideoUrl: video?.url };
+      return { ...ex, mainImageUrl: photos[0], mainImageUrls: photos, mainImageNotes: photos.length ? photoNotes : undefined, mainVideoUrl: video?.url };
     });
     setDraft(normalized);
     onLibraryChange(normalized);
@@ -508,7 +513,7 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
 
             <div className="bg-white rounded-2xl border border-stone-100 p-3 space-y-2">
               <select value={field} onChange={e => setField(e.target.value as Field)} className="w-full rounded-xl border px-3 py-2 text-sm bg-white">
-                {['name','cue','sets','imageSearch','mainImageUrl','mainImageUrls','mainVideoUrl','cat','optional','programs','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
+                {['name','cue','sets','imageSearch','mainImageUrl','mainImageUrls','mainImageNotes','mainVideoUrl','cat','optional','programs','videoIds','videoTitles','tips'].map(f => <option key={f}>{f}</option>)}
               </select>
               <textarea value={value} onChange={e => setValue(e.target.value)} rows={5} placeholder="New value…" className="w-full rounded-xl border px-3 py-2 text-xs resize-none" />
               <button onClick={bulk} className={buttonPrimary}>Apply bulk value</button>
@@ -640,11 +645,19 @@ export default function MasterDatabaseModal({ exercises, layout, programMeta, on
                         value={list(Array.from(new Set([...(e.mainImageUrls ?? []), e.mainImageUrl].filter((url): url is string => !!url?.trim()))).slice(0, 3))}
                         onChange={x => {
                           const nextPhotos = split(x.target.value).slice(0, 3);
-                          patch(e.id, { mainImageUrls: nextPhotos, mainImageUrl: nextPhotos[0] });
+                          const nextNotes = nextPhotos.map((_, index) => e.mainImageNotes?.[index] ?? '');
+                          patch(e.id, { mainImageUrls: nextPhotos, mainImageUrl: nextPhotos[0], mainImageNotes: nextNotes });
                         }}
                         rows={3}
                         className="w-52 border rounded-lg p-1 resize-none"
                         placeholder="up to 3 main photo URLs, one per line"
+                      />
+                      <textarea
+                        value={list((e.mainImageNotes ?? []).slice(0, 3))}
+                        onChange={x => patch(e.id, { mainImageNotes: split(x.target.value).slice(0, 3).map(note => note.slice(0, 500)) })}
+                        rows={3}
+                        className="w-52 border rounded-lg p-1 resize-none"
+                        placeholder="image notes, one per photo"
                       />
                       <label className="block w-52 rounded-lg bg-stone-100 py-1.5 text-center text-[11px] font-semibold text-stone-600 cursor-pointer">
                         {uploadingId === e.id ? 'Uploading...' : 'Upload images'}

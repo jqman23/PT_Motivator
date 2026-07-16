@@ -54,9 +54,11 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
 
   const videoSource = exerciseVideoSource(localExercise.mainVideoUrl);
   const photos = primaryPhotos(localExercise);
+  const photoNotes = photos.map((_, index) => (localExercise.mainImageNotes?.[index] ?? '').slice(0, 500));
   const [activePhoto, setActivePhoto] = useState(0);
   const imageUrl = photos[activePhoto] || youtubeThumbnailUrl(localExercise.mainVideoUrl);
   const hasPrimaryImage = photos.length > 0;
+  const activePhotoNote = hasPrimaryImage ? photoNotes[activePhoto] ?? '' : '';
   const canAddPhoto = photos.length < MAX_PRIMARY_PHOTOS;
   const hasPrimaryVideo = !!videoSource;
   const [uploading, setUploading] = useState(false);
@@ -101,9 +103,10 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
         throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error('Could not upload images');
       }
       const nextPhotos = [...photos, ...uploadedUrls].slice(0, MAX_PRIMARY_PHOTOS);
-      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
-      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
-      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
+      const nextNotes = [...photoNotes, ...uploadedUrls.map(() => '')].slice(0, nextPhotos.length);
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextNotes });
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextNotes }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos, imageNotes: nextNotes } }));
       if (uploadedUrls.length < files.length) setError(`${uploadedUrls.length} of ${files.length} photos uploaded. You can retry the others.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not upload images');
@@ -153,9 +156,10 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     setError('');
     try {
       const nextPhotos = photos.filter((_, i) => i !== index).slice(0, MAX_PRIMARY_PHOTOS);
-      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
-      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
-      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
+      const nextNotes = photoNotes.filter((_, i) => i !== index).slice(0, nextPhotos.length);
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextPhotos.length ? nextNotes : undefined });
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextPhotos.length ? nextNotes : undefined }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos, imageNotes: nextNotes } }));
       setActivePhoto(current => Math.max(0, Math.min(current, nextPhotos.length - 1)));
       setImageSwipeX(0);
       setImageSwipeOpen(false);
@@ -168,14 +172,16 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
     const target = index + direction;
     if (target < 0 || target >= photos.length || reorderingPhoto) return;
     const nextPhotos = [...photos];
+    const nextNotes = [...photoNotes];
     [nextPhotos[index], nextPhotos[target]] = [nextPhotos[target], nextPhotos[index]];
+    [nextNotes[index], nextNotes[target]] = [nextNotes[target], nextNotes[index]];
     setReorderingPhoto(true);
     setError('');
     try {
-      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos });
-      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos }));
+      await saveExercisePatch(exercise.id, { mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextNotes });
+      setLocalExercise(prev => ({ ...prev, mainImageUrl: nextPhotos[0], mainImageUrls: nextPhotos, mainImageNotes: nextNotes }));
       setActivePhoto(current => current === index ? target : current === target ? index : current);
-      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos } }));
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: nextPhotos, imageNotes: nextNotes } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reorder photos');
     } finally {
@@ -194,6 +200,21 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
       setVideoSwipeOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove media');
+    }
+  };
+
+  const updatePhotoNote = (index: number, value: string) => {
+    const nextNotes = photos.map((_, noteIndex) => noteIndex === index ? value.slice(0, 500) : photoNotes[noteIndex] ?? '');
+    setLocalExercise(prev => ({ ...prev, mainImageNotes: nextNotes }));
+  };
+
+  const savePhotoNotes = async () => {
+    const nextNotes = photos.map((_, index) => (localExercise.mainImageNotes?.[index] ?? '').trim().slice(0, 500));
+    try {
+      await saveExercisePatch(exercise.id, { mainImageNotes: nextNotes });
+      window.dispatchEvent(new CustomEvent('pt-exercise-images-updated', { detail: { exerciseId: exercise.id, images: photos, imageNotes: nextNotes } }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save image note');
     }
   };
 
@@ -340,10 +361,21 @@ export default function ExerciseQuickInfoModal({ exercise, onClose }: { exercise
                   >
                     Remove photo
                   </button>
-                )}
-                <img src={imageUrl} alt={`${localExercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
-              </div>
-              </div>
+	                )}
+	                <img src={imageUrl} alt={`${localExercise.name} main`} className="h-full w-full aspect-video object-cover bg-stone-100" />
+	              </div>
+	              {hasPrimaryImage && (
+	                <textarea
+	                  value={activePhotoNote}
+	                  onChange={event => updatePhotoNote(activePhoto, event.target.value)}
+	                  onBlur={() => void savePhotoNotes()}
+	                  rows={2}
+	                  maxLength={500}
+	                  className="mt-2 w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs leading-snug text-stone-700 outline-none placeholder:text-stone-300"
+	                  placeholder="Image note"
+	                />
+	              )}
+	              </div>
               {photos.length > 1 && (
                 <div className="flex flex-col gap-2">
                   {photos.map((photo, index) => (

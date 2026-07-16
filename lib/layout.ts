@@ -35,6 +35,7 @@ export function makeCustomExercise(opts: {
   tips?: string[];
   mainImageUrl?: string;
   mainImageUrls?: string[];
+  mainImageNotes?: string[];
   mainVideoUrl?: string;
 }): Exercise {
   const name = opts.name.trim();
@@ -52,6 +53,7 @@ export function makeCustomExercise(opts: {
     sourceId: opts.sourceId,
     mainImageUrl: opts.mainImageUrl,
     mainImageUrls: opts.mainImageUrls,
+    mainImageNotes: opts.mainImageNotes,
     mainVideoUrl: opts.mainVideoUrl,
   };
 }

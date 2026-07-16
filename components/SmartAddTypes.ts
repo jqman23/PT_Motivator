@@ -31,6 +31,7 @@ export type SmartNewExercise = {
   sourceId?: string;
   mainImageUrl?: string;
   mainImageUrls?: string[];
+  mainImageNotes?: string[];
   mainVideoUrl?: string;
   tips?: string[];
   dbMatches?: SmartDbMatch[];
