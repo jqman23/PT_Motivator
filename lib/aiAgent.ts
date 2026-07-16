@@ -1019,7 +1019,11 @@ function buildDeterministicAgentFallbackSingle(context: DeterministicAgentContex
     const noteText = currentNoteText || (asksForNote ? priorNoteText : '');
     const metricsClearRequested = /\b(?:clear|remove|reset|delete)\b.{0,32}\b(?:metrics?|sets?|reps?|weight|duration)\b/i.test(instructionQuestion);
     const setsValue = modelNumber(instructionQuestion.match(/\b(\d+)\s*sets?\b/i)?.[1] ?? instructionQuestion.match(/\b(\d+)\s*[x×]\s*\d+\b/i)?.[1]);
-    const repsValue = modelNumber(instructionQuestion.match(/\b(\d+)\s*reps?\b/i)?.[1] ?? instructionQuestion.match(/\b\d+\s*sets?\s+(?:of\s+)?(\d+)\b/i)?.[1] ?? instructionQuestion.match(/\b\d+\s*[x×]\s*(\d+)\b/i)?.[1]);
+    const repsValue = modelNumber(
+      instructionQuestion.match(/\b(\d+)\s*reps?\b/i)?.[1]
+      ?? instructionQuestion.match(/\b\d+\s*[x×]\s*(\d+)\b/i)?.[1]
+      ?? instructionQuestion.match(/\b\d+\s*sets?\s+(?:of\s+)?(\d+)\b(?!\s*(?:seconds?|secs?|minutes?|mins?)\b)/i)?.[1],
+    );
     const durationMatch = instructionQuestion.match(/\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?)\b/i);
     const durationSeconds = durationMatch ? Number(durationMatch[1]) * (/min/i.test(durationMatch[2]) ? 60 : 1) : null;
     const weightMatch = instructionQuestion.match(/\b(\d+(?:\.\d+)?)\s*(lb|lbs|pounds?|kg|kgs|kilograms?)\b/i);

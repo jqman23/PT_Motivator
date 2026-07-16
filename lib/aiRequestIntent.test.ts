@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isBulkNoteAgentRequest, isDoctorNoteResponseCommand, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from './aiRequestIntent.ts';
+import { agentRequestText, claimsAppliedAppMutation, isAgentRequest, isBulkNoteAgentRequest, isDoctorNoteResponseCommand, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -31,7 +31,30 @@ test('recognizes natural app commands and short follow-ups', () => {
     'im asking you to respond to Nerve issues/EMG doc note',
     'I am asking you for an answer to the Nerve issues/EMG doctor question',
     'i dont know what that means just create the note',
+    'change metrics for standing calf from 7/15 to 3 sets',
+    'Adjust standing calf on 7/15 to 3 sets of 1 minute',
+    'Modify the calf stretch metrics to 3 sets',
   ]) assert.equal(isAgentRequest(request), true, request);
+});
+
+test('includes explicit AI guidance in the action-intent boundary', () => {
+  const request = agentRequestText(
+    'change metrics for standing calf from 7/15 to 3 sets',
+    ['adjust metrics for this exercise to 3 sets 1 min'],
+  );
+  assert.equal(isAgentRequest(request), true);
+  assert.match(request, /3 sets 1 min/);
+});
+
+test('detects unsupported completed-change claims without blocking truthful review language', () => {
+  assert.equal(claimsAppliedAppMutation(
+    'I’ve updated the Standing Calf Stretch on 2026-07-15 to 3 sets of 1 minute.',
+    ['Standing Calf Stretch'],
+  ), true);
+  assert.equal(claimsAppliedAppMutation('Done — saved pain 4 in today’s health log.'), true);
+  assert.equal(claimsAppliedAppMutation('I prepared this for review. Nothing has changed yet.'), false);
+  assert.equal(claimsAppliedAppMutation("I haven't updated any records."), false);
+  assert.equal(claimsAppliedAppMutation("I've updated my understanding of your question."), false);
 });
 
 test('keeps doctor-note responses out of bulk note-history routing', () => {

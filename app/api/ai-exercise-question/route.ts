@@ -5,7 +5,7 @@ import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi } 
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { agentActionSlotKey, buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, requiredAgentActionSlots, validateAgentPlanAgainstSlots, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isBulkNoteAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from '@/lib/aiRequestIntent';
+import { agentRequestText, claimsAppliedAppMutation, isAgentRequest, isBulkNoteAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest, prefersChronologicalHistoryAnswer } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryScopePlan, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
@@ -1264,8 +1264,9 @@ export async function POST(req: NextRequest) {
     ], 8, 300);
     const resolvedAnalysis = resolveAnalysisRequest(cleanQuestion, questionAiInstructions, history);
     const analysisQuestion = resolvedAnalysis.effectiveQuestion;
-    const currentQuestionDates = extractDates(cleanQuestion, appToday, selectedDate);
-    const explicitDates = extractDates(conversationText, appToday, selectedDate);
+    const actionQuestion = agentRequestText(cleanQuestion, questionAiInstructions);
+    const currentQuestionDates = extractDates(actionQuestion, appToday, selectedDate);
+    const explicitDates = extractDates(`${conversationText} ${questionAiInstructions.join(' ')}`, appToday, selectedDate);
     const priorUserMessages = history.filter(message => message.role === 'user').map(message => message.content);
     const correctionFollowUp = isHistoryCorrectionFollowUp(cleanQuestion);
     const currentHistoryWindow = resolveBoundedHistoryWindow(cleanQuestion, appToday);
@@ -1291,7 +1292,7 @@ export async function POST(req: NextRequest) {
       /^(?:yes[,.! ]*)?(?:do it|do that|go ahead|apply (?:it|that|those)|make (?:it|that) happen|proceed|yes please)\b/i.test(cleanQuestion)
       || /\b(?:just\s+create\s+(?:it|that|the note)|in the app|update that response|create the note)\b/i.test(cleanQuestion)
     );
-    const agentIntent = isAgentRequest(cleanQuestion) || agentCorrectionFollowUp;
+    const agentIntent = isAgentRequest(actionQuestion) || agentCorrectionFollowUp;
     const priorHistoryIntent = priorUserMessages.some(message => isHistoryQuestion(message));
     const completionCoverageIntent = isExerciseCompletionCoverageRequest(analysisQuestion)
       || (correctionFollowUp && priorUserMessages.some(message => isExerciseCompletionCoverageRequest(message)));
@@ -1308,7 +1309,7 @@ export async function POST(req: NextRequest) {
       || visualizationIntent
       || existingPhotoInspectionIntent;
     const patternIntent = isPatternQuestion(analysisQuestion);
-    const bulkAgentIntent = agentIntent && isBulkNoteAgentRequest(cleanQuestion);
+    const bulkAgentIntent = agentIntent && isBulkNoteAgentRequest(actionQuestion);
     const chronologicalHistoryAnswer = prefersChronologicalHistoryAnswer(analysisQuestion);
     const instructionHistoryIntent = conversationAiInstructions.some(instruction =>
       isHistoryQuestion(instruction)
@@ -1532,7 +1533,7 @@ export async function POST(req: NextRequest) {
     }
 
     const agentExerciseQuery = agentIntent
-      ? `${history.filter(message => message.role === 'user').map(message => message.content).join(' ')} ${cleanQuestion}`
+      ? `${history.filter(message => message.role === 'user').map(message => message.content).join(' ')} ${actionQuestion}`
       : cleanQuestion;
     const matchedExerciseContext = rankExercises(agentExerciseQuery, exercises);
     const allowedDates = new Set([
@@ -1694,7 +1695,7 @@ export async function POST(req: NextRequest) {
     const modelPromptContext = projectAiPromptContext(promptProfile, promptContext);
     const modelSystem = aiPromptSystem(promptProfile);
     const deterministicAgentContext = {
-      question: cleanQuestion,
+      question: actionQuestion,
       today: appToday,
       selectedDate,
       explicitDates: currentQuestionDates,
@@ -2314,7 +2315,7 @@ export async function POST(req: NextRequest) {
     const rawContent = result.data?.choices?.[0]?.message?.content ?? '';
     const raw = jsonFromText(rawContent);
     const modelPlanContext: AgentModelPlanContext = {
-      question: cleanQuestion,
+      question: actionQuestion,
       today: appToday,
       selectedDate,
       exercises,
@@ -2330,7 +2331,7 @@ export async function POST(req: NextRequest) {
     const deterministicDoctorCreate = deterministicAgentPlan?.actions.some(action => action.type === 'doctor_note_upsert' && action.mode === 'create');
     const requiredActionSlotKeys = new Set(requiredActionSlots.map(slot => slot.key));
     const relevantModelActions = deterministicAgentPlan && modelAgentPlan
-      ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, cleanQuestion)
+      ? modelAgentPlan.actions.filter(action => actionFamilyWasRequested(action, actionQuestion)
         && (!requiredActionSlots.length || requiredActionSlotKeys.has(agentActionSlotKey(action)))
         && !(deterministicDoctorCreate && action.type === 'doctor_note_upsert' && action.mode === 'create'))
       : modelAgentPlan?.actions ?? [];
@@ -2367,7 +2368,7 @@ export async function POST(req: NextRequest) {
             {
               role: 'user',
               content: JSON.stringify({
-                question: cleanQuestion,
+                question: actionQuestion,
                 recentConversation: history,
                 today: appToday,
                 currentlySelectedDate: selectedDate,
@@ -2422,13 +2423,17 @@ export async function POST(req: NextRequest) {
         ? `I also prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
         : `I also prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
       : '';
+    const unsupportedAppliedClaim = !normalizedAgentPlan
+      && claimsAppliedAppMutation(baseAnswer, exercises.map(exercise => exercise.name));
     let answer = normalizedAgentPlan
       ? requestPlan.compound && baseAnswer
         ? `${baseAnswer}\n\n${reviewAnswer}`
         : reviewAnswer.replace(/^I also /, 'I ')
       : effectiveAgentIntent
         ? repairClarification || (/\?\s*$/.test(baseAnswer) ? baseAnswer : 'I need one specific missing detail before I can prepare the review card.')
-        : baseAnswer;
+        : unsupportedAppliedClaim
+          ? 'I have not changed anything in the app. App changes must appear in a review card and are only saved after you press Apply.'
+          : baseAnswer;
     if (!effectiveAgentIntent && shouldLoadHistory && answerIncorrectlyDeniesSavedData(answer)) {
       const contradictionScopeRecords = historyWindow
         ? dayRecords
@@ -2516,7 +2521,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reply: {
         answer,
-        options: normalizeAiReplyOptions(raw.options),
+        options: unsupportedAppliedClaim ? [] : normalizeAiReplyOptions(raw.options),
         dateLinks,
         dateSummaries,
         confirmedExercise: effectiveAgentIntent ? undefined : cleanExerciseDraft(raw.confirmedExercise),

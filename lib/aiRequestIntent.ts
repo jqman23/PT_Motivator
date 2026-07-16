@@ -1,6 +1,17 @@
+const APP_MUTATION_VERBS = 'add|adjust|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|modify|move|open|pin|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update|write';
+const APP_MUTATION_TARGETS = 'app|application|screen|page|setting|widget|title|note|log|record|entry|metrics?|sets?|reps?|duration|dosage|weight|field|value|exercise|workout|session|appointment|photo|picture|image|category|timer|calendar|summary|pain|energy|mood|sleep|it|this|that|those|them';
+
+export function agentRequestText(value: string, aiInstructions: string[] = []) {
+  return [value, ...aiInstructions]
+    .map(item => String(item ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 3_200);
+}
+
 function hasPersistentCommandAlongsideVisual(value: string) {
-  const mutation = /\b(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|open|pin|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update|write)\b/;
-  const target = /\b(?:app|application|screen|page|setting|widget|title|note|log|record|entry|metric|field|value|exercise|workout|session|appointment|photo|picture|image|category|timer|calendar|summary|pain|energy|mood|sleep|it|this|that|those|them)\b/;
+  const mutation = new RegExp(`\\b(?:${APP_MUTATION_VERBS})\\b`);
+  const target = new RegExp(`\\b(?:${APP_MUTATION_TARGETS})\\b`);
   return value
     .split(/\s*(?:[,;]|\b(?:and then|and|then|also|plus)\b)\s*/)
     .some(clause => clause
@@ -19,7 +30,7 @@ export function isAgentRequest(value: string) {
   // such as “make” and “create” must not turn charts or tables into Apply cards.
   if (isVisualizationRequest(text) && !hasPersistentCommandAlongsideVisual(text)) return false;
 
-  if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|apply|change|delete|edit|log|record|remove|save|set|update)\b/.test(text)) {
+  if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|adjust|apply|change|delete|edit|log|modify|record|remove|save|set|update)\b/.test(text)) {
     return false;
   }
 
@@ -71,8 +82,8 @@ export function isAgentRequest(value: string) {
   if (/^(?:please\s+)?put\b.{0,80}\b(?:in|into|on|under)\b.{0,40}\b(?:note|log|record|entry)\b/.test(text)) return true;
   if (/\bcan i\b.{0,32}\b(?:send|upload|choose)\b.{0,32}\b(?:photo|picture|image|screenshot)\b.{0,48}\battach\b/.test(text)) return true;
 
-  const mutationVerb = '(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|open|pin|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update|write)';
-  const appTarget = '(?:app|application|screen|page|setting|widget|title|note|log|record|entry|metric|field|value|exercise|workout|session|appointment|photo|picture|image|category|timer|calendar|summary|pain|energy|mood|sleep|it|this|that|those|them)';
+  const mutationVerb = `(?:${APP_MUTATION_VERBS})`;
+  const appTarget = `(?:${APP_MUTATION_TARGETS})`;
   const directCommand = new RegExp(`(?:^(?:please\\s+)?${mutationVerb}\\b|^${mutationVerb}\\b|\\b(?:can|could|would|will) you(?: please)?\\s+${mutationVerb}\\b|\\b(?:i want|i need|i would like|i'd like)(?: you)?(?: to)?\\s+${mutationVerb}\\b|\\b(?:and|then|also)\\s+(?:you\\s+)?${mutationVerb}\\b)`);
   const namesAnAppTarget = new RegExp(`\\b${appTarget}\\b`).test(text);
 
@@ -82,6 +93,23 @@ export function isAgentRequest(value: string) {
   if (directCommand.test(text) && (namesAnAppTarget || /^(?:please\s+)?(?:add|create)\s+(?!up\b)\S+/.test(text))) return true;
 
   return false;
+}
+
+export function claimsAppliedAppMutation(value: string, appEntityNames: string[] = []) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+
+  const appliedClaim = /\b(?:i(?:'ve| have| just)?|we(?:'ve| have| just)?)\s+(?:successfully\s+)?(?:added|adjusted|applied|attached|changed|cleared|completed|created|deleted|disabled|edited|enabled|logged|marked|modified|moved|recorded|removed|renamed|replaced|saved|scheduled|set|turned|updated|wrote)\b/
+    .test(text)
+    || /^(?:done|updated|changed|saved|recorded|logged|applied)\b/.test(text);
+  if (!appliedClaim) return false;
+
+  const appTarget = new RegExp(`\\b(?:${APP_MUTATION_TARGETS}|doctor(?:'s)? notes?|pt sessions?)\\b`).test(text);
+  const namedEntity = appEntityNames.some(name => {
+    const normalized = String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return normalized.length >= 3 && text.replace(/[^a-z0-9]+/g, ' ').includes(normalized);
+  });
+  return appTarget || namedEntity;
 }
 
 export function isDoctorNoteResponseCommand(value: string) {

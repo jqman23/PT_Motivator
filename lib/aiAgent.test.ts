@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { MAX_AGENT_ACTIONS, coalesceAgentActions, normalizeAgentActions, normalizeAgentPlan, normalizeModelAgentPlan } from './aiAgent.ts';
+import { MAX_AGENT_ACTIONS, buildDeterministicAgentFallback, coalesceAgentActions, normalizeAgentActions, normalizeAgentPlan, normalizeModelAgentPlan } from './aiAgent.ts';
 
 test('normalizes supported actions and rejects malformed targets', () => {
   const actions = normalizeAgentActions([
@@ -154,6 +154,35 @@ test('turns an app-ready exercise draft into an add action only for an explicit 
   }, { question: 'Describe this exercise', today: '2026-07-15' });
   assert.equal(added?.actions[0]?.type, 'exercise_add');
   assert.equal(described, undefined);
+});
+
+test('builds a dated duration-metric review plan from terse wording plus AI guidance', () => {
+  const plan = buildDeterministicAgentFallback({
+    question: 'change metrics for standing calf from 7/15 to 3 sets adjust metrics for this exercise to 3 sets 1 min',
+    today: '2026-07-16',
+    selectedDate: '2026-07-16',
+    explicitDates: ['2026-07-15'],
+    exercises: [{ id: 'calf-1', name: 'Standing Calf Stretch' }],
+  });
+
+  assert.equal(plan?.actions.length, 1);
+  const action = plan?.actions[0];
+  assert.equal(action?.type, 'metrics_set');
+  if (action?.type === 'metrics_set') {
+    assert.deepEqual(action, {
+      id: 'metrics-1',
+      type: 'metrics_set',
+      date: '2026-07-15',
+      exerciseId: 'calf-1',
+      sets: 3,
+      reps: null,
+      durationSeconds: 60,
+      weight: null,
+      weightUnit: 'lb',
+      scopeMultiplier: 1,
+      reason: 'You asked to update Standing Calf Stretch metrics.',
+    });
+  }
 });
 
 test('normalizes common category rename and doctor follow-up shapes', () => {

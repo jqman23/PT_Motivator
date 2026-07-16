@@ -79,6 +79,13 @@ test('golden request: symptom advice never becomes a write merely because it des
   assert.equal(result.plan.steps.some(step => step.capability === 'propose_actions'), false);
 });
 
+test('golden request: terse plural-metrics edits require a reviewable action proposal', () => {
+  const result = requestSignals('change metrics for standing calf from 7/15 to 3 sets');
+  assert.equal(result.agent, true);
+  assert.equal(result.plan.requestedOutputs.actionProposal, true);
+  assert.ok(result.plan.steps.some(step => step.capability === 'propose_actions'));
+});
+
 test('golden request: targeted laterality search is retrieval, not unsupported derived analytics', () => {
   const result = requestSignals('When have I complained about my left foot? Summarize the main episodes, preserve laterality, and hyperlink every date you discuss.');
   assert.equal(result.analysis.wholeHistory, false);

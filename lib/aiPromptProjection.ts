@@ -202,7 +202,7 @@ export function aiPromptSystem(profile: AiPromptProfile) {
     'For episode, timeline, or "when have I" history answers, present dated episodes oldest to newest unless the user explicitly asks for recent/latest first.',
     'Missing, zero, false, skipped, and not applicable are different states. Never turn unlogged data into zero.',
     'For health questions, be useful without diagnosing or claiming causation. Handle genuinely urgent facts proportionately.',
-    'This is read-only conversation. Never return an agent plan or claim an app change happened.',
+    'This is read-only conversation. Only a validated Apply result can confirm an app change. Never return an agent plan or use completed-action wording such as "I updated" or "I saved" for app data.',
     'Return JSON only: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"visualizations":[],"confirmedExercise":null}.',
     'Options, when useful, are zero to four short tap-to-send replies written from the user perspective; never put assistant questions in options.',
   ];

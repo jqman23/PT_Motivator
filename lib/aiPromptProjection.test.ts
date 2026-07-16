@@ -30,6 +30,7 @@ test('server analytics and agents each receive capability-specific compact contr
   assert.deepEqual(projected.serverAnalytics, raw.serverAnalytics);
   assert.equal('agentActionContract' in projected, false);
   assert.match(aiPromptSystem(analytics), /do not recalculate/i);
+  assert.match(aiPromptSystem('history-read'), /only a validated Apply result can confirm an app change/i);
 
   const agent = projectAiPromptContext('agent', raw);
   assert.deepEqual(agent.agentActionContract, raw.agentActionContract);
