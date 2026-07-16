@@ -9,7 +9,7 @@ import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoIns
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
-import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, mergeEvidenceBackedSemanticVisualizations, normalizeEvidenceBackedSemanticVisualizations } from '@/lib/aiSemanticEvidence';
+import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, mergeSemanticCategoryPlans, normalizeSemanticCategoryPlan, visualizationFromSemanticCategoryPlan, type SemanticCategoryPlan } from '@/lib/aiSemanticEvidence';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -1020,39 +1020,42 @@ async function buildSemanticAggregateArtifact(
   analysisQuestion: string,
   records: DayRecord[],
   requestedCategoryCount?: number,
+  signal?: AbortSignal,
 ) {
   const semanticSources = filterSemanticNoteSourcesForQuestion(buildSemanticNoteSources(records), analysisQuestion);
   const semanticChunks = chunkSemanticNoteSources(semanticSources);
   const chunks = semanticChunks.length ? semanticChunks : [[]];
-  const chunkVisualizations: AiVisualization[] = [];
+  const plans: SemanticCategoryPlan[] = [];
   let requiredLabels: string[] = [];
   let finalResult: Awaited<ReturnType<typeof callGroqChat>> | null = null;
   const attemptedModels: string[] = [];
+  const deadline = Date.now() + 34_000;
 
   for (const [chunkIndex, sources] of chunks.entries()) {
     const expectedCount = requiredLabels.length || requestedCategoryCount;
-    const labelsFor = (visual: AiVisualization) => visual.type === 'table' ? visual.rows.map(row => row[0]) : visual.labels;
     const acceptsChunk = (candidate: Record<string, unknown>) => {
-      const verified = normalizeEvidenceBackedSemanticVisualizations(candidate.visualizations, sources, { expectedCategoryCount: expectedCount });
-      if (!verified.length) return false;
-      const labels = labelsFor(verified[0]).map(label => label.toLowerCase());
+      const plan = normalizeSemanticCategoryPlan(candidate, sources, expectedCount);
+      if (!plan) return false;
+      const labels = plan.categories.map(category => category.label.toLowerCase());
       return !requiredLabels.length || labels.every((label, index) => label === requiredLabels[index]?.toLowerCase());
     };
-    const semanticVisual = await callGroqChat(apiKeys, 'ask', {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < 2_000) throw new Error('Semantic analysis exceeded its request-wide time budget.');
+    const chunkAttemptMs = Math.min(10_000, remainingMs);
+    const semanticVisual = await callGroqChat(apiKeys, 'semantic', {
       messages: [
         {
           role: 'system',
           content: [
-            'You are the evidence extraction and semantic aggregation engine for PT Motivator.',
+            'You are the category and terminology extraction engine for PT Motivator.',
             'Resolve the user’s actual analytical subject and requested grouping; never substitute a generic daily health, activity, date, or metric overview.',
             'Classify varied natural wording into the requested categories using context. Do not create domain categories the user did not ask for.',
-            'Count textual occurrences, not days. Preserve every explicitly requested category, including zero-count categories. Do not infer an unknown side, identity, category, or attribute; use an ambiguity category only when the request calls for one or the text truly cannot be assigned.',
-            'Every nonzero count must be auditable. For each category return drilldowns with sourceId, an exact excerpt copied from that source, and the exact matched wording inside that excerpt. Never invent or paraphrase evidence.',
-            'The server verifies excerpts against saved sources, removes duplicate/overlapping matches, and recomputes all displayed counts. Numbers you provide are provisional.',
+            'Preserve every explicitly requested category, including categories with no matching wording. Do not infer an unknown side, identity, category, or attribute.',
+            'For each category, return the distinct exact words or phrases that appear verbatim in noteSources and unambiguously refer to that category. Include spelling, ordinal, abbreviation, singular/plural, and informal variants actually present. Never invent wording and never use a broad alias that could belong to multiple categories.',
+            'Do not return counts or repeated occurrences. The server validates aliases against saved text, finds every exact occurrence, prevents overlaps, computes counts, and creates clickable evidence excerpts.',
             requiredLabels.length ? `Use exactly these category labels in this order, including zeros: ${JSON.stringify(requiredLabels)}.` : '',
             requestedCategoryCount ? `The user explicitly requested exactly ${requestedCategoryCount} categories.` : '',
-            'Return exactly one table or bar chart. Prefer a compact table unless the user explicitly requested a bar chart.',
-            'Return JSON only: {"visualizations":[{"id":"semantic-counts","type":"table","title":"","subtitle":"","columns":["Category","Mentions"],"rows":[["Category",0]],"drilldowns":[{"label":"Category","items":[{"sourceId":"exact supplied id","excerpt":"exact source substring","match":"exact counted wording"}]}],"footnote":""}]}',
+            'Return compact JSON only: {"semanticPlan":{"title":"Specific title for the requested analysis","categories":[{"label":"Requested category","aliases":["exact wording found in notes"]}]}}',
           ].filter(Boolean).join(' '),
         },
         {
@@ -1066,22 +1069,26 @@ async function buildSemanticAggregateArtifact(
         },
       ],
       temperature: 0,
-      max_completion_tokens: 3_200,
+      max_completion_tokens: 1_600,
       response_format: { type: 'json_object' },
     }, {
-      requireEvidenceBackedSemanticAggregateDraft: true,
       acceptJson: acceptsChunk,
+      attemptTimeoutMs: chunkAttemptMs,
+      totalTimeoutMs: Math.min(30_000, remainingMs),
+      maxAttempts: 4,
+      signal,
     });
     const raw = jsonFromText(semanticVisual.data?.choices?.[0]?.message?.content ?? '');
-    const verified = normalizeEvidenceBackedSemanticVisualizations(raw.visualizations, sources, { expectedCategoryCount: expectedCount });
-    if (!verified.length) throw new Error('Evidence-backed semantic result failed server verification.');
-    if (!requiredLabels.length) requiredLabels = labelsFor(verified[0]);
-    chunkVisualizations.push(verified[0]);
+    const plan = normalizeSemanticCategoryPlan(raw, sources, expectedCount);
+    if (!plan) throw new Error('Semantic category plan failed server verification.');
+    if (!requiredLabels.length) requiredLabels = plan.categories.map(category => category.label);
+    plans.push(plan);
     attemptedModels.push(...semanticVisual.attemptedModels);
     finalResult = semanticVisual;
   }
 
-  const visualizations = mergeEvidenceBackedSemanticVisualizations(chunkVisualizations);
+  const mergedPlan = mergeSemanticCategoryPlans(plans);
+  const visualizations = mergedPlan ? visualizationFromSemanticCategoryPlan(mergedPlan, semanticSources) : [];
   if (!finalResult || !visualizations.length) throw new Error('No evidence-backed semantic visualization was produced.');
   return { visualizations, result: finalResult, attemptedModels: Array.from(new Set(attemptedModels)) };
 }
@@ -1446,7 +1453,7 @@ export async function POST(req: NextRequest) {
       const scopeStart = historyWindow?.startDate ?? semanticRecords[0]?.date;
       const scopeEnd = historyWindow?.endDate ?? semanticRecords.at(-1)?.date;
       try {
-        const semantic = await buildSemanticAggregateArtifact(apiKeys, analysisQuestion, semanticRecords, resolvedAnalysis.requestedCategoryCount);
+        const semantic = await buildSemanticAggregateArtifact(apiKeys, analysisQuestion, semanticRecords, resolvedAnalysis.requestedCategoryCount, req.signal);
         const answer = [
           'I built a source-verified count from the requested saved-note scope. Tap any count to inspect the exact dates, note fields, excerpts, and wording included.',
           includeSecretNotes ? 'Secret notes were included because you allowed them in /ai.' : '',

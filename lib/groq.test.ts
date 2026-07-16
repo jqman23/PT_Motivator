@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { callGroqChat, getAiRoutePlan } from './groq.ts';
+import { callGroqChat, getAiRoutePlan, GroqRouteError } from './groq.ts';
 
 const providerEnvNames = [
   'CEREBRAS_KEY_PTMOTIVATOR',
@@ -300,5 +300,55 @@ test('requires source-linked drilldowns when evidence-backed aggregation is requ
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();
+  }
+});
+
+test('a timed-out model moves to another model instead of burning alternate keys', async () => {
+  const originalFetch = globalThis.fetch;
+  const attempts: Array<{ model: string; authorization: string }> = [];
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { model?: string };
+    const headers = init?.headers as Record<string, string>;
+    attempts.push({ model: String(body.model ?? ''), authorization: headers.Authorization });
+    if (attempts.length === 1) {
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
+      });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'timeout-key-1', value: 'timeout-first' },
+      { name: 'timeout-key-2', value: 'timeout-second' },
+    ], 'rerank', { messages: [] }, { attemptTimeoutMs: 1_000, totalTimeoutMs: 4_000, maxAttempts: 2 });
+    assert.equal(attempts.length, 2);
+    assert.notEqual(attempts[0].model, attempts[1].model);
+    assert.equal(attempts[0].authorization, 'Bearer timeout-first');
+    assert.equal(attempts[1].authorization, 'Bearer timeout-first');
+    assert.equal(result.attemptedModels.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('the provider cascade obeys a request-wide maximum attempt count', async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429, statusText: 'Too Many Requests' });
+  };
+
+  try {
+    await assert.rejects(() => callGroqChat([
+      { name: 'budget-key-1', value: 'budget-first' },
+      { name: 'budget-key-2', value: 'budget-second' },
+      { name: 'budget-key-3', value: 'budget-third' },
+    ], 'rerank', { messages: [] }, { maxAttempts: 2, totalTimeoutMs: 5_000 }), GroqRouteError);
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

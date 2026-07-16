@@ -61,3 +61,17 @@ test('recovers a resolved goal from assistant artifact metadata after the origin
   assert.equal(result.semanticTextAggregate, true);
   assert.match(result.effectiveQuestion, /each treatment/i);
 });
+
+test('inherits a visible unanswered first turn after a failed request', () => {
+  const result = resolveAnalysisRequest('do what i asked', [], [
+    {
+      role: 'user',
+      content: 'Count how many times I mentioned each of my ten categories',
+      aiInstructions: ['Show the ten categories and counts in a compact table.'],
+    },
+  ]);
+  assert.equal(result.inheritedGoal, true);
+  assert.equal(result.semanticTextAggregate, true);
+  assert.equal(result.visualization, true);
+  assert.equal(result.requestedCategoryCount, 10);
+});

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, normalizeEvidenceBackedSemanticVisualizations } from './aiSemanticEvidence.ts';
+import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, mergeSemanticCategoryPlans, normalizeEvidenceBackedSemanticVisualizations, normalizeSemanticCategoryPlan, visualizationFromSemanticCategoryPlan } from './aiSemanticEvidence.ts';
 
 const records = [{
   date: '2026-07-15', completed: [], exerciseNotes: [], session: null,
@@ -57,4 +57,34 @@ test('prevents nested alias matches from being double counted across categories'
     ],
   }], sources);
   assert.deepEqual(visuals[0].type === 'table' ? visuals[0].rows : [], [['Specific', '2'], ['Generic', '1']]);
+});
+
+test('turns a compact terminology plan into exact auditable counts', () => {
+  const sources = buildSemanticNoteSources(records);
+  const plan = normalizeSemanticCategoryPlan({ semanticPlan: {
+    title: 'Joint wording frequency',
+    categories: [
+      { label: 'Primary joint', aliases: ['big joint', 'Big joint', 'invented wording'] },
+      { label: 'Secondary joint', aliases: ['Small joint'] },
+    ],
+  } }, sources, 2);
+  assert.ok(plan);
+  assert.deepEqual(plan.categories.map(category => category.aliases), [['big joint'], ['Small joint']]);
+  const visuals = visualizationFromSemanticCategoryPlan(plan, sources);
+  assert.deepEqual(visuals[0].type === 'table' ? visuals[0].rows : [], [['Primary joint', '3'], ['Secondary joint', '1']]);
+  assert.equal(visuals[0].drilldowns?.[0].items.length, 2);
+  assert.equal(visuals[0].drilldowns?.[0].items.reduce((sum, item) => sum + (item.count ?? 1), 0), 3);
+});
+
+test('rejects the wrong category count and merges chunk vocabularies by stable labels', () => {
+  const sources = buildSemanticNoteSources(records);
+  assert.equal(normalizeSemanticCategoryPlan({ semanticPlan: { categories: [{ label: 'Only', aliases: [] }] } }, sources, 2), null);
+  const merged = mergeSemanticCategoryPlans([
+    { title: 'Counts', categories: [{ label: 'Group A', aliases: ['alpha'] }, { label: 'Group B', aliases: [] }] },
+    { title: 'Counts', categories: [{ label: 'Group A', aliases: ['ALPHA', 'a'] }, { label: 'Group B', aliases: ['beta'] }] },
+  ]);
+  assert.deepEqual(merged?.categories, [
+    { label: 'Group A', aliases: ['ALPHA', 'a'] },
+    { label: 'Group B', aliases: ['beta'] },
+  ]);
 });

@@ -1,4 +1,4 @@
-export type GroqTask = 'agent' | 'ask' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'standardize' | 'summary';
+export type GroqTask = 'agent' | 'ask' | 'semantic' | 'publicAsk' | 'rerank' | 'log' | 'edit' | 'enhance' | 'standardize' | 'summary';
 
 export type GroqApiKey = {
   name: string;
@@ -136,6 +136,10 @@ const DEFAULT_MODEL_CHAINS: Record<GroqTask, string[]> = {
   // Personal history, symptoms, and day logs stay on standard hosted models. Compound can invoke
   // external tools, so it is reserved for clearly non-personal public/general questions.
   ask: PERSONAL_ASSISTANT_CHAIN,
+  // Free-text aggregation needs reliable compact JSON more than long prose. It has a
+  // separate provider order and strict latency budget at the call site so analytical
+  // requests cannot spend minutes retrying the same stalled model across every key.
+  semantic: ['qwen/qwen3-32b', 'openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b'],
   publicAsk: PUBLIC_ASSISTANT_CHAIN,
 
   // Scout receives only compact, preselected history candidates and returns date IDs.
@@ -261,6 +265,16 @@ export function getAiRoutePlan(task: GroqTask): AiRoute[] {
   const groqModels = getGroqModelChain(task);
   const openRouter = OPENROUTER_FREE_MODELS.map(route => ({ provider: 'openrouter' as const, ...route }));
   if (task === 'rerank') return groqModels.map(groqRoute);
+
+  if (task === 'semantic') return uniqueRoutes([
+    { provider: 'gemini', model: 'gemini-3.5-flash', jsonMode: true },
+    { provider: 'cerebras', model: CEREBRAS_PRODUCTION_MODEL, jsonMode: true },
+    openRouter[0],
+    ...groqModels.map(groqRoute),
+    { provider: 'gemini', model: 'gemini-3.1-flash-lite', jsonMode: true },
+    openRouter[1],
+    { provider: 'cerebras', model: CEREBRAS_PREVIEW_MODEL, jsonMode: true },
+  ]);
 
   if (task === 'agent') return uniqueRoutes([
     { provider: 'gemini', model: 'gemini-3.5-flash', jsonMode: true },
@@ -575,23 +589,39 @@ export async function callGroqChat(
     requireSemanticAggregateDraft?: boolean;
     requireEvidenceBackedSemanticAggregateDraft?: boolean;
     acceptJson?: (value: Record<string, unknown>) => boolean;
+    /** Maximum wall-clock time for one provider request. */
+    attemptTimeoutMs?: number;
+    /** Maximum wall-clock time for the complete cross-provider cascade. */
+    totalTimeoutMs?: number;
+    /** Maximum number of actual network attempts, including alternate keys. */
+    maxAttempts?: number;
+    /** Allows the caller to cancel work when its UI/request is no longer active. */
+    signal?: AbortSignal;
   } = {},
 ) {
   const attempts: Attempt[] = [];
   const expectsJsonObject = Boolean(body.response_format && typeof body.response_format === 'object');
+  const attemptTimeoutMs = Math.min(45_000, Math.max(1_000, options.attemptTimeoutMs ?? 20_000));
+  const totalTimeoutMs = Math.min(120_000, Math.max(attemptTimeoutMs, options.totalTimeoutMs ?? 55_000));
+  const maxAttempts = Math.min(40, Math.max(1, options.maxAttempts ?? 8));
+  const deadline = Date.now() + totalTimeoutMs;
 
   // This legacy-named entry point is now the provider router. Each Groq model still exhausts
   // keys 1-4 before the route advances, while Cerebras, Gemini, and free OpenRouter capacity
   // provide independent failover pools selected by task and sensitivity.
-  for (const route of getAiRoutePlan(task)) {
+  routeLoop: for (const route of getAiRoutePlan(task)) {
     const keys = providerKeys(route.provider, apiKeys);
     if (!keys.length) continue;
     for (const apiKey of keys) {
+      if (options.signal?.aborted || Date.now() >= deadline || attempts.length >= maxAttempts) break routeLoop;
       const keyId = `${route.provider}:${apiKey.name}`;
       const cooldownId = `${keyId}:${route.model}`;
       if (disabledKeys.has(keyId) || (cooldowns.get(cooldownId) ?? 0) > Date.now()) continue;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), route.model.startsWith('groq/compound') ? 45_000 : 30_000);
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const timeout = setTimeout(() => controller.abort(), Math.min(attemptTimeoutMs, remainingMs));
+      const cancelAttempt = () => controller.abort();
+      options.signal?.addEventListener('abort', cancelAttempt, { once: true });
       const label = modelLabel(route);
 
       try {
@@ -648,12 +678,20 @@ export async function callGroqChat(
         // model/provider instead of wasting every key on the same rejected payload.
         if (res.status === 400 || res.status === 404 || res.status === 422) break;
       } catch (error) {
-        const detail = error instanceof Error && error.name === 'AbortError'
-          ? 'Request timed out'
+        const aborted = error instanceof Error && error.name === 'AbortError';
+        const cancelled = Boolean(options.signal?.aborted);
+        const detail = aborted
+          ? cancelled ? 'Request cancelled' : 'Request timed out'
           : error instanceof Error ? error.message : String(error ?? 'Network error');
-        attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 0, statusText: 'FETCH_ERROR', detail });
+        attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 0, statusText: cancelled ? 'CANCELLED' : aborted ? 'TIMEOUT' : 'FETCH_ERROR', detail });
+        if (cancelled) break routeLoop;
+        // A stalled model/provider is not repaired by swapping an API key. Alternate
+        // keys remain valuable for 429 quota exhaustion, but timeout failover moves to
+        // another provider/model immediately.
+        if (aborted) break;
       } finally {
         clearTimeout(timeout);
+        options.signal?.removeEventListener('abort', cancelAttempt);
       }
     }
   }

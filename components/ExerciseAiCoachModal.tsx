@@ -8,7 +8,7 @@ import SecretTextarea from './SecretTextarea';
 import AiVisualizationCard from './AiVisualizationCard';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
-import { isAgentRequest, isVisualizationRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isSemanticTextAggregateRequest, isVisualizationRequest } from '@/lib/aiRequestIntent';
 import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 import {
   aiChatArchiveDebugBundle,
@@ -228,7 +228,7 @@ function shouldSearchExerciseSources(value: string) {
   return exerciseWords.test(value) && !historyWords.test(value) && !isAgentRequest(value);
 }
 
-type AiLoadingKind = 'command' | 'visualization' | 'history' | 'exercise' | 'general';
+type AiLoadingKind = 'command' | 'analysis' | 'visualization' | 'history' | 'exercise' | 'general';
 type AiLoadingPhase = 'preparing' | 'searchingSources' | 'askingAi' | 'checkingReview' | 'buildingVisual' | 'searchingHistory';
 type AiLoadingState = {
   startedAt: number;
@@ -238,6 +238,7 @@ type AiLoadingState = {
 
 function aiLoadingKind(value: string): AiLoadingKind {
   if (isAgentRequest(value)) return 'command';
+  if (isSemanticTextAggregateRequest(value)) return 'analysis';
   if (isVisualizationRequest(value)) return 'visualization';
   if (shouldSearchExerciseSources(value)) return 'exercise';
   if (/\b(?:history|past|previous|last \d+|last few|which day|what day|when did|compare|pattern|trend|frequency|how often|count|mention|all saved|complete history|records?)\b/i.test(value)) return 'history';
@@ -252,6 +253,11 @@ function aiLoadingCopy(state: AiLoadingState, elapsedSeconds: number) {
     return { title: 'Preparing the review card', detail: 'Validating the proposed app changes before showing Apply.' };
   }
   if (state.phase === 'buildingVisual') {
+    if (state.kind === 'analysis') {
+      if (elapsedSeconds >= 20) return { title: 'Verifying the count', detail: 'Checking exact wording and building the clickable evidence rows.' };
+      if (elapsedSeconds >= 10) return { title: 'Trying another AI route', detail: 'The first route did not return a valid count structure.' };
+      return { title: 'Counting saved-note mentions', detail: 'Mapping varied wording into the requested categories.' };
+    }
     return { title: 'Building the visual', detail: 'Comparing the relevant records and shaping the chart data.' };
   }
   if (state.phase === 'searchingHistory') {
@@ -259,6 +265,9 @@ function aiLoadingCopy(state: AiLoadingState, elapsedSeconds: number) {
   }
   if (state.kind === 'command') {
     return { title: elapsedSeconds >= 4 ? 'Drafting actions for review' : 'Reading the command', detail: 'Resolving dates, targets, values, and reviewable changes.' };
+  }
+  if (state.kind === 'analysis') {
+    return { title: 'Preparing saved-note analysis', detail: 'Resolving the requested categories and history scope.' };
   }
   if (state.kind === 'visualization') {
     return { title: 'Planning the visualization', detail: 'Choosing the right table or chart for the request.' };
@@ -298,6 +307,21 @@ function fallbackCopy(text: string) {
   textarea.focus();
   textarea.select();
   try { document.execCommand('copy'); } finally { textarea.remove(); }
+}
+
+async function responseData(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    const timedOut = response.status === 504 || response.status === 524;
+    return {
+      error: timedOut ? 'The request timed out before the server returned a result.' : `The server returned an unreadable response (${response.status || 'network error'}).`,
+      detail: text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240),
+    };
+  }
 }
 
 function displayDate(date: string) {
@@ -594,6 +618,13 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const historyRequestRef = useRef(false);
   const chatSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const agentPhotoInputRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<ChatMessage[]>(initialConversation.messages);
+  const activeAskControllerRef = useRef<AbortController | null>(null);
+
+  const cancelActiveAsk = () => {
+    activeAskControllerRef.current?.abort();
+    activeAskControllerRef.current = null;
+  };
 
   const clearStoredConversation = () => {
     try {
@@ -603,6 +634,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   const closeModal = () => {
+    cancelActiveAsk();
     clearStoredConversation();
     onClose();
   };
@@ -628,7 +660,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, messages: normalized }),
       });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error('Could not save chat');
       const summary = normalizeSessionSummary(data.session);
       if (summary) mergeChatSummary(summary);
@@ -653,7 +685,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       const params = new URLSearchParams({ limit: '30' });
       if (cursor) params.set('cursor', cursor);
       const response = await fetch(`/api/ai-chat-sessions?${params}`, { cache: 'no-store' });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error('Could not load chat history');
       const rawSessions: unknown[] = Array.isArray(data.sessions) ? data.sessions : [];
       const incoming: AiChatSessionSummary[] = rawSessions
@@ -701,6 +733,10 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   };
 
   const startNewConversation = () => {
+    const previousId = conversationId;
+    const previousMessages = messagesRef.current;
+    if (previousMessages.length) void saveChatSession(previousId, previousMessages);
+    cancelActiveAsk();
     const nextId = makeId();
     setConversationId(nextId);
     setMessages([]);
@@ -714,6 +750,9 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setAgentSelections({});
     setAgentErrors({});
     setAgentPhotos({});
+    messagesRef.current = [];
+    setLoading(false);
+    setLoadingState(null);
     persistConversation('', [], nextId);
   };
 
@@ -724,15 +763,20 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       return;
     }
     setOpeningChatId(session.id);
+    cancelActiveAsk();
     setHistoryError('');
     try {
       const response = await fetch(`/api/ai-chat-sessions?id=${encodeURIComponent(session.id)}`, { cache: 'no-store' });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error('Could not open chat');
-      const restored = normalizeAiChatMessages(data.session?.messages);
+      const storedSession = data.session && typeof data.session === 'object' && !Array.isArray(data.session)
+        ? data.session as Record<string, unknown>
+        : {};
+      const restored = normalizeAiChatMessages(storedSession.messages);
       if (!restored.length) throw new Error('Chat is empty');
       setConversationId(session.id);
       setMessages(restored);
+      messagesRef.current = restored;
       setInput('');
       setError('');
       setAgentSelections({});
@@ -766,9 +810,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
   useEffect(() => {
     persistConversation(input, messages);
+    messagesRef.current = messages;
     // Draft text is saved immediately before date navigation; avoid synchronous storage work on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, messages]);
+
+  useEffect(() => () => cancelActiveAsk(), []);
 
   useEffect(() => {
     if (!loadingState) {
@@ -819,8 +866,6 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loading, error]);
 
-  const apiHistory = useMemo(() => historyForApi(messages), [messages]);
-
   const previewAgentPlan = async (value: unknown): Promise<PreviewedAgentPlan | undefined> => {
     const plan = normalizeAgentPlan(value);
     if (!plan) return undefined;
@@ -829,7 +874,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ summary: plan.summary, actions: plan.actions }),
     });
-    const data = await response.json();
+    const data = await responseData(response);
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'The proposed changes could not be prepared.');
     return data.plan as PreviewedAgentPlan;
   };
@@ -841,13 +886,21 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     if (!clean || loading) return;
 
     const userMessage: ChatMessage = { id: makeId(), role: 'user', content: clean, aiInstructions };
-    const historyBeforeQuestion = apiHistory;
-    const loadingKind = aiLoadingKind(clean);
-    setMessages(previous => [...previous, userMessage]);
+    // Read from an eagerly maintained ref, not a render snapshot. This preserves the
+    // visible first turn when a failed request is immediately followed by "do what I asked".
+    const historyBeforeQuestion = historyForApi(messagesRef.current);
+    const pendingMessages = normalizeAiChatMessages([...messagesRef.current, userMessage]);
+    const loadingKind = aiLoadingKind([clean, ...aiInstructions].join(' '));
+    messagesRef.current = pendingMessages;
+    setMessages(pendingMessages);
     setInput('');
     setLoading(true);
     setLoadingState({ startedAt: Date.now(), kind: loadingKind, phase: 'preparing' });
     setError('');
+    cancelActiveAsk();
+    const requestController = new AbortController();
+    activeAskControllerRef.current = requestController;
+    const requestTimeout = window.setTimeout(() => requestController.abort(), 45_000);
 
     try {
       const shouldSearchSources = shouldSearchExerciseSources(clean);
@@ -855,7 +908,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       const sourceMatches = shouldSearchSources ? await searchExternalSources(clean) : [];
       setLoadingState(previous => previous ? {
         ...previous,
-        phase: loadingKind === 'visualization' ? 'buildingVisual' : loadingKind === 'history' ? 'searchingHistory' : 'askingAi',
+        phase: loadingKind === 'analysis' || loadingKind === 'visualization' ? 'buildingVisual' : loadingKind === 'history' ? 'searchingHistory' : 'askingAi',
       } : previous);
       const res = await fetch('/api/ai-exercise-question', {
         method: 'POST',
@@ -876,17 +929,26 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             tips: exercise.tips?.slice(0, 4),
           })).slice(0, 250),
         }),
+        signal: requestController.signal,
       });
-      const data = await res.json();
+      const data = await responseData(res);
       if (!res.ok) throw new Error(errorMessage(res, data));
+      const rawReply = data.reply && typeof data.reply === 'object' && !Array.isArray(data.reply)
+        ? data.reply as Record<string, unknown>
+        : {};
 
       let agentPlan: PreviewedAgentPlan | undefined;
       let agentPlanError = '';
-      let agentPlanningStatus: AiReply['agentPlanningStatus'] = data.reply?.agentPlanningStatus;
-      if (data.reply?.agentPlan) {
+      let agentPlanningStatus: AiReply['agentPlanningStatus'] = rawReply.agentPlanningStatus === 'planned'
+        || rawReply.agentPlanningStatus === 'clarification'
+        || rawReply.agentPlanningStatus === 'missing'
+        || rawReply.agentPlanningStatus === 'invalid'
+        ? rawReply.agentPlanningStatus
+        : undefined;
+      if (rawReply.agentPlan) {
         setLoadingState(previous => previous ? { ...previous, phase: 'checkingReview' } : previous);
         try {
-          agentPlan = await previewAgentPlan(data.reply.agentPlan);
+          agentPlan = await previewAgentPlan(rawReply.agentPlan);
         } catch (planError) {
           agentPlanError = planError instanceof Error ? planError.message : 'The proposed changes could not be prepared.';
           agentPlanningStatus = 'invalid';
@@ -894,17 +956,17 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       }
 
       const reply: AiReply = {
-        answer: String(data.reply?.answer || 'I need one more detail to answer that.'),
-        options: normalizeAiReplyOptions(data.reply?.options),
-        dateLinks: Array.isArray(data.reply?.dateLinks) ? data.reply.dateLinks.slice(0, 5) : [],
-        dateSummaries: Array.isArray(data.reply?.dateSummaries)
-          ? data.reply.dateSummaries.filter((item: unknown): item is DateSummary => Boolean(item)
+        answer: String(rawReply.answer || 'I need one more detail to answer that.'),
+        options: normalizeAiReplyOptions(rawReply.options),
+        dateLinks: (Array.isArray(rawReply.dateLinks) ? rawReply.dateLinks.slice(0, 5) : []) as AiReply['dateLinks'],
+        dateSummaries: Array.isArray(rawReply.dateSummaries)
+          ? rawReply.dateSummaries.filter((item: unknown): item is DateSummary => Boolean(item)
             && typeof item === 'object'
             && isIsoCalendarDate(String((item as DateSummary).date))
             && typeof (item as DateSummary).summary === 'string').slice(0, 8)
           : [],
-        confirmedExercise: data.reply?.confirmedExercise,
-        model: data.model,
+        confirmedExercise: rawReply.confirmedExercise as AiReply['confirmedExercise'],
+        model: typeof data.model === 'string' ? data.model : undefined,
         providerKey: typeof data.providerKey === 'string' ? data.providerKey : undefined,
         searchedDays: Number.isFinite(Number(data.searchedDays)) ? Number(data.searchedDays) : undefined,
         comparedDays: Number.isFinite(Number(data.comparedDays)) && Number(data.comparedDays) > 0 ? Number(data.comparedDays) : undefined,
@@ -914,8 +976,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         degraded: data.degraded === true,
         agentPlan,
         agentPlanningStatus,
-        visualizations: Array.isArray(data.reply?.visualizations) ? data.reply.visualizations : [],
-        debug: data.debug,
+        visualizations: (Array.isArray(rawReply.visualizations) ? rawReply.visualizations : []) as AiReply['visualizations'],
+        debug: data.debug && typeof data.debug === 'object' && !Array.isArray(data.debug) ? data.debug as AiReply['debug'] : undefined,
       };
 
       const assistantMessage: ChatMessage = {
@@ -924,7 +986,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         content: reply.answer,
         reply,
       };
-      const completedMessages = normalizeAiChatMessages([...messages, userMessage, assistantMessage]);
+      const completedMessages = normalizeAiChatMessages([...pendingMessages, assistantMessage]);
+      messagesRef.current = completedMessages;
       setMessages(completedMessages);
       if (agentPlan) {
         setAgentSelections(previous => ({ ...previous, [assistantMessage.id]: agentPlan.actions.filter(isAgentWriteAction).map(action => action.id) }));
@@ -932,12 +995,18 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       if (agentPlanError) setAgentErrors(previous => ({ ...previous, [assistantMessage.id]: agentPlanError }));
       void saveChatSession(conversationId, completedMessages);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ask AI failed');
-      void saveChatSession(conversationId, [...messages, userMessage]);
+      const aborted = err instanceof Error && err.name === 'AbortError';
+      if (aborted && activeAskControllerRef.current !== requestController) return;
+      setError(aborted ? 'That request reached the 45-second limit and was stopped. Your chat is preserved—try again without waiting through a runaway fallback cascade.' : err instanceof Error ? err.message : 'Ask AI failed');
+      void saveChatSession(conversationId, pendingMessages);
     } finally {
-      setLoading(false);
-      setLoadingState(null);
-      window.setTimeout(() => composerRef.current?.querySelector<HTMLElement>('[role="textbox"]')?.focus(), 100);
+      window.clearTimeout(requestTimeout);
+      if (activeAskControllerRef.current === requestController) {
+        activeAskControllerRef.current = null;
+        setLoading(false);
+        setLoadingState(null);
+        window.setTimeout(() => composerRef.current?.querySelector<HTMLElement>('[role="textbox"]')?.focus(), 100);
+      }
     }
   };
 
@@ -1015,13 +1084,14 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           chatMessageId: message.id,
         }),
       });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'The changes could not be applied.');
       const appliedAt = new Date().toISOString();
       const nextMessages = normalizeAiChatMessages(messages.map(item => item.id === message.id && item.reply?.agentPlan ? {
         ...item,
         reply: { ...item.reply, agentPlan: { ...item.reply.agentPlan, appliedRunId: String(data.runId), appliedAt, appliedActionIds: selectedActions.map(action => action.id) } },
       } : item));
+      messagesRef.current = nextMessages;
       setMessages(nextMessages);
       persistConversation(input, nextMessages);
       await saveChatSession(conversationId, nextMessages);
@@ -1034,7 +1104,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         runId: String(data.runId),
         label: String(data.label || plan.summary),
         affectedDates: Array.isArray(data.affectedDates) ? data.affectedDates.map(String) : [],
-        changedConfig: data.changedConfig && typeof data.changedConfig === 'object' ? data.changedConfig : {},
+        changedConfig: data.changedConfig && typeof data.changedConfig === 'object' && !Array.isArray(data.changedConfig) ? data.changedConfig as Record<string, unknown> : {},
       });
     } catch (applyError) {
       setAgentErrors(previous => ({ ...previous, [message.id]: applyError instanceof Error ? applyError.message : 'The changes could not be applied.' }));
@@ -1090,7 +1160,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     try {
       await chatSaveQueueRef.current;
       const response = await fetch('/api/ai-chat-sessions?export=all', { cache: 'no-store' });
-      const data = await response.json();
+      const data = await responseData(response);
       if (!response.ok) throw new Error('Could not export chats');
       const sessions: StoredAiChatArchiveSession[] = (Array.isArray(data.sessions) ? data.sessions : []).flatMap((item: unknown) => {
         const summary = normalizeSessionSummary(item);

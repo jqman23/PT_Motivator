@@ -9,6 +9,11 @@ export type SemanticNoteSource = {
   text: string;
 };
 
+export type SemanticCategoryPlan = {
+  title: string;
+  categories: Array<{ label: string; aliases: string[] }>;
+};
+
 function compact(value: unknown, limit = 2400) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
@@ -85,6 +90,130 @@ function occurrences(haystack: string, needle: string) {
     cursor = position + Math.max(1, needle.length);
   }
   return positions;
+}
+
+function boundedOccurrences(haystack: string, needle: string) {
+  return occurrences(haystack, needle).filter(position => {
+    const first = needle[0] ?? '';
+    const last = needle.at(-1) ?? '';
+    const before = position.start > 0 ? haystack[position.start - 1] : '';
+    const after = position.end < haystack.length ? haystack[position.end] : '';
+    const startsWord = /[a-z0-9]/i.test(first);
+    const endsWord = /[a-z0-9]/i.test(last);
+    return (!startsWord || !/[a-z0-9]/i.test(before)) && (!endsWord || !/[a-z0-9]/i.test(after));
+  });
+}
+
+export function normalizeSemanticCategoryPlan(value: unknown, sources: SemanticNoteSource[], expectedCategoryCount?: number): SemanticCategoryPlan | null {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const planRaw = raw.semanticPlan && typeof raw.semanticPlan === 'object' && !Array.isArray(raw.semanticPlan)
+    ? raw.semanticPlan as Record<string, unknown>
+    : raw;
+  const categoriesRaw = Array.isArray(planRaw.categories) ? planRaw.categories : [];
+  if (!categoriesRaw.length || (expectedCategoryCount && categoriesRaw.length !== expectedCategoryCount)) return null;
+  const sourceText = sources.map(source => source.text.toLowerCase());
+  const labels = new Set<string>();
+  const aliasesAcrossCategories = new Set<string>();
+  const categories: SemanticCategoryPlan['categories'] = [];
+
+  for (const item of categoriesRaw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const category = item as Record<string, unknown>;
+    const label = compact(category.label ?? category.name, 100);
+    const labelKey = label.toLowerCase();
+    if (!label || labels.has(labelKey)) return null;
+    labels.add(labelKey);
+    const aliases = Array.isArray(category.aliases ?? category.matches ?? category.terms)
+      ? (category.aliases ?? category.matches ?? category.terms) as unknown[]
+      : [];
+    const acceptedAliases: string[] = [];
+    for (const rawAlias of aliases) {
+      const alias = compact(rawAlias, 120);
+      const aliasKey = alias.toLowerCase();
+      if (!alias || aliasesAcrossCategories.has(aliasKey)) continue;
+      if (!sourceText.some(text => boundedOccurrences(text, aliasKey).length > 0)) continue;
+      aliasesAcrossCategories.add(aliasKey);
+      acceptedAliases.push(alias);
+    }
+    categories.push({ label, aliases: acceptedAliases });
+  }
+
+  return { title: compact(planRaw.title, 160) || 'Mention frequency', categories };
+}
+
+export function mergeSemanticCategoryPlans(plans: SemanticCategoryPlan[]) {
+  const first = plans[0];
+  if (!first) return null;
+  const expectedLabels = first.categories.map(category => category.label.toLowerCase());
+  if (plans.some(plan => plan.categories.map(category => category.label.toLowerCase()).some((label, index) => label !== expectedLabels[index]))) return null;
+  const categories = first.categories.map((category, index) => ({
+    label: category.label,
+    aliases: Array.from(new Map(plans.flatMap(plan => plan.categories[index]?.aliases ?? []).map(alias => [alias.toLowerCase(), alias])).values()),
+  }));
+  const owners = new Map<string, Set<string>>();
+  for (const category of categories) {
+    for (const alias of category.aliases) {
+      const ownerSet = owners.get(alias.toLowerCase()) ?? new Set<string>();
+      ownerSet.add(category.label.toLowerCase());
+      owners.set(alias.toLowerCase(), ownerSet);
+    }
+  }
+  return {
+    title: first.title,
+    categories: categories.map(category => ({
+      ...category,
+      aliases: category.aliases.filter(alias => owners.get(alias.toLowerCase())?.size === 1),
+    })),
+  } satisfies SemanticCategoryPlan;
+}
+
+export function visualizationFromSemanticCategoryPlan(plan: SemanticCategoryPlan, sources: SemanticNoteSource[]) {
+  const claimedRanges = new Map<string, Array<{ start: number; end: number }>>();
+  const itemsByLabel = new Map(plan.categories.map(category => [category.label, [] as AiVisualEvidenceItem[]]));
+  const aliases = plan.categories.flatMap(category => category.aliases.map(alias => ({ label: category.label, alias })))
+    .sort((left, right) => right.alias.length - left.alias.length || left.label.localeCompare(right.label));
+
+  for (const source of sources) {
+    const sourceText = source.text.toLowerCase();
+    const occupied = claimedRanges.get(source.id) ?? [];
+    for (const entry of aliases) {
+      for (const position of boundedOccurrences(sourceText, entry.alias.toLowerCase())) {
+        if (occupied.some(range => position.start < range.end && position.end > range.start)) continue;
+        occupied.push(position);
+        const contextStart = Math.max(0, position.start - 90);
+        const contextEnd = Math.min(source.text.length, position.end + 90);
+        itemsByLabel.get(entry.label)?.push({
+          sourceId: source.id,
+          date: source.date,
+          source: source.source,
+          excerpt: source.text.slice(contextStart, contextEnd).trim(),
+          match: source.text.slice(position.start, position.end),
+          count: 1,
+        });
+      }
+    }
+    claimedRanges.set(source.id, occupied);
+  }
+
+  const drilldowns = plan.categories.map(category => {
+    const grouped = new Map<string, AiVisualEvidenceItem>();
+    for (const item of itemsByLabel.get(category.label) ?? []) {
+      const key = `${item.sourceId ?? ''}|${item.match?.toLowerCase() ?? ''}`;
+      const previous = grouped.get(key);
+      grouped.set(key, previous ? { ...previous, count: (previous.count ?? 1) + (item.count ?? 1) } : item);
+    }
+    return { label: category.label, items: Array.from(grouped.values()) };
+  });
+  return normalizeAiVisualizations([{
+    id: 'semantic-counts',
+    type: 'table',
+    title: plan.title,
+    subtitle: `${sources.length} saved note field${sources.length === 1 ? '' : 's'} checked`,
+    columns: ['Category', 'Mentions'],
+    rows: drilldowns.map(drilldown => [drilldown.label, String(drilldown.items.reduce((sum, item) => sum + (item.count ?? 1), 0))]),
+    drilldowns,
+    footnote: 'Counts are exact matched-text occurrences from saved note fields. Tap a count to inspect the dates, source fields, excerpts, and wording included.',
+  }], { maxPoints: 100 });
 }
 
 function countColumnIndex(columns: string[]) {
