@@ -43,8 +43,33 @@ function parsedCount(value: string) {
   return Number.isFinite(number) ? number : NUMBER_WORDS[value.toLowerCase()] ?? 0;
 }
 
+function weekStartDate(today: string) {
+  const date = new Date(`${today}T12:00:00`);
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  return dateString(date);
+}
+
 export function resolveBoundedHistoryWindow(value: string, today: string): BoundedHistoryWindow | null {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (/\b(?:this\s+past|past|last|previous|recent)\s+week\b/.test(text)) {
+    const endDate = shiftDate(today, -1);
+    return {
+      startDate: shiftDate(endDate, -6),
+      endDate,
+      dayCount: 7,
+      sourceText: 'past week',
+    };
+  }
+  if (/\b(?:this|current|present)\s+week\b/.test(text)) {
+    const startDate = weekStartDate(today);
+    return {
+      startDate,
+      endDate: today,
+      dayCount: Math.max(1, Math.ceil((new Date(`${today}T12:00:00`).getTime() - new Date(`${startDate}T12:00:00`).getTime()) / 86400000) + 1),
+      sourceText: 'this week',
+    };
+  }
   const relative = text.match(/\b(?:past|last|previous|recent)\s+(?:(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|few|several)[ -]?)?(days?|weeks?)\b/);
   if (!relative) {
     if (/\b(?:yesterday|the previous day)\b/.test(text)) {

@@ -55,6 +55,24 @@ test('resolves complete relative windows and carries them through correction fol
   assert.deepEqual(includingToday && [includingToday.startDate, includingToday.endDate], ['2026-07-13', '2026-07-15']);
 });
 
+test('resolves natural week phrasing without changing the existing bounded-window behavior', () => {
+  const pastWeek = resolveHistoryWindowFromConversation('What stood out this past week?', [], '2026-07-16');
+  assert.deepEqual(pastWeek, {
+    startDate: '2026-07-09',
+    endDate: '2026-07-15',
+    dayCount: 7,
+    sourceText: 'past week',
+  });
+
+  const thisWeek = resolveHistoryWindowFromConversation('What has changed this week?', [], '2026-07-16');
+  assert.deepEqual(thisWeek, {
+    startDate: '2026-07-13',
+    endDate: '2026-07-16',
+    dayCount: 4,
+    sourceText: 'this week',
+  });
+});
+
 test('bounded comparisons include empty calendar days instead of sampling saved days', () => {
   const window = resolveHistoryWindowFromConversation('past 5 days', [], '2026-07-15');
   assert(window);
