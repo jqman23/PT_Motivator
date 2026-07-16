@@ -26,6 +26,36 @@ export type StoredAiExerciseDraft = {
   tips?: string[];
 };
 
+export type StoredAiReplyDebug = {
+  requestId?: string;
+  build?: string;
+  normalizedQuestion?: string;
+  intents?: {
+    agent: boolean;
+    visualization: boolean;
+    semanticTextAggregate: boolean;
+    wholeHistory: boolean;
+    boundedWindow: boolean;
+    pattern: boolean;
+  };
+  historyScope?: {
+    mode: 'none' | 'ranked' | 'window' | 'whole';
+    startDate?: string;
+    endDate?: string;
+    loadedDays: number;
+  };
+  visualization?: {
+    source: 'none' | 'deterministic' | 'model' | 'semantic-repair';
+    firstPassCount: number;
+    deterministicCount: number;
+    repairedCount: number;
+    finalCount: number;
+    repairModel?: string;
+    repairProviderKey?: string;
+  };
+  attemptedModels?: string[];
+};
+
 export type StoredAiReply = {
   answer: string;
   options: string[];
@@ -43,6 +73,7 @@ export type StoredAiReply = {
   agentPlan?: PreviewedAgentPlan;
   agentPlanningStatus?: 'planned' | 'clarification' | 'missing' | 'invalid';
   visualizations?: AiVisualization[];
+  debug?: StoredAiReplyDebug;
 };
 
 export type StoredAiChatMessage = {
@@ -62,6 +93,10 @@ export type AiChatSessionSummary = {
   updatedAt: string;
 };
 
+export type StoredAiChatArchiveSession = AiChatSessionSummary & {
+  messages: StoredAiChatMessage[];
+};
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function cleanText(value: unknown, limit: number) {
@@ -71,6 +106,47 @@ function cleanText(value: unknown, limit: number) {
 function cleanNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const rawIntents = raw.intents && typeof raw.intents === 'object' && !Array.isArray(raw.intents) ? raw.intents as Record<string, unknown> : null;
+  const rawScope = raw.historyScope && typeof raw.historyScope === 'object' && !Array.isArray(raw.historyScope) ? raw.historyScope as Record<string, unknown> : null;
+  const rawVisual = raw.visualization && typeof raw.visualization === 'object' && !Array.isArray(raw.visualization) ? raw.visualization as Record<string, unknown> : null;
+  const scopeMode = rawScope?.mode === 'ranked' || rawScope?.mode === 'window' || rawScope?.mode === 'whole' ? rawScope.mode : 'none';
+  const visualSource = rawVisual?.source === 'deterministic' || rawVisual?.source === 'model' || rawVisual?.source === 'semantic-repair' ? rawVisual.source : 'none';
+  return {
+    requestId: cleanText(raw.requestId, 120) || undefined,
+    build: cleanText(raw.build, 80) || undefined,
+    normalizedQuestion: cleanText(raw.normalizedQuestion, 1_500) || undefined,
+    intents: rawIntents ? {
+      agent: rawIntents.agent === true,
+      visualization: rawIntents.visualization === true,
+      semanticTextAggregate: rawIntents.semanticTextAggregate === true,
+      wholeHistory: rawIntents.wholeHistory === true,
+      boundedWindow: rawIntents.boundedWindow === true,
+      pattern: rawIntents.pattern === true,
+    } : undefined,
+    historyScope: rawScope ? {
+      mode: scopeMode,
+      startDate: cleanText(rawScope.startDate, 10) || undefined,
+      endDate: cleanText(rawScope.endDate, 10) || undefined,
+      loadedDays: cleanNumber(rawScope.loadedDays) ?? 0,
+    } : undefined,
+    visualization: rawVisual ? {
+      source: visualSource,
+      firstPassCount: cleanNumber(rawVisual.firstPassCount) ?? 0,
+      deterministicCount: cleanNumber(rawVisual.deterministicCount) ?? 0,
+      repairedCount: cleanNumber(rawVisual.repairedCount) ?? 0,
+      finalCount: cleanNumber(rawVisual.finalCount) ?? 0,
+      repairModel: cleanText(rawVisual.repairModel, 120) || undefined,
+      repairProviderKey: cleanText(rawVisual.repairProviderKey, 40) || undefined,
+    } : undefined,
+    attemptedModels: Array.isArray(raw.attemptedModels)
+      ? raw.attemptedModels.map(model => cleanText(model, 120)).filter(Boolean).slice(0, 40)
+      : undefined,
+  };
 }
 
 function normalizeReply(value: unknown): StoredAiReply | undefined {
@@ -160,6 +236,7 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     // Deterministic all-history visuals can legitimately contain one point per
     // loaded day. Keep them complete when a saved conversation is reopened.
     visualizations: normalizeAiVisualizations(raw.visualizations, { maxPoints: 730 }),
+    debug: normalizeReplyDebug(raw.debug),
   };
 }
 
@@ -194,4 +271,75 @@ export function aiChatPreview(messages: StoredAiChatMessage[]) {
   const latest = [...messages].reverse().find(message => message.role === 'assistant')
     ?? [...messages].reverse().find(message => message.role === 'user');
   return (latest?.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+function transcriptCell(value: unknown) {
+  return String(value ?? '—').replace(/[\t\r\n]+/g, ' ').trim() || '—';
+}
+
+function visualizationTranscript(visual: AiVisualization) {
+  const heading = `[${visual.type === 'table' ? 'Table' : `${visual.type === 'line' ? 'Line' : 'Bar'} chart`}: ${visual.title}]`;
+  const context = [heading, visual.subtitle].filter(Boolean) as string[];
+  if (visual.type === 'table') {
+    context.push(visual.columns.map(transcriptCell).join('\t'));
+    context.push(...visual.rows.map(row => visual.columns.map((_, index) => transcriptCell(row[index])).join('\t')));
+  } else {
+    const seriesHeadings = visual.series.map(series => `${series.name}${series.unit ? ` (${series.unit})` : ''}`);
+    context.push(['Label', ...seriesHeadings].map(transcriptCell).join('\t'));
+    context.push(...visual.labels.map((label, index) => [
+      transcriptCell(label),
+      ...visual.series.map(series => transcriptCell(series.values[index])),
+    ].join('\t')));
+  }
+  if (visual.footnote) context.push(`Note: ${visual.footnote}`);
+  return context.join('\n');
+}
+
+export function aiChatTranscript(messages: StoredAiChatMessage[]) {
+  return messages.flatMap(message => {
+    const sections = [`${message.role === 'user' ? 'You' : 'AI'}:\n${message.content}`];
+    if (message.aiInstructions?.length) sections.push(`AI guidance:\n${message.aiInstructions.map(instruction => `- ${instruction}`).join('\n')}`);
+    if (message.role === 'assistant' && message.reply) {
+      sections.push(...(message.reply.visualizations ?? []).map(visualizationTranscript));
+      if (message.reply.agentPlan) {
+        sections.push([
+          `[Review plan: ${message.reply.agentPlan.summary}]`,
+          ...message.reply.agentPlan.actions.map(action => JSON.stringify(action)),
+        ].join('\n'));
+      }
+      const model = [message.reply.model, message.reply.providerKey].filter(Boolean).join(' · ');
+      if (model) sections.push(`Model: ${model}`);
+    }
+    return [sections.join('\n\n')];
+  }).join('\n\n---\n\n');
+}
+
+export function aiChatDebugBundle(messages: StoredAiChatMessage[], conversationId?: string) {
+  return JSON.stringify({
+    format: 'pt-motivator-ai-debug-v1',
+    exportedAt: new Date().toISOString(),
+    conversationId: cleanText(conversationId, 120) || undefined,
+    transcript: aiChatTranscript(messages),
+    messages,
+  }, null, 2);
+}
+
+export function aiChatArchiveTranscript(sessions: StoredAiChatArchiveSession[], truncated = false) {
+  const chats = sessions.map((session, index) => [
+    `CHAT ${index + 1}: ${session.title || 'Untitled conversation'}`,
+    `Updated: ${session.updatedAt} · ${session.messageCount} messages`,
+    aiChatTranscript(session.messages),
+  ].join('\n'));
+  if (truncated) chats.push('[Archive truncated at the server export limit.]');
+  return chats.join('\n\n========================================\n\n');
+}
+
+export function aiChatArchiveDebugBundle(sessions: StoredAiChatArchiveSession[], truncated = false) {
+  return JSON.stringify({
+    format: 'pt-motivator-ai-debug-archive-v1',
+    exportedAt: new Date().toISOString(),
+    truncated,
+    sessionCount: sessions.length,
+    sessions,
+  }, null, 2);
 }

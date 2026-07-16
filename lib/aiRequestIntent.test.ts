@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from './aiRequestIntent.ts';
 
 test('recognizes natural app commands and short follow-ups', () => {
   for (const request of [
@@ -58,6 +58,10 @@ test('recognizes completion coverage, correction follow-ups, and visualization r
   assert.equal(isHistoryCorrectionFollowUp('Look harder'), true);
   assert.equal(isHistoryCorrectionFollowUp("That’s not true, I did plenty of exercises"), true);
   assert.equal(isVisualizationRequest('Visualize my past five days in a table'), true);
+  assert.equal(isVisualizationRequest('Show this in a visual'), true);
+  assert.equal(isSemanticTextAggregateRequest('Give me a count of how much I talk about each symptom'), true);
+  assert.equal(isSemanticTextAggregateRequest('How often have I mentioned each symptom?'), true);
+  assert.equal(isSemanticTextAggregateRequest('Log 3 sets of calf raises'), false);
 });
 
 test('only carries an earlier date window into a genuine follow-up', () => {
@@ -88,6 +92,8 @@ test('recognizes requests that require comparison across the whole loaded histor
     'Chart everything and show me the trend.',
     'Make a table summarizing each category.',
     'Create a chart of all recorded activity.',
+    'Give me the frequency with which I talk about each symptom.',
+    'Count how much I mention each body part.',
   ]) assert.equal(isWholeHistoryComparisonRequest(request), true, request);
 });
 

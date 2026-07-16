@@ -10,7 +10,10 @@ function day(date: string, health: Record<string, unknown> | null = null): Histo
 
 test('whole-history comparison contains one bounded row for every loaded day', () => {
   const comparison = buildWholeHistoryComparison([
-    day('2026-07-01', { pain: 6, energy: 4, generalNote: 'A'.repeat(200) }),
+    {
+      ...day('2026-07-01', { pain: 6, energy: 4, generalNote: 'A'.repeat(200), painNote: 'Morning stiffness and evening ache' }),
+      exerciseNotes: [{ exerciseId: 'mobility', exercise: 'Mobility drill', note: 'Balance felt limited' }],
+    },
     day('2026-07-02', { pain: 4, energy: 5 }),
   ]);
 
@@ -18,6 +21,8 @@ test('whole-history comparison contains one bounded row for every loaded day', (
   assert.equal(comparison.dayCount, 2);
   assert.equal(comparison.rows.length, 2);
   assert.equal(String(comparison.rows[0][9]).length, 120);
+  assert.match(String(comparison.rows[0][10]), /Morning stiffness and evening ache/);
+  assert.match(String(comparison.rows[0][12]), /Balance felt limited/);
 });
 
 test('date tiles are supported only by dates cited in the answer or explicitly requested', () => {

@@ -475,11 +475,69 @@ function containsAgentDraft(value: Record<string, unknown>) {
   return actions.length > 0 || clarification.length > 0 || answer.endsWith('?');
 }
 
+function visualizationItems(value: Record<string, unknown>) {
+  const reply = value.reply && typeof value.reply === 'object' && !Array.isArray(value.reply)
+    ? value.reply as Record<string, unknown>
+    : value;
+  return Array.isArray(reply.visualizations) ? reply.visualizations : [];
+}
+
+function containsVisualizationDraft(value: Record<string, unknown>) {
+  return visualizationItems(value).some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const visual = item as Record<string, unknown>;
+    if (visual.type === 'table') return Array.isArray(visual.columns) && visual.columns.length >= 2 && Array.isArray(visual.rows) && visual.rows.length > 0;
+    if (visual.type === 'line' || visual.type === 'bar') return Array.isArray(visual.labels) && visual.labels.length > 0 && Array.isArray(visual.series) && visual.series.length > 0;
+    return false;
+  });
+}
+
+function normalizedTokenText(value: unknown) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function containsSemanticAggregateDraft(value: Record<string, unknown>) {
+  return visualizationItems(value).some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const visual = item as Record<string, unknown>;
+    const titleText = normalizedTokenText([visual.id, visual.title, visual.subtitle, visual.footnote].join(' '));
+    const genericDailyTitle = /\b(?:daily|day by day|pattern overview|recorded exercise activity|activity overview|health metrics|recovery metrics)\b/.test(titleText);
+
+    if (visual.type === 'table') {
+      const columns = Array.isArray(visual.columns) ? visual.columns.map(normalizedTokenText) : [];
+      const rows = Array.isArray(visual.rows) ? visual.rows : [];
+      const columnText = columns.join(' ');
+      const genericDailyColumns = columns.some(column => /\bdate\b/.test(column))
+        && /\b(?:pain|energy|mood|sleep|activity|session|exercise note|recorded)\b/.test(columnText);
+      if (genericDailyTitle || genericDailyColumns) return false;
+      const hasCategoryColumn = columns.some(column => /\b(?:category|item|term|label|name|phrase|source|body part|symptom|exercise|note)\b/.test(column));
+      const hasCountColumn = columns.some(column => /\b(?:mention|mentions|count|counts|frequency|frequencies|occurrence|occurrences|times|total|days)\b/.test(column));
+      const firstColumnIsLabel = columns.length > 0 && !/\bdate\b/.test(columns[0]);
+      return columns.length >= 2 && rows.length > 0 && hasCountColumn && (hasCategoryColumn || firstColumnIsLabel);
+    }
+
+    if (visual.type === 'bar') {
+      if (genericDailyTitle) return false;
+      const labels = Array.isArray(visual.labels) ? visual.labels : [];
+      const series = Array.isArray(visual.series) ? visual.series : [];
+      const seriesText = normalizedTokenText(series.map(entry => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return '';
+        const row = entry as Record<string, unknown>;
+        return [row.name, row.unit].join(' ');
+      }).join(' '));
+      const hasCountSeries = /\b(?:mention|mentions|count|counts|frequency|frequencies|occurrence|occurrences|times|total|days)\b/.test(seriesText || titleText);
+      return labels.length > 0 && series.length > 0 && hasCountSeries;
+    }
+
+    return false;
+  });
+}
+
 export async function callGroqChat(
   apiKeys: GroqApiKey[],
   task: GroqTask,
   body: Record<string, unknown>,
-  options: { requireAgentDraft?: boolean } = {},
+  options: { requireAgentDraft?: boolean; requireVisualizationDraft?: boolean; requireSemanticAggregateDraft?: boolean } = {},
 ) {
   const attempts: Attempt[] = [];
   const expectsJsonObject = Boolean(body.response_format && typeof body.response_format === 'object');
@@ -508,13 +566,21 @@ export async function callGroqChat(
             ? (data as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
             : '';
           if (String(candidate ?? '').trim()) {
-            const parsedCandidate = expectsJsonObject || options.requireAgentDraft ? parsedJsonObject(candidate) : null;
+            const parsedCandidate = expectsJsonObject || options.requireAgentDraft || options.requireVisualizationDraft || options.requireSemanticAggregateDraft ? parsedJsonObject(candidate) : null;
             if (expectsJsonObject && !parsedCandidate) {
               attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'INVALID_JSON_RESPONSE', detail: 'Provider returned text instead of the required JSON object.' });
               break;
             }
             if (options.requireAgentDraft && (!parsedCandidate || !containsAgentDraft(parsedCandidate))) {
               attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_AGENT_DRAFT', detail: 'Provider returned JSON without a proposed action or a concrete clarification.' });
+              break;
+            }
+            if (options.requireVisualizationDraft && (!parsedCandidate || !containsVisualizationDraft(parsedCandidate))) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_VISUALIZATION_DRAFT', detail: 'Provider returned JSON without the required non-empty visualization.' });
+              break;
+            }
+            if (options.requireSemanticAggregateDraft && (!parsedCandidate || !containsSemanticAggregateDraft(parsedCandidate))) {
+              attempts.push({ provider: route.provider, model: label, keyName: apiKey.name, status: 502, statusText: 'MISSING_SEMANTIC_AGGREGATE_DRAFT', detail: 'Provider returned JSON without a usable category/count visualization.' });
               break;
             }
             return {

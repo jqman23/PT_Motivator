@@ -5,7 +5,7 @@ import { extractAiInstructions, stripSecretNotes } from '@/lib/secretNotes';
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 
@@ -330,12 +330,15 @@ function compactHealth(row: Record<string, unknown> | undefined) {
     mood: numeric(row.mood),
     sleepHours: numeric(row.sleep_hours),
     sleepQuality: numeric(row.sleep_quality),
-    painNote: cleanText(stripSecretNotes(String(row.pain_notes ?? '')), 320),
-    generalNote: cleanText(stripSecretNotes(String(row.general_notes ?? '')), 480),
-    treatmentNote: cleanText(stripSecretNotes(String(row.treatment_notes ?? '')), 320),
-    sleepNote: cleanText(stripSecretNotes(String(row.sleep_notes ?? '')), 240),
-    energyNote: cleanText(stripSecretNotes(String(row.energy_notes ?? '')), 240),
-    moodNote: cleanText(stripSecretNotes(String(row.mood_notes ?? '')), 240),
+    // Preserve the query's already-bounded note text internally so an explicitly
+    // requested semantic aggregate can count the complete applicable fields.
+    // Rich candidate prompts below still apply their smaller per-day clips.
+    painNote: cleanText(stripSecretNotes(String(row.pain_notes ?? '')), 1200),
+    generalNote: cleanText(stripSecretNotes(String(row.general_notes ?? '')), 1800),
+    treatmentNote: cleanText(stripSecretNotes(String(row.treatment_notes ?? '')), 1200),
+    sleepNote: cleanText(stripSecretNotes(String(row.sleep_notes ?? '')), 900),
+    energyNote: cleanText(stripSecretNotes(String(row.energy_notes ?? '')), 900),
+    moodNote: cleanText(stripSecretNotes(String(row.mood_notes ?? '')), 900),
   };
 }
 
@@ -797,6 +800,10 @@ function buildHistoryVisualizations(
 ): AiVisualization[] {
   const scoped = recordsForVisualization(records, window, includeWholeHistory) as DayRecord[];
   if (!scoped.length) return [];
+  // Counts over arbitrary concepts in free-text notes require semantic extraction.
+  // The model receives the complete bounded note corpus and supplies the requested
+  // categorical visual; a generic daily chart would answer a different question.
+  if (isSemanticTextAggregateRequest(question)) return [];
   const rangeText = window ? `${window.startDate} through ${window.endDate}` : `${scoped[0].date} through ${scoped.at(-1)?.date}`;
   const scopeText = includeWholeHistory && !window ? `All ${scoped.length} saved days · ${rangeText}` : rangeText;
   const asksTable = /\btable\b/i.test(question);
@@ -951,6 +958,7 @@ export async function POST(req: NextRequest) {
     const completionCoverageIntent = isExerciseCompletionCoverageRequest(cleanQuestion)
       || (correctionFollowUp && priorUserMessages.some(message => isExerciseCompletionCoverageRequest(message)));
     const visualizationIntent = isVisualizationRequest(cleanQuestion);
+    const semanticTextAggregateIntent = isSemanticTextAggregateRequest(cleanQuestion);
     const wholeHistoryIntent = !agentIntent && (isWholeHistoryComparisonRequest(cleanQuestion)
       || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion)));
     const historyIntent = isHistoryQuestion(cleanQuestion)
@@ -1087,6 +1095,8 @@ export async function POST(req: NextRequest) {
       'A photo_attach action only opens a user-controlled photo chooser during review. Never invent photo data or claim access to the photo library. Propose at most one photo_attach action per plan.',
       'Navigation is a navigate action. It may target date, exercise, health, doctorNotes, doctorNote, settings, exerciseTypes, library, calendar, ptSessions, treatments, progressReport, dataExport, exerciseGuide, manageExercises, masterDatabase, timer, or top.',
       'When visualizationRequested is true, return one or two concise visualizations based only on supplied factual data. Use table for a requested table, line for numeric trends, and bar for counts or comparisons. Never estimate missing values.',
+      'For mention frequency, textual counts, or category breakdowns, use every row of the supplied bounded or whole-history noteCorpus. Count only supported mentions, label the counted unit clearly, and always return the requested table or bar visual.',
+      'When the user names source fields, count only those fields. Count textual occurrences rather than days unless the user asks for days. Preserve every explicitly requested category, including zero-count categories. Consolidate genuine aliases using context, but never force an ambiguous mention into a specific category; report ambiguous or unclassified mentions separately.',
       'Visualization shape: {id,type:"table",title,subtitle,columns:[...],rows:[[...]],footnote} or {id,type:"line"|"bar",title,subtitle,labels:[...],series:[{name,values:[number|null],unit}],yLabel,footnote}. Keep at most 31 labels or rows and four series.',
       'Supported write action shapes are: completion_set{date,exerciseId,completed}; exercise_note_change{date,exerciseId,mode,text}; health_change{date,field,mode,value}; metrics_set{date,exerciseId,sets,reps,durationSeconds,weight,weightUnit,scopeMultiplier}; metrics_clear{date,exerciseId}; exercise_add{exercise:{name,cat,cue,sets,tips,optional,programs,imageSearch,mainImageUrl,mainImageUrls,mainVideoUrl},categoryName}; exercise_update{exerciseId,patch}; exercise_move{exerciseId,categoryName}; exercise_remove{exerciseId}; category_upsert{categoryId,name,color}; category_remove{categoryId}; doctor_note_upsert{noteId,mode,patch}; doctor_note_remove{noteId}; pt_session_upsert{date,kind,note}; pt_session_remove{date,kind}; widget_set{key,enabled}; app_title_set{title}; photo_attach{target,date,exerciseId,noteId}; bulk_completion_from_note{exerciseId,phrase,field,startDate,endDate,completed}.',
       'Every action needs a short reason. Keep direct plans to at most twelve actions. Destructive actions are allowed only when explicitly requested because the interface will flag them separately.',
@@ -1126,7 +1136,7 @@ export async function POST(req: NextRequest) {
       instructions: historyWindow
         ? `boundedHistoryComparison contains every one of the ${historyWindow.dayCount} calendar days from ${historyWindow.startDate} through ${historyWindow.endDate}. Use the full range for all claims and never infer missing activity from candidate sampling.`
         : wholeHistoryIntent
-          ? 'wholeHistoryComparison contains one compact row for every loaded saved day. Use all of its rows for overall, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
+          ? 'wholeHistoryComparison contains one compact row for every loaded saved day, including a bounded noteCorpus for semantic mention analysis. Use all rows for overall, aggregate, frequency, all-history, best, worst, or superlative claims; candidateDays only supplies richer detail. State the evaluated day count accurately.'
         : rankedDays.length
           ? 'Use candidateDays to answer memory questions. Only return dateLinks for dates materially discussed in the answer or explicitly requested.'
           : shouldLoadHistory ? 'No matching logged days were found. Do not fabricate one.' : 'This is not a history lookup unless the conversation clearly makes it one.',
@@ -1330,9 +1340,65 @@ export async function POST(req: NextRequest) {
     const deterministicVisualizations = visualizationIntent
       ? buildHistoryVisualizations(cleanQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
       : [];
+    let modelVisualizations = visualizationIntent ? normalizeAiVisualizations(raw.visualizations) : [];
+    const firstPassVisualizationCount = modelVisualizations.length;
+    let repairedVisualizationCount = 0;
+    let semanticRepairModel = '';
+    let semanticRepairProviderKey = '';
+    let semanticRepairAttemptedModels: string[] = [];
+    if (visualizationIntent && semanticTextAggregateIntent) {
+      try {
+        const semanticVisual = await callGroqChat(apiKeys, 'ask', {
+          messages: [
+            {
+              role: 'system',
+              content: [
+                'You are the dedicated semantic visualization builder for PT Motivator.',
+                'Answer the requested aggregation itself; never substitute a generic daily overview.',
+                'Use every supplied history row and only the note fields the user names. Count textual occurrences, not days, unless days are explicitly requested.',
+                'Preserve every explicitly requested category even when its count is zero. Consolidate genuine aliases using context, but never guess a missing category attribute such as side; include an Ambiguous or Unclassified row when needed.',
+                'Return exactly one requested table or bar chart with the actual category labels and numeric counts. Never return prose without the visual.',
+                'Return JSON only: {"visualizations":[{"id":"semantic-counts","type":"table","title":"","subtitle":"","columns":["Category","Mentions"],"rows":[["",0]],"footnote":""}]}',
+              ].join(' '),
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({
+                question: cleanQuestion,
+                boundedHistoryComparison: promptContext.boundedHistoryComparison,
+                wholeHistoryComparison: promptContext.wholeHistoryComparison,
+              }),
+            },
+          ],
+          temperature: 0,
+          max_completion_tokens: 1_200,
+          response_format: { type: 'json_object' },
+        }, { requireSemanticAggregateDraft: true });
+        const repairedRaw = jsonFromText(semanticVisual.data?.choices?.[0]?.message?.content ?? '');
+        const repairedVisualizations = normalizeAiVisualizations(repairedRaw.visualizations);
+        repairedVisualizationCount = repairedVisualizations.length;
+        semanticRepairModel = semanticVisual.model;
+        semanticRepairProviderKey = semanticVisual.providerKey;
+        semanticRepairAttemptedModels = semanticVisual.attemptedModels;
+        if (repairedVisualizations.length) modelVisualizations = repairedVisualizations;
+      } catch {
+        // Keep a valid first-pass semantic visual if every dedicated repair provider is unavailable.
+      }
+    }
     const visualizations = deterministicVisualizations.length
       ? deterministicVisualizations
-      : visualizationIntent ? normalizeAiVisualizations(raw.visualizations) : [];
+      : modelVisualizations;
+    const visualizationSource = deterministicVisualizations.length
+      ? 'deterministic' as const
+      : repairedVisualizationCount
+        ? 'semantic-repair' as const
+        : modelVisualizations.length ? 'model' as const : 'none' as const;
+    const historyScopeMode = !shouldLoadHistory
+      ? 'none' as const
+      : historyWindow ? 'window' as const
+        : wholeHistoryIntent ? 'whole' as const : 'ranked' as const;
+    const loadedStartDate = historyWindow?.startDate ?? dayRecords[0]?.date;
+    const loadedEndDate = historyWindow?.endDate ?? dayRecords.at(-1)?.date;
 
     return NextResponse.json({
       reply: {
@@ -1354,6 +1420,35 @@ export async function POST(req: NextRequest) {
       rerankerModel,
       rerankerProviderKey,
       rerankedCandidates,
+      debug: {
+        requestId: cleanText(req.headers.get('x-vercel-id'), 120) || globalThis.crypto.randomUUID(),
+        build: cleanText(process.env.VERCEL_GIT_COMMIT_SHA, 80) || 'local',
+        normalizedQuestion: cleanQuestion,
+        intents: {
+          agent: agentIntent,
+          visualization: visualizationIntent,
+          semanticTextAggregate: semanticTextAggregateIntent,
+          wholeHistory: wholeHistoryIntent,
+          boundedWindow: Boolean(historyWindow),
+          pattern: patternIntent,
+        },
+        historyScope: {
+          mode: historyScopeMode,
+          startDate: loadedStartDate,
+          endDate: loadedEndDate,
+          loadedDays: dayRecords.length,
+        },
+        visualization: {
+          source: visualizationSource,
+          firstPassCount: firstPassVisualizationCount,
+          deterministicCount: deterministicVisualizations.length,
+          repairedCount: repairedVisualizationCount,
+          finalCount: visualizations.length,
+          repairModel: semanticRepairModel || undefined,
+          repairProviderKey: semanticRepairProviderKey || undefined,
+        },
+        attemptedModels: Array.from(new Set([...result.attemptedModels, ...semanticRepairAttemptedModels])),
+      },
     });
   } catch (err) {
     console.error('[ai-exercise-question]', err);

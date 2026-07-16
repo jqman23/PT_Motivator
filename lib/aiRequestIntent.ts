@@ -55,7 +55,16 @@ export function isHistoryScopeFollowUp(value: string) {
 }
 
 export function isVisualizationRequest(value: string) {
-  return /\b(?:visuali[sz]e|visualization|graph|graphs|chart|charts|plot|plots|table|trend line|bar graph|line graph)\b/i.test(value);
+  return /\b(?:visuals?|visuali[sz]e|visualization|graph|graphs|chart|charts|plot|plots|table|trend line|bar graph|line graph)\b/i.test(value);
+}
+
+export function isSemanticTextAggregateRequest(value: string) {
+  const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  const aggregateLanguage = /\b(?:frequency|frequencies|how often|how many times|number of times|tally|tallies)\b/.test(text)
+    || /\b(?:count|counts|breakdown|distribution)\b.{0,48}\b(?:mention|mentions|mentioned|talk|talked|write|wrote|written|note|noted|occur|occurred|appear|appeared)\b/.test(text)
+    || /\b(?:mention|mentions|mentioned|talk|talked|write|wrote|written|note|noted|occur|occurred|appear|appeared)\b.{0,48}\b(?:each|every|per|frequency|frequencies|count|counts|how much)\b/.test(text);
+  return aggregateLanguage;
 }
 
 export function isWholeHistoryComparisonRequest(value: string) {
@@ -84,9 +93,10 @@ export function isWholeHistoryComparisonRequest(value: string) {
     || /\b(?:all|every|each)\b.{0,32}\b(?:logged|saved|recorded|tracked)\b/.test(text);
   const explicitlyNotPartial = /\b(?:not (?:just|only) (?:the )?(?:recent|latest|top|selected|candidate)|without (?:leaving|missing|skipping|excluding) (?:anything|any|a single)|leave nothing out|do not leave anything out)\b/.test(text);
   const allOfThem = /\b(?:compare|consider|include|review|scan|use)\b.{0,32}\b(?:all of (?:it|them|those)|them all)\b/.test(text);
+  const semanticTextAggregate = isSemanticTextAggregateRequest(text);
   const globalSuperlative = /\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b.{0,40}\b(?:day|session|log|entry)\b/.test(text)
     || /\b(?:day|session|log|entry)\b.{0,40}\b(?:best|worst|strongest|weakest|easiest|hardest|most positive|most difficult)\b/.test(text)
     || /\b(?:best|worst|strongest|weakest|easiest|hardest)\b.{0,24}\b(?:ever|of all time)\b/.test(text);
 
-  return scopeAndMarker || actionAndMarker || exhaustiveAnalysis || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
+  return scopeAndMarker || actionAndMarker || exhaustiveAnalysis || semanticTextAggregate || fromTheBeginning || everythingLogged || explicitlyNotPartial || allOfThem || globalSuperlative;
 }

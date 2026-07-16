@@ -4,6 +4,7 @@ import { aiChatPreview, aiChatTitle, normalizeAiChatMessages } from '@/lib/aiCha
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_PAGE_SIZE = 30;
+const MAX_EXPORT_SESSIONS = 500;
 
 function cleanText(value: unknown, limit: number) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -45,6 +46,26 @@ export async function GET(req: NextRequest) {
           ...sessionSummary(rows[0]),
           messages: normalizeAiChatMessages(rows[0].messages),
         },
+      });
+    }
+
+    if (params.get('export') === 'all') {
+      // Explicit user-triggered export: one bounded query avoids per-session
+      // request fan-out while keeping ordinary history lists metadata-only.
+      const rows = await sql`
+        SELECT id, title, preview, messages, message_count, created_at, updated_at
+        FROM ai_chat_sessions
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ${MAX_EXPORT_SESSIONS + 1}
+      `;
+      const truncated = rows.length > MAX_EXPORT_SESSIONS;
+      return NextResponse.json({
+        sessions: rows.slice(0, MAX_EXPORT_SESSIONS).map(row => ({
+          ...sessionSummary(row),
+          messages: normalizeAiChatMessages(row.messages),
+        })),
+        truncated,
+        limit: MAX_EXPORT_SESSIONS,
       });
     }
 

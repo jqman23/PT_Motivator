@@ -187,3 +187,94 @@ test('rejects JSON that only claims success without an action draft and continue
     restoreEnv();
   }
 });
+
+test('rejects an empty semantic visual response and continues to another provider', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'visual-cerebras-secret' });
+  const attempts: string[] = [];
+  globalThis.fetch = async (input) => {
+    attempts.push(String(input));
+    if (String(input).includes('api.groq.com')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"answer":"Here are the counts.","visualizations":[]}' } }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"visualizations":[{"type":"table","title":"Mention counts","columns":["Item","Mentions"],"rows":[["Primary symptom","3"]]}]}' } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'visual-groq-1', value: 'visual-groq-secret-1' },
+      { name: 'visual-groq-2', value: 'visual-groq-secret-2' },
+    ], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { requireVisualizationDraft: true });
+    assert.equal(attempts.length, 2);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+    assert.deepEqual(result.attemptedModels, ['openai/gpt-oss-120b']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('rejects a generic daily visual when a semantic aggregate visual is required', async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreEnv = isolateProviderEnv({ CEREBRAS_KEY_PTMOTIVATOR: 'semantic-cerebras-secret' });
+  const attempts: string[] = [];
+  globalThis.fetch = async (input) => {
+    attempts.push(String(input));
+    if (String(input).includes('api.groq.com')) {
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: '{"visualizations":[{"type":"table","title":"47-day pattern overview","columns":["Date","Recorded activity","Pain","Sleep"],"rows":[["2026-07-15","Bike","5","7"]]}]}',
+          },
+        }],
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: '{"visualizations":[{"type":"table","title":"Mention counts","columns":["Category","Mentions"],"rows":[["Left region",3],["Right region",0]]}]}',
+        },
+      }],
+    }), { status: 200 });
+  };
+
+  try {
+    const result = await callGroqChat([
+      { name: 'semantic-groq-1', value: 'semantic-groq-secret-1' },
+      { name: 'semantic-groq-2', value: 'semantic-groq-secret-2' },
+    ], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { requireSemanticAggregateDraft: true });
+    assert.equal(attempts.length, 2);
+    assert.equal(result.model, 'cerebras/gpt-oss-120b');
+    assert.deepEqual(result.attemptedModels, ['openai/gpt-oss-120b']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test('accepts a semantic count table with a domain-specific label column', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{
+      message: {
+        content: '{"visualizations":[{"type":"table","title":"Symptom mention counts","columns":["Symptom","Mentions"],"rows":[["Morning stiffness",3],["Evening ache",0]]}]}',
+      },
+    }],
+  }), { status: 200 });
+
+  try {
+    const result = await callGroqChat([
+      { name: 'semantic-groq-1', value: 'semantic-groq-secret-1' },
+    ], 'ask', {
+      messages: [], response_format: { type: 'json_object' },
+    }, { requireSemanticAggregateDraft: true });
+    assert.equal(result.model, 'openai/gpt-oss-120b');
+    assert.deepEqual(result.attemptedModels, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

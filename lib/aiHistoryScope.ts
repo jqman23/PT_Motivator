@@ -130,12 +130,24 @@ function notableContext(record: HistoryDayRecord) {
   );
 }
 
+function noteCorpus(record: HistoryDayRecord) {
+  const health = record.health ?? {};
+  return compact([
+    health.treatmentNote,
+    health.sleepNote,
+    health.energyNote,
+    health.moodNote,
+    record.session?.note,
+    ...record.exerciseNotes.map(note => `${note.exercise}: ${note.note}`),
+  ].filter(Boolean).join(' | '), 700);
+}
+
 export function buildWholeHistoryComparison(records: HistoryDayRecord[]) {
   return {
     coversEveryLoadedDay: true,
     dayCount: records.length,
     dateRange: records.length ? { start: records[0].date, end: records[records.length - 1].date } : null,
-    columns: ['date', 'sessionKind', 'activityCount', 'exerciseNoteCount', 'pain', 'energy', 'mood', 'sleepHours', 'sleepQuality', 'notableContext'],
+    columns: ['date', 'sessionKind', 'activityCount', 'exerciseNoteCount', 'pain', 'energy', 'mood', 'sleepHours', 'sleepQuality', 'notableContext', 'painNote', 'generalNote', 'otherNoteCorpus'],
     rows: records.map(record => {
       const health = record.health ?? {};
       return [
@@ -149,6 +161,9 @@ export function buildWholeHistoryComparison(records: HistoryDayRecord[]) {
         numeric(health.sleepHours),
         numeric(health.sleepQuality),
         notableContext(record) || null,
+        compact(health.painNote, 1200) || null,
+        compact(health.generalNote, 1800) || null,
+        noteCorpus(record) || null,
       ];
     }),
   };

@@ -11,8 +11,13 @@ import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
 import { isAgentRequest } from '@/lib/aiRequestIntent';
 import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
 import {
+  aiChatArchiveDebugBundle,
+  aiChatArchiveTranscript,
+  aiChatDebugBundle,
+  aiChatTranscript,
   normalizeAiChatMessages,
   type AiChatSessionSummary,
+  type StoredAiChatArchiveSession,
   type StoredAiChatMessage,
   type StoredAiDateSummary,
   type StoredAiExerciseDraft,
@@ -490,6 +495,8 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copyStatus, setCopyStatus] = useState<Record<string, string>>({});
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [datePreview, setDatePreview] = useState<DateSummary | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -594,6 +601,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
   const showChatHistory = () => {
     setActionsOpen(false);
+    setCopyMenuOpen(false);
     setHistoryOpen(true);
     setPendingDeleteId('');
     if (!historyLoadedRef.current) void chatSaveQueueRef.current.then(() => loadChatHistory(true));
@@ -601,6 +609,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
 
   const showAiActions = () => {
     setHistoryOpen(false);
+    setCopyMenuOpen(false);
     setPendingDeleteId('');
     setActionsOpen(true);
   };
@@ -608,6 +617,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
   const handleActionStarter = (prompt: string) => {
     setInput(prompt);
     setActionsOpen(false);
+    setCopyMenuOpen(false);
     setHistoryOpen(false);
     setError('');
     persistConversation(prompt, messages, conversationId);
@@ -623,6 +633,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     setDatePreview(null);
     setHistoryOpen(false);
     setActionsOpen(false);
+    setCopyMenuOpen(false);
     setPendingDeleteId('');
     setAgentSelections({});
     setAgentErrors({});
@@ -652,6 +663,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       setAgentErrors({});
       setAgentPhotos({});
       setHistoryOpen(false);
+      setCopyMenuOpen(false);
       persistConversation('', restored, session.id);
     } catch {
       setHistoryError('That conversation could not be opened.');
@@ -706,6 +718,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     const fn = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (datePreview) setDatePreview(null);
+      else if (copyMenuOpen) setCopyMenuOpen(false);
       else if (actionsOpen) setActionsOpen(false);
       else if (historyOpen) setHistoryOpen(false);
       else closeModal();
@@ -713,7 +726,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actionsOpen, datePreview, historyOpen, onClose]);
+  }, [actionsOpen, copyMenuOpen, datePreview, historyOpen, onClose]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -806,6 +819,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
         agentPlan,
         agentPlanningStatus,
         visualizations: Array.isArray(data.reply?.visualizations) ? data.reply.visualizations : [],
+        debug: data.debug,
       };
 
       const assistantMessage: ChatMessage = {
@@ -944,6 +958,52 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     window.setTimeout(() => setCopyStatus(previous => ({ ...previous, [messageId]: '' })), 1600);
   };
 
+  const showConversationCopyStatus = (status: string) => {
+    setCopyStatus(previous => ({ ...previous, conversation: status }));
+    window.setTimeout(() => setCopyStatus(previous => ({ ...previous, conversation: '' })), 2200);
+  };
+
+  const copyConversation = async (mode: 'chat' | 'debug') => {
+    if (!messages.length || copyBusy) return;
+    setCopyBusy(true);
+    try {
+      const normalized = normalizeAiChatMessages(messages);
+      await copyValue(mode === 'debug' ? aiChatDebugBundle(normalized, conversationId) : aiChatTranscript(normalized));
+      showConversationCopyStatus(mode === 'debug' ? 'Debug copied ✓' : 'Chat copied ✓');
+      setCopyMenuOpen(false);
+    } catch {
+      showConversationCopyStatus('Copy failed');
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
+  const copyAllSavedConversations = async (mode: 'chat' | 'debug') => {
+    if (copyBusy) return;
+    setCopyBusy(true);
+    setHistoryError('');
+    try {
+      await chatSaveQueueRef.current;
+      const response = await fetch('/api/ai-chat-sessions?export=all', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error('Could not export chats');
+      const sessions: StoredAiChatArchiveSession[] = (Array.isArray(data.sessions) ? data.sessions : []).flatMap((item: unknown) => {
+        const summary = normalizeSessionSummary(item);
+        const raw = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        const restored = normalizeAiChatMessages(raw.messages);
+        return summary && restored.length ? [{ ...summary, messages: restored }] : [];
+      });
+      if (!sessions.length) throw new Error('No saved chats');
+      const truncated = data.truncated === true;
+      await copyValue(mode === 'debug' ? aiChatArchiveDebugBundle(sessions, truncated) : aiChatArchiveTranscript(sessions, truncated));
+      showConversationCopyStatus(`${mode === 'debug' ? 'Debug' : 'Chats'} copied · ${sessions.length}${truncated ? '+' : ''} ✓`);
+    } catch {
+      setHistoryError('Saved conversations could not be copied.');
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/60 backdrop-blur-sm px-3 py-4"
@@ -1000,6 +1060,33 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
                 )}
               </button>
               {!historyOpen && !actionsOpen && messages.length > 0 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setCopyMenuOpen(open => !open)}
+                    disabled={copyBusy}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-stone-100 bg-white text-stone-500 transition hover:bg-stone-50 disabled:opacity-50"
+                    style={{ touchAction: 'manipulation' }}
+                    title="Copy conversation"
+                    aria-label="Copy conversation"
+                    aria-expanded={copyMenuOpen}
+                  >
+                    {copyStatus.conversation ? (
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-[#52705C]" aria-hidden="true"><path d="m4 10 4 4 8-8" /></svg>
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><rect x="6.5" y="5.5" width="9" height="10" rx="1.5" /><path d="M13.5 5.5v-1A1.5 1.5 0 0 0 12 3H5A1.5 1.5 0 0 0 3.5 4.5v8A1.5 1.5 0 0 0 5 14h1.5" /></svg>
+                    )}
+                  </button>
+                  {copyMenuOpen && (
+                    <div className="absolute right-0 top-11 z-30 w-44 overflow-hidden rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
+                      <button type="button" onClick={() => void copyConversation('chat')} disabled={copyBusy} className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-bold text-stone-700 hover:bg-[#F3F6F3] disabled:opacity-50">Copy chat</button>
+                      <button type="button" onClick={() => void copyConversation('debug')} disabled={copyBusy} className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-bold text-[#52705C] hover:bg-[#EEF4EF] disabled:opacity-50">Copy debug bundle</button>
+                      {copyStatus.conversation && <p className="px-2.5 py-1 text-[9px] font-semibold text-[#64806D]" aria-live="polite">{copyStatus.conversation}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!historyOpen && !actionsOpen && messages.length > 0 && (
                 <button type="button" onClick={startNewConversation} className="rounded-lg bg-white border border-stone-100 px-2.5 py-2 text-[10px] font-bold text-stone-400">Clear</button>
               )}
               <button type="button" onClick={closeModal} className="w-9 h-9 rounded-full bg-white hover:bg-stone-100 border border-stone-100 flex items-center justify-center text-stone-500 text-xl" aria-label="Close Ask AI">×</button>
@@ -1038,15 +1125,21 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
           </div>
         ) : historyOpen ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-stone-200/70 bg-[#F2EEE6]" style={{ height: 'min(34rem, calc(94dvh - 9rem))' }}>
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-200/70 bg-[#F6F1E7]/95 px-5 py-3 backdrop-blur">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-stone-800">Saved conversations</h3>
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-stone-200/70 bg-[#F6F1E7]/95 px-5 py-2.5 backdrop-blur">
+              <div className="min-w-[4rem] flex-1">
+                <h3 className="text-sm font-bold text-stone-800">Saved chats</h3>
               </div>
-              <button type="button" onClick={startNewConversation} disabled={Boolean(openingChatId)} className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#C6DCE9] bg-[#F3F8FA] px-2.5 text-[11px] font-bold text-[#648399] disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
-                New
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" onClick={() => void copyAllSavedConversations('chat')} disabled={copyBusy || !chatSessions.length} className="h-7 rounded-lg px-1.5 text-[10px] font-bold text-stone-500 hover:bg-white disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Copy all</button>
+                <button type="button" onClick={() => void copyAllSavedConversations('debug')} disabled={copyBusy || !chatSessions.length} className="h-7 rounded-lg px-1.5 text-[10px] font-bold text-[#52705C] hover:bg-[#EEF4EF] disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Debug</button>
+                <button type="button" onClick={startNewConversation} disabled={Boolean(openingChatId)} className="flex h-7 items-center gap-1 rounded-lg border border-[#C6DCE9] bg-[#F3F8FA] px-1.5 text-[10px] font-bold text-[#648399] disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-3.5 w-3.5" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
+                  New
+                </button>
+              </div>
             </div>
+
+            {copyStatus.conversation && <p className="border-b border-[#D3DDD5] bg-[#EEF4EF] px-5 py-1.5 text-center text-[10px] font-semibold text-[#64806D]" aria-live="polite">{copyStatus.conversation}</p>}
 
             {historyError && (
               <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
