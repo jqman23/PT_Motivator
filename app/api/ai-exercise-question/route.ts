@@ -5,7 +5,7 @@ import { aiInstructionsAllowSecretNotes, extractAiInstructions, noteTextForAi } 
 import { historyQueryTerms, rankHistoryDays, type HistoryDayRecord, type RankedHistoryDay } from '@/lib/historyRanking';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { buildDeterministicAgentFallback, coalesceAgentActions, isAgentWriteAction, normalizeAgentPlan, normalizeModelAgentPlan, type AgentAction, type AgentModelPlanContext } from '@/lib/aiAgent';
-import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
+import { isAgentRequest, isExerciseCompletionCoverageRequest, isExistingPhotoInspectionRequest, isHistoryCorrectionFollowUp, isHistoryScopeFollowUp, isHistorySummaryRequest, isSemanticTextAggregateRequest, isVisualizationRequest, isWholeHistoryComparisonRequest } from '@/lib/aiRequestIntent';
 import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWholeHistoryComparison, recordsForVisualization, recordsForWindow, resolveBoundedHistoryWindow, resolveHistoryWindowFromConversation, strongFallbackDays, supportedDateLinkDates, type BoundedHistoryWindow } from '@/lib/aiHistoryScope';
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
@@ -1187,7 +1187,9 @@ export async function POST(req: NextRequest) {
     const semanticTextAggregateIntent = resolvedAnalysis.semanticTextAggregate;
     const wholeHistoryIntent = !agentIntent && (resolvedAnalysis.wholeHistory
       || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion)));
+    const historySummaryIntent = isHistorySummaryRequest(analysisQuestion);
     const historyIntent = isHistoryQuestion(analysisQuestion)
+      || historySummaryIntent
       || (!agentIntent && explicitDates.length > 0)
       || (!agentIntent && correctionFollowUp && priorHistoryIntent)
       || completionCoverageIntent
@@ -1201,7 +1203,7 @@ export async function POST(req: NextRequest) {
       || isWholeHistoryComparisonRequest(instruction)
       || isVisualizationRequest(instruction)
       || isSemanticTextAggregateRequest(instruction));
-    const shouldLoadHistory = Boolean(historyWindow) || historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
+    const shouldLoadHistory = Boolean(historyWindow) || historyIntent || historySummaryIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
     const exerciseLibraryContentIntent = agentIntent && isExerciseLibraryContentRequest(`${history.slice(-4).map(message => message.content).join(' ')} ${conversationAiInstructions.join(' ')} ${cleanQuestion}`);
 
     let dayRecords: DayRecord[] = [];
