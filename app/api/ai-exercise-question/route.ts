@@ -606,6 +606,62 @@ function dateSummariesForAnswer(answer: string, records: DayRecord[], today: str
   });
 }
 
+function hasSavedDayData(record: DayRecord) {
+  return Boolean(
+    record.completed.length
+    || record.exerciseNotes.length
+    || record.health
+    || record.session
+    || record.workoutEntries?.length
+    || record.exerciseMetrics?.length
+    || record.workoutTracked
+  );
+}
+
+function answerIncorrectlyDeniesSavedData(answer: string) {
+  return /\b(?:no|not any|nothing|none)\b.{0,48}\b(?:recorded|logged|saved)\b.{0,80}\b(?:exercise|activity|health|metrics?|data|entries?)\b/i.test(answer)
+    || /\b(?:no|not any|nothing|none)\b.{0,48}\b(?:exercise|activity|health|metrics?|data|entries?)\b.{0,80}\b(?:recorded|logged|saved)\b/i.test(answer);
+}
+
+function savedDataFallbackAnswer(records: DayRecord[], scope?: BoundedHistoryWindow) {
+  const scoped = scope ? recordsForWindow(records, scope) as DayRecord[] : records;
+  const saved = scoped.filter(hasSavedDayData);
+  if (!saved.length) return '';
+  const activityDays = saved.filter(record => activityNames(record).length);
+  const healthDays = saved.filter(record => record.health);
+  const sessionDays = saved.filter(record => record.session);
+  const startDate = scope?.startDate ?? scoped[0]?.date ?? saved[0]?.date ?? '';
+  const endDate = scope?.endDate ?? scoped.at(-1)?.date ?? saved.at(-1)?.date ?? '';
+  const dayCount = scope?.dayCount ?? scoped.length;
+  const lead = startDate && endDate
+    ? `Looking at the actual records from ${startDate} through ${endDate}, there is saved data on ${saved.length} of ${dayCount} day${dayCount === 1 ? '' : 's'}`
+    : `Looking at the actual records, there is saved data on ${saved.length} day${saved.length === 1 ? '' : 's'}`;
+  const counts = [
+    activityDays.length ? `${activityDays.length} day${activityDays.length === 1 ? '' : 's'} with exercise activity or workout metrics` : '',
+    healthDays.length ? `${healthDays.length} day${healthDays.length === 1 ? '' : 's'} with health metrics/notes` : '',
+    sessionDays.length ? `${sessionDays.length} PT/training session day${sessionDays.length === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  const examples = saved
+    .map(record => ({ date: record.date, summary: summarizeDay(record) }))
+    .filter((item): item is { date: string; summary: string } => Boolean(item.summary))
+    .slice(-5)
+    .reverse()
+    .map(item => `- ${item.date}: ${item.summary}`)
+    .join('\n');
+  return `${lead}${counts.length ? `: ${counts.join(', ')}.` : '.'}\n\nWhat caught my attention:\n${examples}`;
+}
+
+function fallbackDateLinksFromAnswer(answer: string, allowedDates: Set<string>, today: string): DateLink[] {
+  const dates = Array.from(new Set(Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1])))
+    .filter(date => validDate(date) && date <= today && allowedDates.has(date))
+    .slice(0, 5);
+  return dates.map(date => ({
+    date,
+    label: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    reason: 'Mentioned in the AI answer',
+  }));
+}
+
 function dayForPrompt(record: RankedHistoryDay<DayRecord>) {
   const health = record.health ?? {};
   return {
@@ -1012,7 +1068,7 @@ export async function POST(req: NextRequest) {
       || isWholeHistoryComparisonRequest(instruction)
       || isVisualizationRequest(instruction)
       || isSemanticTextAggregateRequest(instruction));
-    const shouldLoadHistory = historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
+    const shouldLoadHistory = Boolean(historyWindow) || historyIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
     const exerciseLibraryContentIntent = agentIntent && isExerciseLibraryContentRequest(`${history.slice(-4).map(message => message.content).join(' ')} ${conversationAiInstructions.join(' ')} ${cleanQuestion}`);
 
     let dayRecords: DayRecord[] = [];
@@ -1082,8 +1138,11 @@ export async function POST(req: NextRequest) {
     const matchedExerciseContext = rankExercises(agentExerciseQuery, exercises);
     const allowedDates = new Set([
       ...rankedDays.map(day => day.date),
+      ...(historyWindow ? Array.from({ length: historyWindow.dayCount }, (_, index) => shiftDate(historyWindow.startDate, index)) : []),
       ...(wholeHistoryIntent ? dayRecords.map(day => day.date) : []),
       ...explicitDates,
+      appToday,
+      selectedDate ?? '',
     ].filter(date => date <= appToday));
 
     const sourceMatches = Array.isArray(requestBody.sourceMatches) ? requestBody.sourceMatches.slice(0, 8) : [];
@@ -1391,15 +1450,27 @@ export async function POST(req: NextRequest) {
     const baseAnswer = repairClarification || cleanMultiline(raw.answer, 1500) || (rankedDays.length
       ? 'These are the closest matching days I found in your saved history.'
       : 'I need one more detail to answer that accurately.');
-    const answer = normalizedAgentPlan
+    let answer = normalizedAgentPlan
       ? normalizedAgentPlan.actions.some(isAgentWriteAction)
         ? `I prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
         : `I prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
       : effectiveAgentIntent
         ? repairClarification || (/\?\s*$/.test(baseAnswer) ? baseAnswer : 'I need one specific missing detail before I can prepare the review card.')
         : baseAnswer;
+    if (!effectiveAgentIntent && shouldLoadHistory && answerIncorrectlyDeniesSavedData(answer)) {
+      const contradictionScopeRecords = historyWindow
+        ? dayRecords
+        : wholeHistoryIntent
+          ? dayRecords
+          : rankedDays as DayRecord[];
+      const factualAnswer = savedDataFallbackAnswer(contradictionScopeRecords, historyWindow ?? undefined);
+      if (factualAnswer) answer = factualAnswer;
+    }
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
-    const dateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
+    const cleanedDateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
+    const fallbackDateLinks = effectiveAgentIntent ? [] : fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
+    const linkedDates = new Set(cleanedDateLinks.map(link => link.date));
+    const dateLinks = [...cleanedDateLinks, ...fallbackDateLinks.filter(link => !linkedDates.has(link.date))].slice(0, 5);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
     const deterministicVisualizations = visualizationIntent
       ? buildHistoryVisualizations(cleanQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
