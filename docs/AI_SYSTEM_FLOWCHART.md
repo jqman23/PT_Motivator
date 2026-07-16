@@ -1,12 +1,44 @@
 # PT Motivator AI System: Comprehensive Flowchart
 
-Implementation snapshot: `b18f53f` on 2026-07-15.
+Implementation snapshot updated on 2026-07-15. The rendered route-family diagrams remain the detailed baseline; the typed execution overlay below records the newer orchestration that wraps those paths.
 
 This document maps the implemented Ask AI, model-routing, history-retrieval, visualization, agent-preview, apply, undo, and persistence paths. It is written for a technically informed reader and is intended to be read with the detailed [Ask AI and Agent Handoff](./ASK_AI_AGENT_HANDOFF.md).
 
 The diagrams cover every implemented routing **family** and terminal outcome. Natural-language inputs are effectively unbounded, so a diagram cannot enumerate every sentence a user might type; it can show every code path those sentences can enter.
 
 Every diagram is embedded as a zoom-safe SVG. Click a diagram to open the full-size vector; expand **Editable Mermaid source** beneath it to inspect or change the original diagram definition.
+
+## Current typed execution overlay
+
+The route families below are no longer treated as mutually exclusive user goals. The server first creates a dependency-aware plan, then executes the necessary existing capabilities and verifies which requested outputs actually completed.
+
+```mermaid
+flowchart LR
+    U[User request] --> S[Resolve conversation goal and date scope]
+    S --> P[Typed RequestPlan]
+    P --> H[Bounded history retrieval]
+    P --> E[Semantic evidence extraction]
+    P --> A[Server analytics]
+    P --> C[AI explanation]
+    P --> V[Validated visualization]
+    P --> W[Review-only action proposal]
+    H --> L[Evidence and execution ledger]
+    E --> L
+    A --> L
+    C --> L
+    V --> L
+    W --> L
+    L --> R[Ordered response with clickable dates]
+    W --> Q[Existing Preview / Apply / Undo safeguards]
+```
+
+Important boundaries:
+
+- The plan coordinates multiple subgoals; it does not authorize writes.
+- Models interpret requests and explain evidence. Server code retrieves records, computes supported chart values, validates evidence, and executes approved actions.
+- Stable domain-command IDs insulate planning from tables and `user_config`; full shared UI/AI command handlers remain the next migration step.
+- A compact execution record exposes scope, coverage, calculations, assumptions, and incomplete outputs without duplicating large note excerpts.
+- One request-wide deadline ends before the browser timeout, with cancellation propagated through provider and repair calls.
 
 ## Legend
 

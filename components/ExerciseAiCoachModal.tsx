@@ -9,7 +9,8 @@ import AiVisualizationCard from './AiVisualizationCard';
 import { normalizeAiReplyOptions } from '@/lib/aiReplyOptions';
 import { isDirectBackdropInteraction } from '@/lib/modalInteraction';
 import { isAgentRequest, isSemanticTextAggregateRequest, isVisualizationRequest } from '@/lib/aiRequestIntent';
-import { AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
+import { AI_ANSWER_DATE_LIMIT, AI_COACH_ACTIVE_KEY, AI_COACH_SESSION_KEY, aiAnswerDateSegments, formatAiDate, isIsoCalendarDate } from '@/lib/aiDatePresentation';
+import { AI_CLIENT_REQUEST_TIMEOUT_MS } from '@/lib/aiRequestBudget';
 import {
   aiChatArchiveDebugBundle,
   aiChatArchiveTranscript,
@@ -281,11 +282,20 @@ function aiLoadingCopy(state: AiLoadingState, elapsedSeconds: number) {
   return { title: elapsedSeconds >= 5 ? 'Still working through it' : 'Thinking through the answer', detail: 'Using the best available AI route for this request.' };
 }
 
-async function searchExternalSources(search: string): Promise<SmartDbMatch[]> {
+async function searchExternalSources(search: string, signal?: AbortSignal): Promise<SmartDbMatch[]> {
   if (search.trim().length < 2) return [];
+  const fetchJson = async (url: string) => {
+    try {
+      const response = await fetch(url, { signal });
+      return await response.json();
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return { success: false, data: [] };
+    }
+  };
   const [exerciseDbRes, apiNinjasRes] = await Promise.all([
-    fetch(`/api/exercisedb/search?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
-    fetch(`/api/api-ninjas/exercises?search=${encodeURIComponent(search)}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+    fetchJson(`/api/exercisedb/search?search=${encodeURIComponent(search)}`),
+    fetchJson(`/api/api-ninjas/exercises?search=${encodeURIComponent(search)}`),
   ]);
 
   const exerciseDbMatches: SmartDbMatch[] = Array.isArray(exerciseDbRes.data)
@@ -371,26 +381,33 @@ function formatChatTimestamp(value: string) {
   return date.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: '2-digit' });
 }
 
-function InlineAnswerDates({ text, today, summaries, onPreview }: {
+function InlineAnswerDates({ text, today, links, summaries, onPreview, onOpenDate }: {
   text: string;
   today: string;
+  links: AiReply['dateLinks'];
   summaries: DateSummary[];
   onPreview: (summary: DateSummary) => void;
+  onOpenDate: (date: string) => void;
 }) {
   const summaryByDate = new Map(summaries.map(summary => [summary.date, summary]));
+  const navigableDates = new Set(links.map(link => link.date));
   return aiAnswerDateSegments(text).map((segment, index) => {
     if (!segment.date) return <span key={index}>{segment.text}</span>;
     const label = formatAiDate(segment.date, today);
     const summary = summaryByDate.get(segment.date);
-    if (!summary) return <span key={index}>{label}</span>;
+    if (!navigableDates.has(segment.date)) return <span key={index}>{label}</span>;
     return (
       <a
         key={index}
         href={`#ai-day-${segment.date}`}
-        onClick={event => { event.preventDefault(); onPreview(summary); }}
+        onClick={event => {
+          event.preventDefault();
+          if (summary) onPreview(summary);
+          else onOpenDate(segment.date!);
+        }}
         className="inline border-0 bg-transparent p-0 font-semibold text-[#476653] underline decoration-[#8EAA96] decoration-1 underline-offset-2"
         style={{ touchAction: 'manipulation' }}
-        aria-label={`Show a quick summary for ${displayDate(segment.date)}`}
+        aria-label={`${summary ? 'Show a quick summary for' : 'Open'} ${displayDate(segment.date)}`}
       >
         {label}
       </a>
@@ -900,12 +917,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
     cancelActiveAsk();
     const requestController = new AbortController();
     activeAskControllerRef.current = requestController;
-    const requestTimeout = window.setTimeout(() => requestController.abort(), 45_000);
+    const requestTimeout = window.setTimeout(() => requestController.abort(), AI_CLIENT_REQUEST_TIMEOUT_MS);
 
     try {
       const shouldSearchSources = shouldSearchExerciseSources(clean);
       if (shouldSearchSources) setLoadingState(previous => previous ? { ...previous, phase: 'searchingSources' } : previous);
-      const sourceMatches = shouldSearchSources ? await searchExternalSources(clean) : [];
+      const sourceMatches = shouldSearchSources ? await searchExternalSources(clean, requestController.signal) : [];
       setLoadingState(previous => previous ? {
         ...previous,
         phase: loadingKind === 'analysis' || loadingKind === 'visualization' ? 'buildingVisual' : loadingKind === 'history' ? 'searchingHistory' : 'askingAi',
@@ -958,12 +975,12 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
       const reply: AiReply = {
         answer: String(rawReply.answer || 'I need one more detail to answer that.'),
         options: normalizeAiReplyOptions(rawReply.options),
-        dateLinks: (Array.isArray(rawReply.dateLinks) ? rawReply.dateLinks.slice(0, 5) : []) as AiReply['dateLinks'],
+        dateLinks: (Array.isArray(rawReply.dateLinks) ? rawReply.dateLinks.slice(0, AI_ANSWER_DATE_LIMIT) : []) as AiReply['dateLinks'],
         dateSummaries: Array.isArray(rawReply.dateSummaries)
           ? rawReply.dateSummaries.filter((item: unknown): item is DateSummary => Boolean(item)
             && typeof item === 'object'
             && isIsoCalendarDate(String((item as DateSummary).date))
-            && typeof (item as DateSummary).summary === 'string').slice(0, 8)
+            && typeof (item as DateSummary).summary === 'string').slice(0, AI_ANSWER_DATE_LIMIT)
           : [],
         confirmedExercise: rawReply.confirmedExercise as AiReply['confirmedExercise'],
         model: typeof data.model === 'string' ? data.model : undefined,
@@ -1406,7 +1423,7 @@ export default function ExerciseAiCoachModal({ exercises, selectedDate, today, o
             return (
               <div key={message.id} className="space-y-2">
                 <div className="mr-8 rounded-2xl bg-white border border-stone-100 px-3 py-2.5 text-sm leading-relaxed text-stone-700 whitespace-pre-wrap">
-                  <InlineAnswerDates text={message.content} today={today} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} />
+                  <InlineAnswerDates text={message.content} today={today} links={reply?.dateLinks ?? []} summaries={reply?.dateSummaries ?? []} onPreview={setDatePreview} onOpenDate={openDate} />
                   {(reply?.model || reply?.providerKey || reply?.searchedDays || reply?.rerankerModel) && (
                     <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-semibold uppercase tracking-wide text-stone-300">
                       {reply?.comparedDays ? <span>Compared all {reply.comparedDays} days</span> : reply?.searchedDays ? <span>Searched {reply.searchedDays} saved days</span> : null}

@@ -2,6 +2,8 @@
 import { normalizeAgentPlan, type AgentPreviewItem, type PreviewedAgentPlan } from './aiAgent.ts';
 // @ts-expect-error Node's type-stripping test runner requires the explicit extension.
 import { normalizeAiVisualizations, type AiVisualization } from './aiVisualizations.ts';
+// @ts-expect-error Node's type-stripping test runner requires the explicit extension.
+import { AI_ANSWER_DATE_LIMIT } from './aiDatePresentation.ts';
 
 export type StoredAiDateLink = {
   date: string;
@@ -55,7 +57,7 @@ export type StoredAiReplyDebug = {
     reason?: string;
   };
   visualization?: {
-    source: 'none' | 'deterministic' | 'model' | 'semantic-repair';
+    source: 'none' | 'deterministic' | 'model' | 'semantic-repair' | 'semantic-verified';
     firstPassCount: number;
     deterministicCount: number;
     repairedCount: number;
@@ -63,6 +65,8 @@ export type StoredAiReplyDebug = {
     repairModel?: string;
     repairProviderKey?: string;
   };
+  requestPlan?: Record<string, unknown>;
+  execution?: Record<string, unknown>;
   attemptedModels?: string[];
   providerAttempts?: Array<{
     model: string;
@@ -125,6 +129,17 @@ function cleanNumber(value: unknown) {
   return Number.isFinite(number) ? number : undefined;
 }
 
+function cleanDebugRecord(value: unknown, limit = 50_000): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > limit) return { truncated: true, originalBytes: serialized.length };
+    return JSON.parse(serialized) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
@@ -134,7 +149,7 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
   const rawResolvedAnalysis = raw.resolvedAnalysis && typeof raw.resolvedAnalysis === 'object' && !Array.isArray(raw.resolvedAnalysis) ? raw.resolvedAnalysis as Record<string, unknown> : null;
   const rawSecrets = raw.secretNotes && typeof raw.secretNotes === 'object' && !Array.isArray(raw.secretNotes) ? raw.secretNotes as Record<string, unknown> : null;
   const scopeMode = rawScope?.mode === 'ranked' || rawScope?.mode === 'window' || rawScope?.mode === 'whole' ? rawScope.mode : 'none';
-  const visualSource = rawVisual?.source === 'deterministic' || rawVisual?.source === 'model' || rawVisual?.source === 'semantic-repair' ? rawVisual.source : 'none';
+  const visualSource = rawVisual?.source === 'deterministic' || rawVisual?.source === 'model' || rawVisual?.source === 'semantic-repair' || rawVisual?.source === 'semantic-verified' ? rawVisual.source : 'none';
   return {
     requestId: cleanText(raw.requestId, 120) || undefined,
     build: cleanText(raw.build, 80) || undefined,
@@ -172,6 +187,8 @@ function normalizeReplyDebug(value: unknown): StoredAiReplyDebug | undefined {
       repairModel: cleanText(rawVisual.repairModel, 120) || undefined,
       repairProviderKey: cleanText(rawVisual.repairProviderKey, 40) || undefined,
     } : undefined,
+    requestPlan: cleanDebugRecord(raw.requestPlan, 20_000),
+    execution: cleanDebugRecord(raw.execution, 50_000),
     attemptedModels: Array.isArray(raw.attemptedModels)
       ? raw.attemptedModels.map(model => cleanText(model, 120)).filter(Boolean).slice(0, 40)
       : undefined,
@@ -204,14 +221,14 @@ function normalizeReply(value: unknown): StoredAiReply | undefined {
     const date = cleanText(link.date, 10);
     if (!DATE_PATTERN.test(date)) return [];
     return [{ date, label: cleanText(link.label, 160), reason: cleanText(link.reason, 300) || undefined }];
-  }).slice(0, 5) : [];
+  }).slice(0, AI_ANSWER_DATE_LIMIT) : [];
   const dateSummaries = Array.isArray(raw.dateSummaries) ? raw.dateSummaries.flatMap(item => {
     if (!item || typeof item !== 'object') return [];
     const summary = item as Record<string, unknown>;
     const date = cleanText(summary.date, 10);
     const text = cleanText(summary.summary, 400);
     return DATE_PATTERN.test(date) && text ? [{ date, summary: text }] : [];
-  }).slice(0, 8) : [];
+  }).slice(0, AI_ANSWER_DATE_LIMIT) : [];
 
   let confirmedExercise: StoredAiExerciseDraft | undefined;
   if (raw.confirmedExercise && typeof raw.confirmedExercise === 'object') {

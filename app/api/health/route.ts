@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { stripSecretNotes } from '@/lib/secretNotes';
+import { isDomainDate } from '@/lib/domainCommands';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -19,10 +20,8 @@ type GeneralNotePhoto = {
 };
 
 const NUMERIC_FIELDS = ['sleep_hours', 'sleep_quality', 'energy', 'mood', 'pain'] as const;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
 function validRange(start: string, end: string) {
-  if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end) || start > end) return false;
+  if (!isDomainDate(start) || !isDomainDate(end) || start > end) return false;
   return (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 <= 400;
 }
 
@@ -93,7 +92,7 @@ export async function GET(req: NextRequest) {
       `;
       return NextResponse.json({ rows: rows.map(row => serializePublicHealthRow(row as Record<string, unknown>)) });
     }
-    if (!date || !DATE_PATTERN.test(date)) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
+    if (!isDomainDate(date)) return NextResponse.json({ error: 'date or start+end required' }, { status: 400 });
     const rows = await sql`SELECT * FROM health_log WHERE date = ${date}::date`;
     return NextResponse.json({ row: rows[0] ? serializeHealthRow(rows[0] as Record<string, unknown>) : null });
   } catch (err) {
@@ -110,7 +109,7 @@ export async function POST(req: NextRequest) {
       sleep_notes, sleep_quality_notes, energy_notes, mood_notes, pain_notes, general_notes, treatment_notes,
       general_note_photos,
     } = body;
-    if (!DATE_PATTERN.test(String(date ?? ''))) return NextResponse.json({ error: 'date required' }, { status: 400 });
+    if (!isDomainDate(date)) return NextResponse.json({ error: 'date required' }, { status: 400 });
 
     const hasSleepHours = hasOwn(body, 'sleep_hours');
     const hasSleepQuality = hasOwn(body, 'sleep_quality');
@@ -153,7 +152,7 @@ export async function POST(req: NextRequest) {
         general_note_photos = CASE WHEN ${hasGeneralNotePhotos} THEN EXCLUDED.general_note_photos ELSE health_log.general_note_photos END,
         updated_at = NOW()
     `;
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, domainCommand: 'record_health_observation' });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });
@@ -162,7 +161,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const date = new URL(req.url).searchParams.get('date');
-  if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 });
+  if (!isDomainDate(date)) return NextResponse.json({ error: 'date required' }, { status: 400 });
   try {
     await sql`DELETE FROM health_log WHERE date = ${date}::date`;
     return NextResponse.json({ ok: true });

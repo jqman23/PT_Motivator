@@ -2,6 +2,35 @@
 
 A short, living list of ideas planned for PT Motivator. Update this file as features are refined, started, or completed.
 
+## AI execution platform
+
+### Phase 1 in progress: general planning without a UX rewrite
+
+- Keep the existing Ask AI composer, clickable dates, evidence drilldowns, visual cards, and Review / Apply / Undo workflow.
+- Represent each request as a typed, dependency-aware plan so one message can request retrieval, analysis, a chart, an explanation, navigation, and proposed changes together.
+- Register AI capabilities and their read/write, permission, preview, Apply, and Undo boundaries explicitly.
+- Calculate supported structured analytics on the server. The model may choose the calculation and presentation, but it may not invent personal chart values.
+- Attach a compact execution and evidence ledger describing resolved scope, coverage, calculations, assumptions, completed outputs, and missing outputs.
+- Use one request-wide deadline below the browser timeout and propagate cancellation through retrieval checkpoints, reranking, model calls, repair calls, and analytics assembly.
+- Maintain golden-request tests for real conversational failures: short follow-ups, past-week scope, semantic counts, compound chart-plus-action requests, advice versus writes, missing values, and provider failure.
+- Begin converging ordinary UI writes and AI actions on stable domain-command contracts without changing the current database schema or safety workflow.
+
+### Next: complete the shared intelligence and command layers
+
+- Move normal UI and AI mutations behind the same domain command handlers so validation, side effects, audit records, and undo semantics cannot drift.
+- Persist typed conversation state for the active goal, date range, body region, laterality, metric, grouping, last visual, accepted assumptions, and pending action plan.
+- Add derived health events for symptom, region, laterality, negation, status, severity, duration, trigger, relief, source text, and extraction confidence.
+- Add a canonical bounded AI facts surface spanning health, workouts, exercise notes and metrics, PT sessions, doctor notes, treatments, and media metadata.
+- Add immutable plan hashes, entity versions, stale-preview checks, a unified user/AI audit log, and a transactional outbox for reliable UI/chat synchronization.
+- Expand the deterministic analytics vocabulary with treatment overlays, event timelines, before/after comparisons, correlations, streaks, adherence, and laterality comparisons.
+- Grow the response protocol with timelines, heatmaps, matrices, report cards, photo comparisons, and other ordered blocks when they materially help the request.
+
+### Later: durable and multimodal workflows
+
+- Run unusually long compound analyses as resumable jobs with visible progress rather than extending a frozen browser request.
+- Add permissioned image inspection and comparison, preserving source date and media identity and separating visual observations from medical conclusions.
+- Add saved reports, recurring plans, reminders, timers, proactive trends, and treatment-response analysis through the same capability and command registries.
+
 ## Image annotation and AI vision
 
 ### Planned: draw on enlarged images

@@ -72,6 +72,29 @@ test('bounds long conversations to the most recent 100 messages', () => {
   assert.equal(messages.at(-1)?.id, '104');
 });
 
+test('preserves every date in a normal multi-day answer and its execution record', () => {
+  const dateLinks = Array.from({ length: 7 }, (_, index) => ({
+    date: `2026-07-${String(index + 1).padStart(2, '0')}`,
+    label: `Day ${index + 1}`,
+  }));
+  const messages = normalizeAiChatMessages([{
+    id: 'assistant-week',
+    role: 'assistant',
+    content: 'Seven-day interpretation',
+    reply: {
+      answer: 'Seven-day interpretation',
+      dateLinks,
+      debug: {
+        requestPlan: { version: 1, compound: true },
+        execution: { planVersion: 1, completedOutputs: { answer: true, dateNavigation: true } },
+      },
+    },
+  }]);
+  assert.equal(messages[0].reply?.dateLinks.length, 7);
+  assert.equal(messages[0].reply?.debug?.requestPlan?.version, 1);
+  assert.equal((messages[0].reply?.debug?.execution?.completedOutputs as Record<string, unknown>)?.dateNavigation, true);
+});
+
 test('persists reviewed agent plans and their apply and undo status', () => {
   const messages = normalizeAiChatMessages([{
     id: 'assistant-action',

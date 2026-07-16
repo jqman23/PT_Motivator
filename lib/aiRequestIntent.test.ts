@@ -30,6 +30,12 @@ test('recognizes natural app commands and short follow-ups', () => {
   ]) assert.equal(isAgentRequest(request), true, request);
 });
 
+test('keeps visual-only requests conversational while preserving a separate write clause', () => {
+  assert.equal(isAgentRequest('Create a chart of my exercise activity'), false);
+  assert.equal(isAgentRequest('Chart my exercise activity, then add a note to the three worst days'), true);
+  assert.equal(isAgentRequest('Add a note to today and also chart the past week'), true);
+});
+
 test('does not turn advice or capability questions into commands', () => {
   for (const request of [
     'Should I add another calf exercise?',

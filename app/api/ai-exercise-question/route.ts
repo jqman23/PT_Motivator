@@ -10,6 +10,10 @@ import { buildBoundedHistoryComparison, buildExerciseCompletionCoverage, buildWh
 import { MAX_VISUAL_POINT_LIMIT, normalizeAiVisualizations, type AiVisualization } from '@/lib/aiVisualizations';
 import { resolveAnalysisRequest } from '@/lib/aiAnalysisIntent';
 import { buildSemanticNoteSources, chunkSemanticNoteSources, filterSemanticNoteSourcesForQuestion, mergeSemanticCategoryPlans, normalizeSemanticCategoryPlan, visualizationFromSemanticCategoryPlan, type SemanticCategoryPlan } from '@/lib/aiSemanticEvidence';
+import { AI_ANALYTICS_PLAN_CONTRACT, aiAnalyticsNeedsDerivedEvents, executeAiAnalyticsPlan, inferAiAnalyticsPlan, normalizeAiAnalyticsPlan, type AiAnalyticsResult } from '@/lib/aiAnalytics';
+import { buildAiExecutionRecord, buildAiRequestPlan } from '@/lib/aiExecutionPlan';
+import { AiRequestBudgetError, aiProviderBudget, createAiRequestDeadline, remainingAiRequestMs } from '@/lib/aiRequestBudget';
+import { AI_ANSWER_DATE_LIMIT } from '@/lib/aiDatePresentation';
 
 const sql = neon(process.env.DATABASE_URL!);
 const DEFAULT_MODEL = getGroqModelChain('ask')[0];
@@ -612,7 +616,7 @@ function summarizeDay(record: DayRecord): string | null {
 function dateSummariesForAnswer(answer: string, records: DayRecord[], today: string): DateSummary[] {
   const recordsByDate = new Map(records.map(record => [record.date, record]));
   const dates = Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1]);
-  const uniqueDates = Array.from(new Set(dates)).filter(date => validDate(date) && date <= today).slice(0, 8);
+  const uniqueDates = Array.from(new Set(dates)).filter(date => validDate(date) && date <= today).slice(0, AI_ANSWER_DATE_LIMIT);
   return uniqueDates.flatMap(date => {
     const record = recordsByDate.get(date);
     const summary = record ? summarizeDay(record) : null;
@@ -668,7 +672,7 @@ function savedDataFallbackAnswer(records: DayRecord[], scope?: BoundedHistoryWin
 function fallbackDateLinksFromAnswer(answer: string, allowedDates: Set<string>, today: string): DateLink[] {
   const dates = Array.from(new Set(Array.from(answer.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g), match => match[1])))
     .filter(date => validDate(date) && date <= today && allowedDates.has(date))
-    .slice(0, 5);
+    .slice(0, AI_ANSWER_DATE_LIMIT);
   return dates.map(date => ({
     date,
     label: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
@@ -684,7 +688,7 @@ function mergeDateLinks(...groups: DateLink[][]): DateLink[] {
       if (!link?.date || seen.has(link.date)) continue;
       seen.add(link.date);
       merged.push(link);
-      if (merged.length >= 5) return merged;
+      if (merged.length >= AI_ANSWER_DATE_LIMIT) return merged;
     }
   }
   return merged;
@@ -756,6 +760,8 @@ async function rerankHistoryDays(
   question: string,
   aiInstructions: string[],
   conversation: HistoryMessage[],
+  requestDeadline: number,
+  signal?: AbortSignal,
 ) {
   const deterministic = candidates.slice(0, 8);
   if (candidates.length <= 8) return { days: deterministic, model: '', providerKey: '', candidateCount: 0 };
@@ -787,6 +793,14 @@ async function rerankHistoryDays(
       temperature: 0,
       max_completion_tokens: 220,
       response_format: { type: 'json_object' },
+    }, {
+      ...aiProviderBudget(requestDeadline, {
+        maxTotalMs: 4_500,
+        attemptTimeoutMs: 3_500,
+        maxAttempts: 2,
+        reserveMs: 3_000,
+      }),
+      signal,
     });
     const raw = jsonFromText(result.data?.choices?.[0]?.message?.content ?? '');
     const candidateByDate = new Map(candidates.map(day => [day.date, day]));
@@ -851,7 +865,7 @@ function cleanDateLinks(raw: unknown, allowedDates: Set<string>, supportedDates:
       label: cleanText(row.label, 100) || new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
       reason: cleanText(row.reason, 220),
     });
-    if (links.length >= 5) break;
+    if (links.length >= AI_ANSWER_DATE_LIMIT) break;
   }
   return links;
 }
@@ -928,6 +942,9 @@ function buildHistoryVisualizations(
   // The model receives the complete bounded note corpus and supplies the requested
   // categorical visual; a generic daily chart would answer a different question.
   if (isSemanticTextAggregateRequest(question)) return [];
+  // Laterality, anatomy, triggers, resolution, and exercise-specific adherence require
+  // a derived event layer. A generic pain/activity dashboard would be a wrong answer.
+  if (aiAnalyticsNeedsDerivedEvents(question)) return [];
   const rangeText = window ? `${window.startDate} through ${window.endDate}` : `${scoped[0].date} through ${scoped.at(-1)?.date}`;
   const scopeText = includeWholeHistory && !window ? `All ${scoped.length} saved days · ${rangeText}` : rangeText;
   const asksTable = /\btable\b/i.test(question);
@@ -1029,18 +1046,38 @@ function buildHistoryVisualizations(
   return normalizeAiVisualizations(visuals, { maxPoints: MAX_VISUAL_POINT_LIMIT });
 }
 
+function semanticExecutionEvidence(visualizations: AiVisualization[]) {
+  const sourceRecordIds = Array.from(new Set(visualizations.flatMap(visual =>
+    (visual.drilldowns ?? []).flatMap(drilldown => drilldown.items.flatMap(item => item.sourceId ? [item.sourceId] : [])),
+  )));
+  return {
+    operation: 'semantic-evidence',
+    sourceRecordIds,
+    artifacts: visualizations.map(visual => ({
+      id: visual.id,
+      categories: (visual.drilldowns ?? []).map(drilldown => ({ label: drilldown.label, evidenceItems: drilldown.items.length })),
+    })),
+  };
+}
+
+function visualizationForModel(visualization: AiVisualization) {
+  const { drilldowns: _drilldowns, ...compact } = visualization;
+  return compact;
+}
+
 async function buildSemanticAggregateArtifact(
   apiKeys: GroqApiKey[],
   analysisQuestion: string,
   records: DayRecord[],
   requestedCategoryCount?: number,
   signal?: AbortSignal,
+  requestDeadline = Date.now() + 38_000,
 ) {
   const semanticSources = filterSemanticNoteSourcesForQuestion(buildSemanticNoteSources(records), analysisQuestion);
   const semanticChunks = chunkSemanticNoteSources(semanticSources);
   const chunks = semanticChunks.length ? semanticChunks : [[]];
   const plans: SemanticCategoryPlan[] = [];
-  const deadline = Date.now() + 40_000;
+  const deadline = Math.min(requestDeadline, Date.now() + 36_000);
   const schemaAccepts = (candidate: Record<string, unknown>) => Boolean(normalizeSemanticCategoryPlan(candidate, [], requestedCategoryCount));
   const schemaResult = await callGroqChat(apiKeys, 'semantic', {
     messages: [
@@ -1061,9 +1098,12 @@ async function buildSemanticAggregateArtifact(
     response_format: { type: 'json_object' },
   }, {
     acceptJson: schemaAccepts,
-    attemptTimeoutMs: 8_000,
-    totalTimeoutMs: 18_000,
-    maxAttempts: 5,
+    ...aiProviderBudget(deadline, {
+      maxTotalMs: 10_000,
+      attemptTimeoutMs: 5_000,
+      maxAttempts: 3,
+      reserveMs: 3_000,
+    }),
     signal,
   });
   const schemaRaw = jsonFromText(schemaResult.data?.choices?.[0]?.message?.content ?? '');
@@ -1082,9 +1122,9 @@ async function buildSemanticAggregateArtifact(
       const labels = plan.categories.map(category => category.label.toLowerCase());
       return !requiredLabels.length || labels.every((label, index) => label === requiredLabels[index]?.toLowerCase());
     };
-    const remainingMs = deadline - Date.now();
+    const remainingMs = remainingAiRequestMs(deadline, 2_000);
     if (remainingMs < 2_000) throw new Error('Semantic analysis exceeded its request-wide time budget.');
-    const chunkAttemptMs = Math.min(10_000, remainingMs);
+    const chunkAttemptMs = Math.min(7_000, remainingMs);
     const semanticVisual = await callGroqChat(apiKeys, 'semantic', {
       messages: [
         {
@@ -1118,9 +1158,12 @@ async function buildSemanticAggregateArtifact(
       response_format: { type: 'json_object' },
     }, {
       acceptJson: acceptsChunk,
-      attemptTimeoutMs: chunkAttemptMs,
-      totalTimeoutMs: Math.min(30_000, remainingMs),
-      maxAttempts: 4,
+      ...aiProviderBudget(deadline, {
+        maxTotalMs: Math.min(12_000, remainingMs),
+        attemptTimeoutMs: chunkAttemptMs,
+        maxAttempts: 3,
+        reserveMs: 2_000,
+      }),
       signal,
     });
     const raw = jsonFromText(semanticVisual.data?.choices?.[0]?.message?.content ?? '');
@@ -1138,10 +1181,13 @@ async function buildSemanticAggregateArtifact(
 }
 
 export async function POST(req: NextRequest) {
+  const requestStartedAt = Date.now();
+  const requestDeadline = createAiRequestDeadline(requestStartedAt);
   try {
     const apiKeys = getGroqApiKeys();
 
     const requestBody = await req.json() as Record<string, unknown>;
+    if (req.signal.aborted) return new NextResponse(null, { status: 499 });
     const serializedQuestion = String(requestBody.question ?? '').slice(0, 3000);
     const questionAiInstructions = cleanInstructions(extractAiInstructions(serializedQuestion));
     const includeSecretNotes = aiInstructionsAllowSecretNotes(questionAiInstructions);
@@ -1200,8 +1246,8 @@ export async function POST(req: NextRequest) {
       || (correctionFollowUp && priorUserMessages.some(message => isExerciseCompletionCoverageRequest(message)));
     const visualizationIntent = resolvedAnalysis.visualization;
     const semanticTextAggregateIntent = resolvedAnalysis.semanticTextAggregate;
-    const wholeHistoryIntent = !agentIntent && (resolvedAnalysis.wholeHistory
-      || (/^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion)));
+    const wholeHistoryIntent = resolvedAnalysis.wholeHistory
+      || (!agentIntent && /^(?:and|what about|how about|which|why|second|next)\b/i.test(cleanQuestion) && isWholeHistoryComparisonRequest(priorUserQuestion));
     const historySummaryIntent = isHistorySummaryRequest(analysisQuestion);
     const historyIntent = isHistoryQuestion(analysisQuestion)
       || historySummaryIntent
@@ -1218,7 +1264,17 @@ export async function POST(req: NextRequest) {
       || isWholeHistoryComparisonRequest(instruction)
       || isVisualizationRequest(instruction)
       || isSemanticTextAggregateRequest(instruction));
-    const shouldLoadHistory = (!agentIntent && Boolean(historyWindow)) || historyIntent || historySummaryIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
+    const historyNeeded = (!agentIntent && Boolean(historyWindow)) || historyIntent || historySummaryIntent || patternIntent || wholeHistoryIntent || bulkAgentIntent || instructionHistoryIntent;
+    const requestPlan = buildAiRequestPlan({
+      needsHistory: historyNeeded,
+      hasBoundedWindow: Boolean(historyWindow),
+      wholeHistory: wholeHistoryIntent,
+      semanticAggregate: semanticTextAggregateIntent,
+      visualization: visualizationIntent,
+      actionProposal: agentIntent,
+      patternAnalysis: patternIntent || historySummaryIntent,
+    });
+    const shouldLoadHistory = requestPlan.steps.some(step => step.capability === 'retrieve_history');
     const exerciseLibraryContentIntent = agentIntent && isExerciseLibraryContentRequest(`${history.slice(-4).map(message => message.content).join(' ')} ${conversationAiInstructions.join(' ')} ${cleanQuestion}`);
 
     let dayRecords: DayRecord[] = [];
@@ -1227,6 +1283,7 @@ export async function POST(req: NextRequest) {
     let rerankerModel = '';
     let rerankerProviderKey = '';
     let rerankedCandidates = 0;
+    let precomputedAnalytics: AiAnalyticsResult | null = null;
 
     if (shouldLoadHistory) {
       const defaultStart = shiftDate(appToday, -(MAX_HISTORY_DAYS - 1));
@@ -1234,6 +1291,9 @@ export async function POST(req: NextRequest) {
       const startDate = historyWindow?.startDate ?? (oldestExplicit && oldestExplicit < defaultStart ? oldestExplicit : defaultStart);
       const endDate = historyWindow?.endDate ?? appToday;
       dayRecords = await loadDayRecords(startDate, endDate, exerciseMap, appContext.ptSessions, includeSecretNotes);
+      // Neon does not expose per-query cancellation through this client. Stop the
+      // pipeline immediately after the one bounded read if the browser disconnected.
+      if (req.signal.aborted) return new NextResponse(null, { status: 499 });
       if (semanticTextAggregateIntent) {
         // Evidence-backed semantic aggregation consumes every scoped note source
         // directly; relevance ranking would add an AI call without affecting coverage.
@@ -1254,14 +1314,20 @@ export async function POST(req: NextRequest) {
           limit: 24,
         });
         const reranked = apiKeys.length
-          ? await rerankHistoryDays(apiKeys, candidates, analysisQuestion, conversationAiInstructions, history)
+          ? await rerankHistoryDays(apiKeys, candidates, analysisQuestion, conversationAiInstructions, history, requestDeadline, req.signal)
           : { days: candidates.slice(0, 8), model: '', providerKey: '', candidateCount: 0 };
+        if (req.signal.aborted) return new NextResponse(null, { status: 499 });
         rankedDays = reranked.days;
         rerankerModel = reranked.model;
         rerankerProviderKey = reranked.providerKey;
         rerankedCandidates = reranked.candidateCount;
       }
       analytics = patternIntent || wholeHistoryIntent || visualizationIntent ? buildAnalytics(historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords) : null;
+      if ((visualizationIntent || patternIntent) && !semanticTextAggregateIntent) {
+        const analyticsPlan = inferAiAnalyticsPlan(analysisQuestion);
+        const analyticsRecords = recordsForVisualization(dayRecords, historyWindow, wholeHistoryIntent) as DayRecord[];
+        precomputedAnalytics = analyticsPlan ? executeAiAnalyticsPlan(analyticsPlan, analyticsRecords) : null;
+      }
     }
 
     if (completionCoverageIntent && historyWindow) {
@@ -1368,7 +1434,7 @@ export async function POST(req: NextRequest) {
       'Return a dateLink only when that exact date is materially discussed in the answer or explicitly requested by the user. Otherwise return an empty dateLinks array. Never add merely related or nearby days.',
       'If the answer mentions real calendar dates, keep those dates clickable; never return a date-bearing answer with an empty dateLinks array.',
       'Write every specific calendar date in answer as YYYY-MM-DD. The interface will display it in the user-friendly local format.',
-      'When several days are plausible, explain the distinction briefly and return up to five dateLinks.',
+      'Return a dateLink for every saved date materially discussed in the answer, up to the server-owned answer limit. Do not drop navigation merely because more than five dates are discussed.',
       'For exercise construction, preserve the user-described setup and motion. Produce confirmedExercise only when enough detail exists; otherwise ask one useful clarifying question.',
       'confirmedExercise must be app-ready with name, short cue, sets, cat, imageSearch, confidence, nextStep, and practical tips.',
       'For health questions, be useful and specific but do not diagnose or pretend a pattern proves causation. Mention urgent evaluation only when the described facts actually warrant it.',
@@ -1398,13 +1464,15 @@ export async function POST(req: NextRequest) {
       'If the user asks whether you can see, inspect, analyze, or look at an image/photo they already attached, do not create photo_attach. Answer from supplied photo metadata only; if no image pixels are supplied, say you cannot visually inspect the saved pixels from this chat path yet.',
       'Navigation is a navigate action. It may target date, exercise, health, doctorNotes, doctorNote, settings, exerciseTypes, library, calendar, ptSessions, treatments, progressReport, dataExport, exerciseGuide, manageExercises, masterDatabase, timer, or top.',
       'When visualizationRequested is true, return one or two concise visualizations based only on supplied factual data. Use table for a requested table, line for numeric trends, and bar for counts or comparisons. Never estimate missing values.',
+      'For a visualization calculated from personal structured history, return analyticsPlan calculation instructions instead of inventing chart values. The server validates the plan and calculates every value. Reuse serverAnalytics when it is supplied.',
+      'analyticsPlan may use only the supplied analyticsPlanContract. It declares measures, aggregation, grouping, visual type, and missing-data policy; it never contains rows, labels, series, or calculated values.',
       'A visualization request is incomplete without a non-empty visualization that matches resolvedAnalysisGoal. Never write “the table/chart below” unless the JSON contains that artifact, and never replace a subject-specific aggregation with a generic daily dashboard.',
       'For mention frequency, textual counts, or category breakdowns, use every row of the supplied bounded or whole-history noteCorpus. Count only supported mentions, label the counted unit clearly, and always return the requested table or bar visual.',
       'When the user names source fields, count only those fields. Count textual occurrences rather than days unless the user asks for days. Preserve every explicitly requested category, including zero-count categories. Consolidate genuine aliases using context, but never force an ambiguous mention into a specific category; report ambiguous or unclassified mentions separately.',
       'Visualization shape: {id,type:"table",title,subtitle,columns:[...],rows:[[...]],footnote} or {id,type:"line"|"bar",title,subtitle,labels:[...],series:[{name,values:[number|null],unit}],yLabel,footnote}. Keep at most 31 labels or rows and four series.',
       'Supported write action shapes are: completion_set{date,exerciseId,completed}; exercise_note_change{date,exerciseId,mode,text}; health_change{date,field,mode,value}; metrics_set{date,exerciseId,sets,reps,durationSeconds,weight,weightUnit,scopeMultiplier}; metrics_clear{date,exerciseId}; exercise_add{exercise:{name,cat,cue,sets,tips,optional,programs,imageSearch,mainImageUrl,mainImageUrls,mainVideoUrl},categoryName}; exercise_update{exerciseId,patch}; exercise_move{exerciseId,categoryName}; exercise_remove{exerciseId}; category_upsert{categoryId,name,color}; category_remove{categoryId}; doctor_note_upsert{noteId,mode,patch}; doctor_note_remove{noteId}; pt_session_upsert{date,kind,note}; pt_session_remove{date,kind}; widget_set{key,enabled}; app_title_set{title}; photo_attach{target,date,exerciseId,noteId}; bulk_completion_from_note{exerciseId,phrase,field,startDate,endDate,completed}.',
       'Every action needs a short reason. Keep direct plans to at most twelve actions. Destructive actions are allowed only when explicitly requested because the interface will flag them separately.',
-      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"visualizations":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]},"agentPlan":{"version":1,"summary":"","actions":[{"id":"action-1","type":"","reason":""}]}}.',
+      'Return JSON only with this shape: {"answer":"","options":[],"dateLinks":[{"date":"YYYY-MM-DD","label":"","reason":""}],"analyticsPlan":{"version":1,"title":"","analysis":"aggregate","measures":[{"field":"","aggregation":"","label":""}],"groupBy":"","visual":"","missingData":""},"visualizations":[],"confirmedExercise":{"name":"","cue":"","sets":"","cat":"","imageSearch":"","confidence":"","nextStep":"","tips":[]},"agentPlan":{"version":1,"summary":"","actions":[{"id":"action-1","type":"","reason":""}]}}.',
       'Omit confirmedExercise when it is not relevant. options must contain zero to four short tap-to-send answers written from the user perspective, such as "It happens while walking" or "Mostly afterward".',
       'Never put assistant questions, suggested questions, instructions, or generic prompts in options. If useful answer choices are not clear, return an empty options array.',
     ].join(' ');
@@ -1414,6 +1482,7 @@ export async function POST(req: NextRequest) {
       resolvedAnalysisGoal: analysisQuestion,
       inheritedAnalysisGoal: resolvedAnalysis.inheritedGoal,
       requestedCategoryCount: resolvedAnalysis.requestedCategoryCount,
+      requestPlan,
       userAiInstructions: questionAiInstructions,
       conversationAiInstructions,
       conversation: history,
@@ -1423,6 +1492,12 @@ export async function POST(req: NextRequest) {
       boundedHistoryComparison: shouldLoadHistory && historyWindow ? buildBoundedHistoryComparison(dayRecords, historyWindow) : null,
       wholeHistoryComparison: wholeHistoryIntent && !semanticTextAggregateIntent ? buildWholeHistoryComparison(dayRecords) : null,
       historyAnalytics: analytics,
+      serverAnalytics: precomputedAnalytics ? {
+        plan: precomputedAnalytics.plan,
+        coverage: precomputedAnalytics.coverage,
+        calculatedVisualization: visualizationForModel(precomputedAnalytics.visualization),
+      } : null,
+      analyticsPlanContract: AI_ANALYTICS_PLAN_CONTRACT,
       visualizationRequested: visualizationIntent,
       relevantExercisesInApp: matchedExerciseContext,
       externalExerciseMatches: exerciseQuestion(cleanQuestion) ? sourceMatches : [],
@@ -1475,70 +1550,120 @@ export async function POST(req: NextRequest) {
     }
 
     if (!hasAiApiKeyForTask(groqTask, apiKeys)) {
-      if (deterministicAgentPlan) return NextResponse.json({
-        reply: {
-          answer: deterministicAgentPlan.actions.some(isAgentWriteAction)
+      if (deterministicAgentPlan) {
+        const answer = deterministicAgentPlan.actions.some(isAgentWriteAction)
             ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
-            : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`,
-          options: [],
-          dateLinks: [],
-          visualizations: [],
-          agentPlan: deterministicAgentPlan,
-          agentPlanningStatus: 'planned',
-        },
-        degraded: true,
-        model: 'deterministic',
-        attemptedModels: [],
-        usedPersonalHistory: false,
-        searchedDays: 0,
-        comparedDays: 0,
-        rerankerModel: '',
-        rerankerProviderKey: '',
-        rerankedCandidates: 0,
-      });
+            : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`;
+        return NextResponse.json({
+          reply: {
+            answer,
+            options: [],
+            dateLinks: fallbackDateLinksFromAnswer(answer, allowedDates, appToday),
+            visualizations: precomputedAnalytics ? [precomputedAnalytics.visualization] : [],
+            agentPlan: deterministicAgentPlan,
+            agentPlanningStatus: 'planned',
+          },
+          degraded: true,
+          model: 'deterministic',
+          attemptedModels: [],
+          usedPersonalHistory: shouldLoadHistory,
+          searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
+          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
+          rerankerModel: '',
+          rerankerProviderKey: '',
+          rerankedCandidates: 0,
+        });
+      }
+      if (precomputedAnalytics && visualizationIntent) {
+        return NextResponse.json({
+          reply: {
+            answer: 'I calculated the requested visualization directly from the saved structured records. The configured language-model providers were unavailable, so I am showing the verified dataset without adding an AI interpretation.',
+            options: [],
+            dateLinks: [],
+            dateSummaries: [],
+            visualizations: [precomputedAnalytics.visualization],
+          },
+          degraded: true,
+          model: 'deterministic',
+          attemptedModels: [],
+          usedPersonalHistory: true,
+          searchedDays: historyWindow?.dayCount ?? dayRecords.length,
+          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
+          rerankerModel,
+          rerankerProviderKey,
+          rerankedCandidates,
+          debug: { requestPlan, analyticsEvidence: precomputedAnalytics.evidenceLedger },
+        });
+      }
       return NextResponse.json({ error: 'Missing AI provider keys' }, { status: 500 });
     }
 
-    if (!agentIntent && visualizationIntent && semanticTextAggregateIntent) {
+    let verifiedSemanticVisualizations: AiVisualization[] = [];
+    let semanticEvidence: unknown = null;
+    let semanticLimitation = '';
+    if (visualizationIntent && semanticTextAggregateIntent) {
       const semanticRecords = historyWindow ? recordsForWindow(dayRecords, historyWindow) as DayRecord[] : dayRecords;
       const scopeMode = historyWindow ? 'window' as const : wholeHistoryIntent ? 'whole' as const : 'ranked' as const;
       const scopeStart = historyWindow?.startDate ?? semanticRecords[0]?.date;
       const scopeEnd = historyWindow?.endDate ?? semanticRecords.at(-1)?.date;
       try {
-        const semantic = await buildSemanticAggregateArtifact(apiKeys, analysisQuestion, semanticRecords, resolvedAnalysis.requestedCategoryCount, req.signal);
+        const semantic = await buildSemanticAggregateArtifact(apiKeys, analysisQuestion, semanticRecords, resolvedAnalysis.requestedCategoryCount, req.signal, requestDeadline);
         const answer = [
           'I built a source-verified count from the requested saved-note scope. Tap any count to inspect the exact dates, note fields, excerpts, and wording included.',
           includeSecretNotes ? 'Secret notes were included because you allowed them in /ai.' : '',
         ].filter(Boolean).join('\n\n');
-        return NextResponse.json({
-          reply: { answer, options: [], dateLinks: [], dateSummaries: [], visualizations: semantic.visualizations },
-          model: semantic.result.model,
-          providerKey: semantic.result.providerKey,
-          attemptedModels: Array.from(new Set([...semantic.result.attemptedModels, ...semantic.attemptedModels])),
-          usedPersonalHistory: true,
-          searchedDays: historyWindow?.dayCount ?? semanticRecords.length,
-          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? semanticRecords.length : 0),
-          rerankerModel,
-          rerankerProviderKey,
-          rerankedCandidates,
-          debug: {
-            requestId: cleanText(req.headers.get('x-vercel-id'), 120) || globalThis.crypto.randomUUID(),
-            build: cleanText(process.env.VERCEL_GIT_COMMIT_SHA, 80) || 'local',
-            normalizedQuestion: cleanQuestion,
-            resolvedAnalysis: {
-              effectiveQuestion: analysisQuestion,
-              inheritedGoal: resolvedAnalysis.inheritedGoal,
-              anchorQuestion: resolvedAnalysis.anchorQuestion,
-              requestedCategoryCount: resolvedAnalysis.requestedCategoryCount,
+        if (agentIntent) {
+          verifiedSemanticVisualizations = semantic.visualizations;
+          semanticEvidence = semanticExecutionEvidence(semantic.visualizations);
+          Object.assign(modelPromptContext, {
+            serverSemanticEvidence: {
+              instruction: 'Use this source-verified artifact for the analytical part of the compound request. Do not recalculate its counts.',
+              visualizations: semantic.visualizations,
             },
-            intents: { agent: false, visualization: true, semanticTextAggregate: true, wholeHistory: wholeHistoryIntent, boundedWindow: Boolean(historyWindow), pattern: patternIntent },
-            historyScope: { mode: scopeMode, startDate: scopeStart, endDate: scopeEnd, loadedDays: semanticRecords.length },
-            secretNotes: { included: includeSecretNotes, reason: includeSecretNotes ? '/ai permission on latest user message' : 'default redaction' },
-            visualization: { source: 'semantic-repair', firstPassCount: 0, deterministicCount: 0, repairedCount: semantic.visualizations.length, finalCount: semantic.visualizations.length, repairModel: semantic.result.model, repairProviderKey: semantic.result.providerKey },
+          });
+        } else {
+          const execution = buildAiExecutionRecord(requestPlan, {
+            scope: { startDate: scopeStart, endDate: scopeEnd, loadedDays: semanticRecords.length },
+            completedCapabilities: ['resolve_scope', 'retrieve_history', 'extract_semantic_evidence', 'compose_response', 'render_visualization', 'link_evidence_dates'],
+            completedOutputs: { answer: true, evidence: true, visualization: semantic.visualizations.length > 0, actionProposal: false, dateNavigation: true },
+            evidence: semanticExecutionEvidence(semantic.visualizations),
+            assumptions: ['Counts use verified exact source wording after model-assisted category interpretation.'],
+            elapsedMs: Date.now() - requestStartedAt,
+            remainingBudgetMs: remainingAiRequestMs(requestDeadline),
+          });
+          return NextResponse.json({
+            reply: { answer, options: [], dateLinks: [], dateSummaries: [], visualizations: semantic.visualizations },
+            model: semantic.result.model,
+            providerKey: semantic.result.providerKey,
             attemptedModels: Array.from(new Set([...semantic.result.attemptedModels, ...semantic.attemptedModels])),
-          },
-        });
+            usedPersonalHistory: true,
+            searchedDays: historyWindow?.dayCount ?? semanticRecords.length,
+            comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? semanticRecords.length : 0),
+            rerankerModel,
+            rerankerProviderKey,
+            rerankedCandidates,
+            debug: {
+              requestId: cleanText(req.headers.get('x-vercel-id'), 120) || globalThis.crypto.randomUUID(),
+              build: cleanText(process.env.VERCEL_GIT_COMMIT_SHA, 80) || 'local',
+              normalizedQuestion: cleanQuestion,
+              resolvedAnalysis: {
+                effectiveQuestion: analysisQuestion,
+                inheritedGoal: resolvedAnalysis.inheritedGoal,
+                anchorQuestion: resolvedAnalysis.anchorQuestion,
+                requestedCategoryCount: resolvedAnalysis.requestedCategoryCount,
+              },
+              intents: { agent: false, visualization: true, semanticTextAggregate: true, wholeHistory: wholeHistoryIntent, boundedWindow: Boolean(historyWindow), pattern: patternIntent },
+              historyScope: { mode: scopeMode, startDate: scopeStart, endDate: scopeEnd, loadedDays: semanticRecords.length },
+              secretNotes: { included: includeSecretNotes, reason: includeSecretNotes ? '/ai permission on latest user message' : 'default redaction' },
+              visualization: { source: 'semantic-repair', firstPassCount: 0, deterministicCount: 0, repairedCount: semantic.visualizations.length, finalCount: semantic.visualizations.length, repairModel: semantic.result.model, repairProviderKey: semantic.result.providerKey },
+              requestPlan,
+              execution,
+              attemptedModels: Array.from(new Set([...semantic.result.attemptedModels, ...semantic.attemptedModels])),
+            },
+          });
+        }
       } catch (error) {
+        if (req.signal.aborted) return new NextResponse(null, { status: 499 });
         const attemptedModels = error instanceof GroqRouteError ? error.attempts.map(attempt => attempt.model) : [];
         const providerAttempts = error instanceof GroqRouteError ? error.attempts.map(attempt => ({
           model: attempt.model,
@@ -1547,7 +1672,10 @@ export async function POST(req: NextRequest) {
           statusText: attempt.statusText,
           detail: cleanText(attempt.detail, 240),
         })) : [];
-        return NextResponse.json({
+        if (agentIntent) {
+          semanticLimitation = 'I could not complete the source-verified semantic analysis on this attempt.';
+          Object.assign(modelPromptContext, { serverSemanticEvidence: null, semanticLimitation });
+        } else return NextResponse.json({
           reply: {
             answer: 'I could not produce a source-verified count artifact on this attempt. I did not substitute an unrelated chart or present unverified counts as fact.',
             options: [], dateLinks: [], dateSummaries: [], visualizations: [],
@@ -1589,26 +1717,44 @@ export async function POST(req: NextRequest) {
         response_format: { type: 'json_object' },
       }, {
         requireAgentDraft: agentIntent,
-        requireVisualizationDraft: visualizationIntent && !semanticTextAggregateIntent,
+        acceptJson: visualizationIntent && !semanticTextAggregateIntent && !precomputedAnalytics && !aiAnalyticsNeedsDerivedEvents(analysisQuestion)
+          ? candidate => Boolean(normalizeAiAnalyticsPlan(candidate) || normalizeAiVisualizations(candidate.visualizations).length)
+          : undefined,
+        ...aiProviderBudget(requestDeadline, {
+          maxTotalMs: 22_000,
+          attemptTimeoutMs: 9_000,
+          maxAttempts: 4,
+          reserveMs: 3_000,
+        }),
+        signal: req.signal,
       });
     } catch (error) {
+      if (req.signal.aborted) return new NextResponse(null, { status: 499 });
       const fallbackLinks = strongFallbackDays(rankedDays, currentQuestionDates).slice(0, 4).map(day => ({
         date: day.date,
         label: new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
         reason: reasonForDay(day, analysisQuestion),
       }));
       const fallbackVisualizations = visualizationIntent
-        ? buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
+        ? verifiedSemanticVisualizations.length
+          ? verifiedSemanticVisualizations
+          : precomputedAnalytics
+            ? [precomputedAnalytics.visualization]
+            : buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
         : [];
       if (error instanceof GroqRouteError) {
         if (deterministicAgentPlan) {
+          const review = deterministicAgentPlan.actions.some(isAgentWriteAction)
+            ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+            : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`;
+          const answer = verifiedSemanticVisualizations.length
+            ? `I completed the source-verified analysis shown below.\n\n${review}`
+            : review;
           return NextResponse.json({
             reply: {
-              answer: deterministicAgentPlan.actions.some(isAgentWriteAction)
-                ? `I prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
-                : `I prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`,
+              answer,
               options: [],
-              dateLinks: [],
+              dateLinks: fallbackDateLinksFromAnswer(answer, allowedDates, appToday),
               visualizations: fallbackVisualizations,
               agentPlan: deterministicAgentPlan,
               agentPlanningStatus: 'planned',
@@ -1671,6 +1817,39 @@ export async function POST(req: NextRequest) {
           rerankerModel,
           rerankerProviderKey,
           rerankedCandidates,
+        });
+      }
+      if (error instanceof AiRequestBudgetError) {
+        const factualAnswer = verifiedSemanticVisualizations.length
+          ? 'I completed the source-verified analysis shown below.'
+          : historySummaryIntent ? savedDataFallbackAnswer(dayRecords, historyWindow ?? undefined) : '';
+        const planAnswer = deterministicAgentPlan
+          ? deterministicAgentPlan.actions.some(isAgentWriteAction)
+            ? `I also prepared this for review: ${deterministicAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+            : `I also prepared this navigation for review: ${deterministicAgentPlan.summary}. Use the arrow in the action card below to open it.`
+          : '';
+        const answer = [factualAnswer, planAnswer].filter(Boolean).join('\n\n')
+          || 'This request reached its processing deadline before the explanation was complete. I stopped the remaining provider attempts instead of continuing after the app had given up.';
+        return NextResponse.json({
+          reply: {
+            answer,
+            options: [],
+            dateLinks: fallbackDateLinksFromAnswer(answer, allowedDates, appToday),
+            dateSummaries: dateSummariesForAnswer(answer, dayRecords, appToday),
+            visualizations: fallbackVisualizations,
+            agentPlan: deterministicAgentPlan,
+            agentPlanningStatus: agentIntent ? deterministicAgentPlan ? 'planned' : 'missing' : undefined,
+          },
+          degraded: true,
+          model: '',
+          attemptedModels: [],
+          usedPersonalHistory: shouldLoadHistory,
+          searchedDays: shouldLoadHistory ? historyWindow?.dayCount ?? dayRecords.length : 0,
+          comparedDays: historyWindow?.dayCount ?? (wholeHistoryIntent ? dayRecords.length : 0),
+          rerankerModel,
+          rerankerProviderKey,
+          rerankedCandidates,
+          debug: { requestPlan, elapsedMs: Date.now() - requestStartedAt, remainingBudgetMs: remainingAiRequestMs(requestDeadline) },
         });
       }
       throw error;
@@ -1744,7 +1923,16 @@ export async function POST(req: NextRequest) {
           temperature: 0,
           max_completion_tokens: 1_200,
           response_format: { type: 'json_object' },
-        }, { requireAgentDraft: true });
+        }, {
+          requireAgentDraft: true,
+          ...aiProviderBudget(requestDeadline, {
+            maxTotalMs: 7_000,
+            attemptTimeoutMs: 4_000,
+            maxAttempts: 2,
+            reserveMs: 2_000,
+          }),
+          signal: req.signal,
+        });
         const repairedRaw = jsonFromText(repair.data?.choices?.[0]?.message?.content ?? '');
         normalizedAgentPlan = normalizeModelAgentPlan(repairedRaw, modelPlanContext);
         if (normalizedAgentPlan && exerciseLibraryContentIntent) {
@@ -1767,10 +1955,15 @@ export async function POST(req: NextRequest) {
     const baseAnswer = repairClarification || cleanMultiline(raw.answer, 4_000) || (rankedDays.length
       ? 'These are the closest matching days I found in your saved history.'
       : 'I need one more detail to answer that accurately.');
-    let answer = normalizedAgentPlan
+    const reviewAnswer = normalizedAgentPlan
       ? normalizedAgentPlan.actions.some(isAgentWriteAction)
-        ? `I prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
-        : `I prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
+        ? `I also prepared this for review: ${normalizedAgentPlan.summary}. Nothing has changed yet. Review the actions below and press Apply when they look right.`
+        : `I also prepared this navigation for review: ${normalizedAgentPlan.summary}. Use the arrow in the action card below to open it.`
+      : '';
+    let answer = normalizedAgentPlan
+      ? requestPlan.compound && baseAnswer
+        ? `${baseAnswer}\n\n${reviewAnswer}`
+        : reviewAnswer.replace(/^I also /, 'I ')
       : effectiveAgentIntent
         ? repairClarification || (/\?\s*$/.test(baseAnswer) ? baseAnswer : 'I need one specific missing detail before I can prepare the review card.')
         : baseAnswer;
@@ -1786,23 +1979,39 @@ export async function POST(req: NextRequest) {
     if (includeSecretNotes && !effectiveAgentIntent && !/\bsecret notes? (?:were|included|used)|\bsecret context\b/i.test(answer)) {
       answer = `${answer}\n\nSecret notes were included for this response because you allowed it in /ai.`;
     }
+    if (semanticLimitation && !answer.includes(semanticLimitation)) answer = `${answer}\n\n${semanticLimitation}`;
     const supportedDates = supportedDateLinkDates(answer, currentQuestionDates);
-    const cleanedDateLinks = effectiveAgentIntent ? [] : cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
-    const fallbackDateLinks = effectiveAgentIntent ? [] : fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
+    const cleanedDateLinks = cleanDateLinks(raw.dateLinks, allowedDates, supportedDates, appToday);
+    const fallbackDateLinks = fallbackDateLinksFromAnswer(answer, allowedDates, appToday);
     // Invariant: if the answer names real dates, those dates stay clickable.
     // Preserve navigation even when the model fails and we synthesize the answer.
     const dateLinks = mergeDateLinks(cleanedDateLinks, fallbackDateLinks);
     const dateSummaries = dateSummariesForAnswer(answer, dayRecords, appToday);
+    const modelAnalyticsPlan = visualizationIntent && !semanticTextAggregateIntent && !aiAnalyticsNeedsDerivedEvents(analysisQuestion)
+      ? normalizeAiAnalyticsPlan(raw)
+      : null;
+    const analyticsRecords = recordsForVisualization(dayRecords, historyWindow, wholeHistoryIntent) as DayRecord[];
+    const serverAnalytics = precomputedAnalytics
+      ?? (modelAnalyticsPlan ? executeAiAnalyticsPlan(modelAnalyticsPlan, analyticsRecords) : null);
     const deterministicVisualizations = visualizationIntent
-      ? buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
+      ? verifiedSemanticVisualizations.length
+        ? verifiedSemanticVisualizations
+        : serverAnalytics
+          ? [serverAnalytics.visualization]
+          : buildHistoryVisualizations(analysisQuestion, dayRecords, historyWindow, wholeHistoryIntent, trackedExercises)
       : [];
-    const modelVisualizations = visualizationIntent ? normalizeAiVisualizations(raw.visualizations) : [];
+    // Personal chart values must come from evidence verification or deterministic
+    // server calculations. Model-rendered values remain available for public/non-history diagrams.
+    const modelVisualizations = visualizationIntent && !shouldLoadHistory ? normalizeAiVisualizations(raw.visualizations) : [];
     const firstPassVisualizationCount = modelVisualizations.length;
     const visualizations = deterministicVisualizations.length
       ? deterministicVisualizations
       : modelVisualizations;
+    if (requestPlan.requestedOutputs.visualization && !visualizations.length && !/\b(?:could not|couldn't|unable to)\b.{0,80}\b(?:chart|table|visual)/i.test(answer)) {
+      answer = `${answer}\n\nI could not produce a validated visualization for that part of the request. I did not substitute an unrelated chart or unverified values.`;
+    }
     const visualizationSource = deterministicVisualizations.length
-      ? 'deterministic' as const
+      ? verifiedSemanticVisualizations.length ? 'semantic-verified' as const : 'deterministic' as const
       : modelVisualizations.length ? 'model' as const : 'none' as const;
     const historyScopeMode = !shouldLoadHistory
       ? 'none' as const
@@ -1810,6 +2019,32 @@ export async function POST(req: NextRequest) {
         : wholeHistoryIntent ? 'whole' as const : 'ranked' as const;
     const loadedStartDate = historyWindow?.startDate ?? dayRecords[0]?.date;
     const loadedEndDate = historyWindow?.endDate ?? dayRecords.at(-1)?.date;
+    const executionRecord = buildAiExecutionRecord(requestPlan, {
+      scope: { startDate: loadedStartDate, endDate: loadedEndDate, loadedDays: dayRecords.length },
+      completedCapabilities: requestPlan.steps.flatMap(step => {
+        if (step.capability === 'resolve_scope' || step.capability === 'compose_response') return [step.capability];
+        if (step.capability === 'retrieve_history' && shouldLoadHistory) return [step.capability];
+        if (step.capability === 'rank_history' && rankedDays.length) return [step.capability];
+        if (step.capability === 'calculate_structured_analytics' && serverAnalytics) return [step.capability];
+        if (step.capability === 'extract_semantic_evidence' && verifiedSemanticVisualizations.length) return [step.capability];
+        if (step.capability === 'render_visualization' && visualizations.length) return [step.capability];
+        if (step.capability === 'link_evidence_dates') return [step.capability];
+        if (step.capability === 'propose_actions' && normalizedAgentPlan) return [step.capability];
+        return [];
+      }),
+      completedOutputs: {
+        answer: Boolean(answer.trim()),
+        evidence: !requestPlan.requestedOutputs.evidence || shouldLoadHistory,
+        visualization: !requestPlan.requestedOutputs.visualization || visualizations.length > 0,
+        actionProposal: !requestPlan.requestedOutputs.actionProposal || Boolean(normalizedAgentPlan),
+        dateNavigation: !requestPlan.requestedOutputs.dateNavigation || Array.from(answer.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)).every(match => dateLinks.some(link => link.date === match[0])),
+      },
+      assumptions: serverAnalytics?.evidenceLedger.assumptions
+        ?? (verifiedSemanticVisualizations.length ? ['Counts use verified exact source wording after model-assisted category interpretation.'] : []),
+      evidence: serverAnalytics?.evidenceLedger ?? semanticEvidence,
+      elapsedMs: Date.now() - requestStartedAt,
+      remainingBudgetMs: remainingAiRequestMs(requestDeadline),
+    });
 
     return NextResponse.json({
       reply: {
@@ -1866,10 +2101,13 @@ export async function POST(req: NextRequest) {
           repairedCount: 0,
           finalCount: visualizations.length,
         },
+        requestPlan,
+        execution: executionRecord,
         attemptedModels: result.attemptedModels,
       },
     });
   } catch (err) {
+    if (req.signal.aborted) return new NextResponse(null, { status: 499 });
     console.error('[ai-exercise-question]', err);
     const payload = groqErrorPayload(err);
     return NextResponse.json({ ...payload, model: payload.model ?? DEFAULT_MODEL }, { status: payload.error === 'AI request failed' ? 502 : 500 });

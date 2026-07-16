@@ -22,6 +22,20 @@ Ask AI is intended to be more than a generic chat box. It should:
 - Make an authorized group of changes behave like one app action that the existing Undo button can reverse.
 - Scale to additional slash commands and additional agent actions without replacing the editor or execution architecture.
 
+## Typed execution platform added incrementally
+
+The Ask route now builds a typed dependency-aware `RequestPlan` before it executes the existing safety architecture. This is an orchestration layer, not a replacement for history grounding, semantic evidence verification, strict action validation, Review / Apply / Undo, or the date-link invariant.
+
+One plan may contain several simultaneous outputs: an answer, evidence, a deterministic visualization, clickable date navigation, and an action proposal. The execution record reports the exact history strategy, capability steps, requested and completed outputs, assumptions, evidence summary, elapsed time, and remaining request budget. Missing subgoals remain explicitly incomplete instead of being hidden behind valid JSON or replaced by an unrelated chart.
+
+Supported structured analytics use a validated calculation plan. Models may request an allow-listed measure, aggregation, grouping, missing-data policy, and visual type; server code computes the values and provenance. Semantic free-text counts still use the separate evidence-backed pipeline. Anatomy, laterality, trigger, resolution, and exercise-specific adherence questions are not silently mapped to generic pain or activity charts while the derived health-event layer remains future work.
+
+`lib/domainCommands.ts` establishes stable command identities above the current persistence schema and shares calendar-date validation across ordinary and AI write paths. This is the first convergence seam, not a claim that all CRUD SQL already runs through one handler. The next step is to move both UI and AI callers behind shared command handlers with unified audit events.
+
+The browser timeout and server budget now come from one contract. The server stops provider work before the browser deadline, and the browser `AbortSignal` propagates through external search, reranking, semantic extraction, main provider calls, and repair calls. Neon performs one bounded history read; because this client does not expose per-query abort, the route checks cancellation immediately after that query and does not start downstream work.
+
+**Permanent invariant:** every real saved `YYYY-MM-DD` named in any answer must remain clickable, including compound agent answers and degraded fallbacks. Never remove date navigation while refactoring orchestration.
+
 The interaction model is deliberately split into four stages:
 
 1. Deterministic retrieval and validation.

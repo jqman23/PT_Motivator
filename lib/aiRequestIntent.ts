@@ -1,3 +1,14 @@
+function hasPersistentCommandAlongsideVisual(value: string) {
+  const mutation = /\b(?:add|append|apply|attach|book|cancel|change|check|clear|complete|create|customize|delete|disable|draft|edit|enable|get rid of|hide|log|mark|move|open|pin|record|remove|rename|replace|reorder|save|schedule|set|track|turn on|turn off|uncheck|update|write)\b/;
+  const target = /\b(?:app|application|screen|page|setting|widget|title|note|log|record|entry|metric|field|value|exercise|workout|session|appointment|photo|picture|image|category|timer|calendar|summary|pain|energy|mood|sleep|it|this|that|those|them)\b/;
+  return value
+    .split(/\s*(?:[,;]|\b(?:and then|and|then|also|plus)\b)\s*/)
+    .some(clause => clause
+      && !isVisualizationRequest(clause)
+      && mutation.test(clause)
+      && target.test(clause));
+}
+
 export function isAgentRequest(value: string) {
   const text = value.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
   if (!text) return false;
@@ -6,7 +17,7 @@ export function isAgentRequest(value: string) {
 
   // A generated visual is a chat response, not a persistent app mutation. Verbs
   // such as “make” and “create” must not turn charts or tables into Apply cards.
-  if (isVisualizationRequest(text)) return false;
+  if (isVisualizationRequest(text) && !hasPersistentCommandAlongsideVisual(text)) return false;
 
   if (/\b(?:do not|don't|dont|never|not asking (?:you )?to|i am not asking (?:you )?to|i'm not asking (?:you )?to)\b.{0,32}\b(?:add|apply|change|delete|edit|log|record|remove|save|set|update)\b/.test(text)) {
     return false;

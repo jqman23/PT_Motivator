@@ -92,3 +92,16 @@ test('corrective advice follow-ups retain the original conversational goal', () 
   assert.match(result.effectiveQuestion, /treatment do you recommend/i);
   assert.doesNotMatch(result.anchorQuestion ?? '', /doctor-note id/i);
 });
+
+test('verification and reasoning-method follow-ups retain the original analytical goal', () => {
+  const history = [
+    { role: 'user' as const, content: 'Compare my left and right heel symptoms over the whole history and chart them.' },
+    { role: 'assistant' as const, content: 'Here is the comparison.' },
+  ];
+  const verification = resolveAnalysisRequest('triple check', [], history);
+  const reasoning = resolveAnalysisRequest('Use AI to interpret it', [], history);
+  assert.equal(verification.inheritedGoal, true);
+  assert.equal(reasoning.inheritedGoal, true);
+  assert.match(verification.effectiveQuestion, /left and right heel/i);
+  assert.match(reasoning.effectiveQuestion, /left and right heel/i);
+});

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 import { AgentAction, redactAgentActions } from '@/lib/aiAgent';
 import { AgentValidationError, applyAgentConfigActions, validateAndExpandAgentActions } from '@/lib/aiAgentServer';
+import { domainCommandsForAgentActions } from '@/lib/domainCommands';
 
 const sql = neon(process.env.DATABASE_URL!);
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{12,100}$/;
@@ -352,6 +353,7 @@ export async function POST(req: NextRequest) {
     await sql.transaction(transaction, { isolationLevel: 'Serializable' });
 
     const affectedDates = Array.from(new Set(writeActions.flatMap(action => 'date' in action && action.date ? [action.date] : []))).sort();
+    const domainCommands = domainCommandsForAgentActions(writeActions);
     return NextResponse.json({
       ok: true,
       runId,
@@ -359,6 +361,7 @@ export async function POST(req: NextRequest) {
       affectedDates,
       changedConfig: Object.fromEntries(configPayload.map(item => [item.key, item.value])),
       actionCount: writeActions.length,
+      domainCommands,
     });
   } catch (error) {
     console.error('[ai-agent POST]', error);

@@ -68,6 +68,8 @@ function isDependentFollowUp(value: string) {
   const text = clean(value).toLowerCase();
   if (!text) return false;
   if (/^(?:look at|use|check|search|analy[sz]e)?\s*(?:the\s+)?(?:whole|full|entire|complete|all)\s+(?:range|history|records?|data|timeline)[.! ]*$/.test(text)) return true;
+  if (/^(?:(?:double|triple)[ -]?)?(?:check|verify|validate|recheck|recount|recalculate)(?:\s+(?:it|that|this|again|carefully|accurately))?[.! ]*$/.test(text)) return true;
+  if (/^(?:use|apply)\s+(?:ai|the ai|your (?:reasoning|judgment|brain)|semantic (?:reasoning|interpretation))(?:\s+to\s+(?:interpret|analy[sz]e|check|verify)(?:\s+(?:it|that|this))?)?[.! ]*$/.test(text)) return true;
   if (isHistoryCorrectionFollowUp(text) || isHistoryScopeFollowUp(text) || isArtifactOnlyRequest(text)) return true;
   if (/^(?:still|again|no|wrong|that(?:'s| is)|this(?: is)?|those|it|them|what are you|you (?:didn'?t|did not|haven't|have not)|i asked|i(?:'m| am) asking|look harder|try again|do what i asked|answer (?:me|my question)|just answer)\b/.test(text)) return true;
   return asksAboutAssistantBehavior(text)

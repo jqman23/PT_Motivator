@@ -5,6 +5,10 @@ export type AiAnswerDateSegment = {
 
 export const AI_COACH_ACTIVE_KEY = 'pt-ai-coach-active-v1';
 export const AI_COACH_SESSION_KEY = 'pt-ai-coach-session-v1';
+// Code-memory invariant: every saved date named in an answer must remain navigable.
+// The answer itself is bounded, so this protects normal multi-day summaries without
+// creating an unbounded response or an arbitrarily short five-date cutoff.
+export const AI_ANSWER_DATE_LIMIT = 31;
 
 export function isIsoCalendarDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;

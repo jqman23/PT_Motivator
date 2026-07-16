@@ -1,8 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 import { NextRequest, NextResponse } from 'next/server';
+import { isDomainDate } from '@/lib/domainCommands';
 
 const sql = neon(process.env.DATABASE_URL!);
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type MetricInput = {
   date?: unknown;
@@ -29,7 +29,7 @@ type CleanMetric = {
 };
 
 function validDate(value: unknown): value is string {
-  return typeof value === 'string' && DATE_PATTERN.test(value);
+  return isDomainDate(value);
 }
 
 function validExerciseId(value: unknown): value is string {
@@ -202,7 +202,7 @@ export async function POST(req: NextRequest) {
           error: 'Today already has a different metric for one of these exercises. Edit it with double tap before retrying the workout save.',
         }, { status: 409 });
       }
-      return NextResponse.json({ ok: true, alreadySaved: Number(result?.operation_count ?? 0) === 0, metrics: result?.metrics ?? [] });
+      return NextResponse.json({ ok: true, alreadySaved: Number(result?.operation_count ?? 0) === 0, metrics: result?.metrics ?? [], domainCommand: 'set_exercise_metrics' });
     } catch (error) {
       console.error('Exercise metrics batch POST failed', error);
       return NextResponse.json({ error: 'Could not save workout metrics.' }, { status: 500 });
@@ -264,7 +264,7 @@ export async function POST(req: NextRequest) {
         error: 'Today already has a different metric for this exercise. Edit it with double tap before adding this timer result.',
       }, { status: 409 });
     }
-    return NextResponse.json({ ok: true, metric: rows[0] });
+    return NextResponse.json({ ok: true, metric: rows[0], domainCommand: 'set_exercise_metrics' });
   } catch (error) {
     console.error('Exercise metrics POST failed', error);
     return NextResponse.json({ error: 'Could not save exercise metrics.' }, { status: 500 });
@@ -285,7 +285,7 @@ export async function DELETE(req: NextRequest) {
       DELETE FROM exercise_metrics
       WHERE date = ${date}::date AND exercise_id = ${exerciseId}
     `;
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, domainCommand: 'set_exercise_metrics' });
   } catch (error) {
     console.error('Exercise metrics DELETE failed', error);
     return NextResponse.json({ error: 'Could not clear exercise metrics.' }, { status: 500 });
